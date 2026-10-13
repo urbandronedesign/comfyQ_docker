@@ -31,10 +31,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # lsof: ComfyQ's "Restart & take over" finds the process on the ComfyUI port
-# with it on Linux, and silently kills nothing without it.
+# with it on Linux, and silently kills nothing without it. procps: pkill/pgrep,
+# which entrypoint.sh uses to stop ComfyUI whenever ComfyQ restarts.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3.12 python3.12-venv python3.12-dev build-essential \
-        git curl ca-certificates ffmpeg lsof rsync \
+        git curl ca-certificates ffmpeg lsof procps rsync \
         libgl1 libglib2.0-0 libsm6 libxext6 \
     && curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \

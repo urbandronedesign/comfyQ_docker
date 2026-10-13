@@ -76,6 +76,23 @@ cm.update(c => {
 console.log("[entrypoint] config.json points at", comfy);
 ' "$COMFY" "$PY" "$DATA"
 
+# ComfyUI's stdout/stderr are pipes into the ComfyQ process that spawned it.
+# When ComfyQ exits, ComfyUI survives with both ends gone, and the next
+# ComfyQ adopts it as already running — then the first line it prints during a
+# job raises "[Errno 32] Broken pipe" and every job fails in under a second.
+# So ComfyUI never outlives the ComfyQ that started it: stop every instance
+# (each lane runs its own) before the next ComfyQ starts a fresh one.
+stop_comfyui() {
+    pkill -TERM -f "$COMFY/main.py" 2>/dev/null || return 0
+    for _ in $(seq 1 30); do
+        pgrep -f "$COMFY/main.py" >/dev/null || return 0
+        sleep 1
+    done
+    echo "[entrypoint] ComfyUI did not stop within 30 s — killing it"
+    pkill -KILL -f "$COMFY/main.py" 2>/dev/null || true
+    sleep 1
+}
+
 # ComfyQ restarts itself by exiting (switching mode, activating a workflow,
 # the panel's Restart button). On the rigs nodemon brings it back; here this
 # loop does. A crash also comes back, after a pause so a broken config cannot
@@ -85,6 +102,7 @@ while true; do
     node server/index.js
     code=$?
     set -e
+    stop_comfyui
     if [[ $code -eq 0 ]]; then
         echo "[entrypoint] ComfyQ exited for a restart"
         sleep 1
