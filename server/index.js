@@ -201,6 +201,22 @@ async function main() {
     app.use(express.json({ limit: '20mb' }));
     const server = http.createServer(app);
 
+    // Serve the built client when there is one (the Docker image; `npm run dev`
+    // has no client/dist and keeps using Vite on :5173). Only the SPA's own
+    // page paths fall back to index.html — never a prefix — because `/admin/*`
+    // and every other API path belong to Express, and a download link is a
+    // browser navigation too (Accept: text/html), so content negotiation
+    // cannot tell them apart. Mirrors the bypass in client/vite.config.js.
+    const clientDist = path.resolve(__dirname, '../client/dist');
+    const clientIndex = path.join(clientDist, 'index.html');
+    const servesClient = fs.existsSync(clientIndex);
+    if (servesClient) {
+        const SPA_PAGES = new Set(['/admin', '/admin/', '/user', '/user/', '/user/dashboard']);
+        app.use(express.static(clientDist, { index: 'index.html' }));
+        app.get([...SPA_PAGES], (req, res) => res.sendFile(clientIndex));
+        console.log(`[ComfyQ] serving the built client from ${clientDist}`);
+    }
+
     const gate = adminGate(configManager);
     // Optional student access password ("who may use this machine at all").
     // No-op unless config.auth.accessPasswordHash is set — see auth/authGate.js.
@@ -330,7 +346,7 @@ async function main() {
         const port = config.server.port;
         const host = config.server.host;
         server.listen(port, host, () => {
-            console.log(`[ComfyQ] admin mode — API on http://${host}:${port}  •  open the UI at http://localhost:5173`);
+            console.log(`[ComfyQ] admin mode — API on http://${host}:${port}  •  open the UI at http://localhost:${servesClient ? port : 5173}`);
             logLanUrls(port);
             console.log('[ComfyQ] open the admin UI to configure ComfyUI and pick a workflow.');
         });
@@ -478,7 +494,7 @@ async function main() {
     const port = config.server.port;
     const host = config.server.host;
     server.listen(port, host, () => {
-        console.log(`[ComfyQ] student mode — API on http://${host}:${port}  •  open the UI at http://localhost:5173`);
+        console.log(`[ComfyQ] student mode — API on http://${host}:${port}  •  open the UI at http://localhost:${servesClient ? port : 5173}`);
         logLanUrls(port);
         const active = config.workflows.activeWorkflowId;
         if (!active) {

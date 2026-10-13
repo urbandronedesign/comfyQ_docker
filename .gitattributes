@@ -1,0 +1,5 @@
+# Shell scripts run inside the Linux image: a Windows checkout with
+# core.autocrlf would otherwise hand bash CRLF line endings and every script
+# fails with "$'\r': command not found".
+*.sh            text eol=lf
+docker/**       text eol=lf

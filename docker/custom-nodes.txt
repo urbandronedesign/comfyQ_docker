@@ -1,0 +1,65 @@
+# ComfyUI node packs baked into the image — one git URL per line, optionally
+# pinned with @<commit-or-tag>. Blank lines and # comments are ignored.
+#
+# Edit this file and rebuild the image to add, remove or pin a pack (see
+# docker/README.md). A pack installed later from the admin panel lands on the
+# container's own disk and is gone at the next Pod restart — put it here instead.
+#
+# Taken from the rig's install (F:\ComfyUI_windows_portable_nvidia, 2026-10-13):
+# each URL is the pack's own pyproject `Repository`, its git remote, or the
+# Comfy registry entry. None is guessed.
+
+# ---- Used by the bundles in workflows/ ---------------------------------------
+https://github.com/Fannovel16/comfyui_controlnet_aux
+https://github.com/kijai/ComfyUI-KJNodes
+https://github.com/Lightricks/ComfyUI-LTXVideo
+https://github.com/kijai/ComfyUI-LivePortraitKJ
+https://github.com/lquesada/ComfyUI-Inpaint-CropAndStitch
+https://github.com/PozzettiAndrea/ComfyUI-DepthAnythingV3
+https://github.com/yuvraj108c/ComfyUI-Video-Depth-Anything
+https://github.com/lbouaraba/comfyui-krea2edit
+https://github.com/BennyDaBall930/ComfyUI-Latent-Tiled-PiD
+https://github.com/b2renger/ComfyUI-QwenImage21-FunControlNet
+https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler
+https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite
+https://github.com/rgthree/rgthree-comfy
+https://github.com/cubiq/ComfyUI_essentials
+
+# ---- Needed by ComfyQ itself ---------------------------------------------------
+# The admin panel's missing-node-pack check reads its extension-node-map.json.
+https://github.com/ltdrdata/ComfyUI-Manager
+
+# ---- Small utilities the rig also carries ---------------------------------------
+https://github.com/Fannovel16/ComfyUI-Frame-Interpolation
+https://github.com/city96/ComfyUI-GGUF
+https://github.com/pythongosssss/ComfyUI-Custom-Scripts
+https://github.com/evanspearman/ComfyMath
+https://github.com/BlenderNeko/ComfyUI_Noise
+https://github.com/Suzie1/ComfyUI_Comfyroll_CustomNodes
+https://github.com/niknah/quick-connections
+
+# ---- On the rig but used by no bundle: uncomment to include ---------------------
+# https://github.com/yolain/ComfyUI-Easy-Use
+# https://github.com/kijai/ComfyUI-WanVideoWrapper
+# https://github.com/kijai/ComfyUI-DepthAnythingV2
+# https://github.com/kijai/ComfyUI-Florence2
+# https://github.com/kijai/ComfyUI-segment-anything-2
+# https://github.com/1038lab/ComfyUI-RMBG
+# https://github.com/1038lab/ComfyUI-FlashVSR
+# https://github.com/wafer-bob/ASASR
+# https://github.com/AIWarper/ComfyUI-NormalCrafterWrapper
+# https://github.com/nuanarchy/ComfyUI-NuA-FlashFace
+# https://github.com/lumos675/ComfyUI-OrbitSheets
+# https://github.com/un-seen/comfyui-tensorops
+# https://github.com/jtydhr88/ComfyUI-Workflow-Encrypt
+# https://github.com/WhatDreamsCost/WhatDreamsCost-ComfyUI
+# https://github.com/YanzuoLu/ComfyUI-MiniMax-H3-RAVEN-Streaming
+# https://github.com/b2renger/ComfyUI_moebius_inpainting
+#
+# Left out on purpose:
+#   ComfyUI-Trellis2, Pixal3D-ComfyUI — their bundles were removed (2026-10-05),
+#     and they need compiled CUDA extensions that do not build on a CPU runner.
+#   ComfyUI-CrossDriveViewFix — fixes Windows drive letters; nothing to fix here.
+#   ComfyUI-HR-Endless-Sampler, ComfyUI-Dynamic-Lora-Scheduler — no published
+#     source found, and no bundle uses them.
+#   comfyq_opener — ComfyQ installs it itself before every ComfyUI start.

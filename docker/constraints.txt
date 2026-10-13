@@ -1,0 +1,6 @@
+# Applied to every pip install in the image, so no node pack can swap the torch
+# build out from under ComfyUI. Same torch as the Windows rigs (2.8.0+cu128),
+# which is what every calibration in workflows/*/runtime.json was measured on.
+torch==2.8.0
+torchvision==0.23.0
+torchaudio==2.8.0

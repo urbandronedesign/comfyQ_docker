@@ -1,0 +1,16 @@
+# Keep the build context small and free of per-machine state. What is left
+# out here either belongs on the volume (config, queue, scans) or is rebuilt
+# inside the image (node_modules, client/dist).
+.git
+.github
+**/node_modules
+client/dist
+desktop
+config.json
+config.json.*
+server/data
+.comfyq-lanes
+.claude
+_candidate_workflows
+workflows/_candidate_workflows
+*.log

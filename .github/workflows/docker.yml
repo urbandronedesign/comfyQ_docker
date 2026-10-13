@@ -1,0 +1,86 @@
+name: Build Docker image
+
+# Builds docker/Dockerfile on GitHub and pushes it to the GitHub Container
+# Registry as ghcr.io/<owner>/comfyq. Two ways to start it:
+#
+#   - Actions tab → "Build Docker image" → Run workflow (any branch), or
+#   - push a tag:  git tag docker-v1.0.0 && git push origin docker-v1.0.0
+#
+# Every build is tagged with the commit (sha-xxxxxxx); a build of main or of a
+# docker-v* tag is also tagged `latest`, and a docker-v* tag adds its version. A RunPod template
+# pointing at `:latest` picks up the new image the next time a Pod starts.
+#
+# Kept apart from release.yml, which owns the `v*` tags for the desktop app.
+on:
+  workflow_dispatch:
+    inputs:
+      comfyui_version:
+        description: ComfyUI release tag to build against
+        default: v0.39.2
+  push:
+    tags:
+      - 'docker-v*'
+
+permissions:
+  contents: read
+  packages: write          # push to ghcr.io
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/comfyq
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # The image is ~15 GB unpacked (CUDA, torch, the node packs' Python
+      # deps); a stock runner does not have the room without this.
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image name (registry names must be lower-case)
+        run: echo "IMAGE=${IMAGE,,}" >> "$GITHUB_ENV"
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/docker-v') }}
+            type=match,pattern=docker-v(.*),group=1
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            COMFYUI_VERSION=${{ inputs.comfyui_version || 'v0.39.2' }}
+          # Layer cache kept in the registry: a change to ComfyQ's own code
+          # reuses the torch / ComfyUI / node-pack layers and builds in minutes.
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache,mode=max

@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "id": "image_sdxl_smoke_test",
+  "name": "SDXL — smoke test (text to image)",
+  "description": "The smallest workflow in the library, for checking that a new machine works end to end: one 6.9 GB public model, only ComfyUI's built-in nodes, an image in a few seconds once the model is loaded. Use it on a fresh cloud Pod before downloading the big models. Not meant for real work — the other image workflows are far better.",
+  "category": "t2i",
+  "experimental": true,
+  "tags": ["sdxl", "test", "text2image"],
+  "thumbnail": null,
+  "author": "ComfyQ",
+  "version": "1.0.0",
+  "workflowFile": "image_sdxl_smoke_test.api.json",
+  "apiFormat": true,
+  "requirements": {
+    "minVRAM": 8,
+    "models": [
+      {
+        "type": "checkpoint",
+        "file": "sd_xl_base_1.0.safetensors",
+        "url": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors",
+        "source": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0"
+      }
+    ]
+  },
+  "estimatedDurationSec": 4,
+  "exposedParameters": [
+    {
+      "key": "cliptextencode_text_2",
+      "nodeId": "2",
+      "field": "text",
+      "type": "textarea",
+      "label": "Prompt",
+      "default": "a red fox sitting in a snowy forest at sunrise, soft golden light, detailed fur, photograph",
+      "required": true,
+      "order": 0
+    },
+    {
+      "key": "cliptextencode_text_3",
+      "nodeId": "3",
+      "field": "text",
+      "type": "textarea",
+      "label": "Negative prompt",
+      "default": "blurry, low quality, watermark, text",
+      "required": false,
+      "order": 1
+    },
+    {
+      "key": "ksampler_seed_5",
+      "nodeId": "5",
+      "field": "seed",
+      "type": "number",
+      "label": "Seed",
+      "default": 0,
+      "min": 0,
+      "max": 4294967295,
+      "step": 1,
+      "required": false,
+      "order": 2
+    }
+  ],
+  "warmupParams": {
+    "cliptextencode_text_2": "calibration"
+  },
+  "presets": {}
+}

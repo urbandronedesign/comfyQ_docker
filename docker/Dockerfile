@@ -1,0 +1,76 @@
+# ComfyQ + ComfyUI for a GPU cloud machine (RunPod Pods, or any Docker host
+# with an NVIDIA GPU). Build from the repo root:
+#
+#   docker build -f docker/Dockerfile -t comfyq .
+#
+# Models, outputs, the job queue and config live on the volume mounted at
+# /workspace, never in the image. See docker/README.md.
+#
+# Layers run from least to most often changed, so editing ComfyQ's own code
+# rebuilds only the last few: system → torch → ComfyUI → node packs → app.
+
+ARG COMFYUI_VERSION=v0.39.2
+ARG NODE_MAJOR=24
+
+# ---- Client build (needs dev dependencies the runtime image does not) --------
+FROM node:${NODE_MAJOR}-bookworm-slim AS client
+WORKDIR /src/client
+COPY client/package.json ./
+RUN npm install --no-audit --no-fund
+COPY client/ ./
+RUN npm run build
+
+# ---- Runtime -------------------------------------------------------------------
+FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04
+ARG COMFYUI_VERSION
+ARG NODE_MAJOR
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONIOENCODING=utf-8 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# lsof: ComfyQ's "Restart & take over" finds the process on the ComfyUI port
+# with it on Linux, and silently kills nothing without it.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3.12 python3.12-venv python3.12-dev build-essential \
+        git curl ca-certificates ffmpeg lsof rsync \
+        libgl1 libglib2.0-0 libsm6 libxext6 \
+    && curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# ComfyQ strips VIRTUAL_ENV from ComfyUI's environment, so the venv is never
+# "activated" — it is reached by the absolute path to its python, which is
+# what config.json points at.
+RUN python3.12 -m venv /opt/venv
+COPY docker/constraints.txt /opt/docker/constraints.txt
+RUN /opt/venv/bin/pip install --no-cache-dir --upgrade pip wheel setuptools \
+ && /opt/venv/bin/pip install --no-cache-dir \
+        --index-url https://download.pytorch.org/whl/cu128 \
+        torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0
+
+RUN git clone --depth 1 --branch ${COMFYUI_VERSION} \
+        https://github.com/comfyanonymous/ComfyUI.git /opt/ComfyUI \
+ && /opt/venv/bin/pip install --no-cache-dir -c /opt/docker/constraints.txt \
+        -r /opt/ComfyUI/requirements.txt \
+ && /opt/venv/bin/pip install --no-cache-dir -c /opt/docker/constraints.txt \
+        sageattention==1.0.6
+
+COPY docker/custom-nodes.txt docker/install-nodes.sh /opt/docker/
+RUN bash /opt/docker/install-nodes.sh /opt/docker/custom-nodes.txt \
+        /opt/ComfyUI/custom_nodes /opt/venv/bin/python
+
+# ---- ComfyQ ----------------------------------------------------------------------
+WORKDIR /app
+COPY server/package.json server/
+RUN npm install --prefix server --omit=dev --no-audit --no-fund
+COPY . .
+COPY --from=client /src/client/dist client/dist
+RUN chmod +x docker/entrypoint.sh
+
+# 3000: ComfyQ (student page, admin panel, API). 8188: ComfyUI's own editor,
+# used by the admin's "Open in ComfyUI".
+EXPOSE 3000 8188
+ENV COMFYQ_DATA=/workspace
+ENTRYPOINT ["/app/docker/entrypoint.sh"]
