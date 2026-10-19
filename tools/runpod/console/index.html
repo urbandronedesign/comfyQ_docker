@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ComfyQ RunPod Console</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='2' y='2' width='20' height='20' rx='6' fill='%2318181b'/%3E%3Cpath d='M7 12h10M12 7v10' stroke='%23fafafa' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 12h8M12 8v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span>ComfyQ <b>RunPod console</b></span>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="creds">1 · Credentials</button>
+    <button role="tab" data-tab="launch">2 · Launch</button>
+    <button role="tab" data-tab="pods">3 · Pods <span id="podCount" class="count"></span></button>
+  </nav>
+  <button id="themeBtn" class="ghost icon" title="Light / dark">◐</button>
+</header>
+
+<main>
+  <!-- ───────────── Credentials ───────────── -->
+  <section id="tab-creds" class="tab" hidden>
+    <div class="card">
+      <h2>RunPod</h2>
+      <p class="muted">An API key with read and write access: RunPod → <i>Settings</i> → <i>API Keys</i> → <i>Create API Key</i>. It can spend your credits, so it stays on this machine.</p>
+      <label class="field">
+        <span>API key <em id="runpodApiKeyState" class="state"></em></span>
+        <input id="runpodApiKey" type="password" autocomplete="off" placeholder="rpa_…">
+      </label>
+      <div class="row">
+        <button id="testKey" class="secondary">Test the key</button>
+        <span id="testKeyOut" class="muted"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>ComfyQ passwords</h2>
+      <p class="muted">Invent these. A Pod is reachable by anyone who has its URL, so it will not serve without both.</p>
+      <label class="field">
+        <span>Admin password <em id="adminPasswordState" class="state"></em></span>
+        <input id="adminPassword" type="password" autocomplete="new-password" placeholder="protects /admin">
+      </label>
+      <label class="field">
+        <span>Student access password <em id="accessPasswordState" class="state"></em></span>
+        <input id="accessPassword" type="password" autocomplete="new-password" placeholder="what students type to get in">
+      </label>
+    </div>
+
+    <div class="card">
+      <h2>HuggingFace <span class="tag">optional</span></h2>
+      <p class="muted">Only for gated models (FLUX.2, some LTX). A <i>Read</i> token from huggingface.co → <i>Settings</i> → <i>Access Tokens</i>, and accept each gated model's licence on its page while logged in.</p>
+      <label class="field">
+        <span>Token <em id="hfTokenState" class="state"></em></span>
+        <input id="hfToken" type="password" autocomplete="off" placeholder="hf_…">
+      </label>
+    </div>
+
+    <details class="card">
+      <summary>Advanced</summary>
+      <label class="field">
+        <span>Image</span>
+        <input id="image" type="text" placeholder="">
+      </label>
+      <p class="muted small">Leave empty for the latest build. A fixed build looks like <code>ghcr.io/urbandronedesign/comfyq:sha-fdd2867</code>.</p>
+    </details>
+
+    <div class="row sticky">
+      <button id="saveCreds" class="primary">Save</button>
+      <span class="muted small">Stored in <code id="settingsFile"></code>. Leave a field empty to keep what is saved.</span>
+    </div>
+  </section>
+
+  <!-- ───────────── Launch ───────────── -->
+  <section id="tab-launch" class="tab" hidden>
+    <div class="card">
+      <h2>Network volume</h2>
+      <p class="muted">Where the models live between Pods. The GPU is rented in the same data centre.</p>
+      <div class="row wrap">
+        <select id="volume"></select>
+        <button id="refreshVolumes" class="ghost">Refresh</button>
+        <button id="newVolumeBtn" class="ghost">New volume…</button>
+      </div>
+      <div id="newVolume" class="inset" hidden>
+        <div class="grid3">
+          <label class="field"><span>Name</span><input id="nvName" value="comfyq-models"></label>
+          <label class="field"><span>Size (GB)</span><input id="nvSize" type="number" min="10" max="4000" value="200"></label>
+          <label class="field"><span>Data centre</span><select id="nvDc"></select></label>
+        </div>
+        <p class="muted small">Billed per GB every month, whether or not a Pod runs. A light bundle needs 20–40 GB of models; the whole library about 1.3 TB. Pick a data centre that has the GPUs you want (the GPU list below shows stock once the volume exists).</p>
+        <button id="createVolume" class="secondary">Create volume</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Workflows to serve</h2>
+      <p class="muted">The first one ticked is the main one; others run beside it on the same GPU.</p>
+      <div class="row wrap">
+        <input id="wfSearch" type="search" placeholder="Search workflows…">
+        <label class="check"><input id="wfHideExp" type="checkbox"> hide experimental</label>
+      </div>
+      <div id="wfChosen" class="chips"></div>
+      <div id="wfList" class="list"></div>
+    </div>
+
+    <div class="card">
+      <h2>GPU</h2>
+      <p id="needLine" class="muted"></p>
+      <div class="row wrap">
+        <label class="check"><input id="community" type="checkbox"> Community Cloud <span class="muted">(cheaper, less reliable)</span></label>
+        <button id="refreshGpus" class="ghost">Refresh prices</button>
+      </div>
+      <div id="gpuNote" class="note" hidden></div>
+      <div class="tablewrap">
+      <table class="gpus">
+        <thead><tr><th></th><th>GPU</th><th>VRAM</th><th>$/hour</th><th>Stock</th><th></th></tr></thead>
+        <tbody id="gpuRows"></tbody>
+      </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Options</h2>
+      <div class="grid3">
+        <label class="field"><span>Pod name</span><input id="podName" placeholder="comfyq-…"></label>
+        <label class="field"><span>Container disk (GB)</span><input id="diskGb" type="number" min="20" value="30"></label>
+      </div>
+      <label class="check"><input id="fetchModels" type="checkbox" checked> Download missing models before serving</label>
+      <label class="check"><input id="syncWorkflows" type="checkbox"> Replace the volume's workflow bundles with the image's</label>
+    </div>
+
+    <div class="row sticky">
+      <button id="launchBtn" class="primary big">Launch Pod</button>
+      <span id="launchSummary" class="muted"></span>
+    </div>
+  </section>
+
+  <!-- ───────────── Pods ───────────── -->
+  <section id="tab-pods" class="tab" hidden>
+    <div class="split">
+      <aside class="card podlist">
+        <div class="row"><h2>Your Pods</h2><button id="refreshPods" class="ghost">Refresh</button></div>
+        <div id="podList"></div>
+      </aside>
+      <div id="podDetail" class="card detail">
+        <p class="muted">Pick a Pod.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast" hidden></div>
+<script src="/app.js"></script>
+</body>
+</html>
