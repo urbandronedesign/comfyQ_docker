@@ -71,22 +71,25 @@ const secs = (ms) => ms == null ? '—' : `${Math.round(ms / 1000)} s`;
 
 /**
  * Run the load test. Returns a summary object and logs as it goes.
- * @param {object} o  { podId, workflows: [id…], students, adminPassword, log, timeoutMin }
+ * @param {object} o  { targets: [{ podId, workflow }…] — or podId + workflows: [id…] for one Pod — students, log, timeoutMin }
+ *   Each student books the workflow of target i % n on that target's Pod.
  */
 export { testPicture, fieldsOf };
 
-export async function loadTest({ podId, workflows, students = 20, log = console.log, timeoutMin = 45 }) {
-    const base = proxyUrl(podId);
+export async function loadTest({ targets, podId, workflows, students = 20, log = console.log, timeoutMin = 45 }) {
+    targets = targets || workflows.map(workflow => ({ podId, workflow }));
+    workflows = [...new Set(targets.map(t => t.workflow))];
+    const podIds = [...new Set(targets.map(t => t.podId))];
     const picture = testPicture();
     const fields = Object.fromEntries(workflows.map(id => [id, fieldsOf(id)]));
     const runId = Date.now().toString(36);
     const t0 = Date.now();
-    log(`LOAD: ${students} students, ${workflows.map(id => fields[id].name).join(' / ')}, booking within the first minute`);
+    log(`LOAD: ${students} students, ${workflows.map(id => fields[id].name).join(' / ')} on ${podIds.length} Pod(s), booking within the first minute`);
 
     // 1. the student page, all at once
-    const pageTimes = await Promise.all(Array.from({ length: students }, async () => {
+    const pageTimes = await Promise.all(Array.from({ length: students }, async (_, i) => {
         const t = Date.now();
-        try { const r = await fetch(base + '/', { signal: AbortSignal.timeout(60000) }); await r.arrayBuffer(); return r.ok ? Date.now() - t : null; }
+        try { const r = await fetch(proxyUrl(targets[i % targets.length].podId) + '/', { signal: AbortSignal.timeout(60000) }); await r.arrayBuffer(); return r.ok ? Date.now() - t : null; }
         catch { return null; }
     }));
     const pagesOk = pageTimes.filter(x => x != null);
@@ -97,7 +100,8 @@ export async function loadTest({ podId, workflows, students = 20, log = console.
     let disconnects = 0;
     let broadcasts = 0;
     const bookings = await Promise.all(Array.from({ length: students }, async (_, i) => {
-        const wf = workflows[i % workflows.length];
+        const { podId: pid, workflow: wf } = targets[i % targets.length];
+        const base = proxyUrl(pid);
         const f = fields[wf];
         const user = `load-${runId}-${String(i + 1).padStart(2, '0')}`;
         await sleep(Math.random() * 60000);
@@ -149,8 +153,8 @@ export async function loadTest({ podId, workflows, students = 20, log = console.
     let lastLine = '';
     while (Date.now() < end) {
         try {
-            const r = await fetch(base + '/jobs?limit=500', { signal: AbortSignal.timeout(30000) });
-            jobs = (await r.json()).jobs.filter(j => ids.has(j.id));
+            const lists = await Promise.all(podIds.map(id => fetch(proxyUrl(id) + '/jobs?limit=500', { signal: AbortSignal.timeout(30000) }).then(r => r.json())));
+            jobs = lists.flatMap(l => l.jobs).filter(j => ids.has(j.id));
         } catch { await sleep(5000); continue; }
         const running = jobs.filter(j => j.status === 'processing');
         maxRunning = Math.max(maxRunning, running.length);
