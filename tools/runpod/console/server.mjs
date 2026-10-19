@@ -166,7 +166,7 @@ route('POST', '/api/launch', async ({ body }) => {
     try { pod = await create(); }
     catch (e) {
         // RunPod's wording for "no free machine matches": say what to change.
-        if (/required specifications|no.*available|insufficient/i.test(e.message)) {
+        if (/required specifications|requested specifications|instances available|no.*available|insufficient/i.test(e.message)) {
             throw new RunPodError(`RunPod has no free machine right now with ${gpuTypeIds.length > 1 ? 'any of these GPUs' : 'this GPU'} in ${volume.dataCenterId} `
                 + `(on ${body.community ? 'Community' : 'Secure'} Cloud, with a CUDA 12.8 driver). Pick a GPU showing stock, tick a few more as fallbacks, `
                 + `or try again in a few minutes — stock in one data centre changes often.`, 409);
