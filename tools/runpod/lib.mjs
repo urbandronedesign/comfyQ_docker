@@ -82,7 +82,8 @@ export async function gpuTypes(apiKey, { dataCenterId, secureCloud = true } = {}
             const d = await graphql(apiKey, `query { gpuTypes { ${a.q} } }`);
             return {
                 scopedToDataCenter: a.scoped,
-                gpus: (d.gpuTypes || []).map(g => ({
+                // The image is built on NVIDIA CUDA, so an AMD card cannot run it.
+                gpus: (d.gpuTypes || []).filter(g => !/^AMD /i.test(g.id || '')).map(g => ({
                     id: g.id,
                     name: g.displayName || g.id,
                     vramGb: g.memoryInGb || 0,
@@ -90,7 +91,12 @@ export async function gpuTypes(apiKey, { dataCenterId, secureCloud = true } = {}
                     communityCloud: g.communityCloud !== false,
                     pricePerHr: g.lowestPrice?.uninterruptablePrice
                         ?? (secureCloud ? g.securePrice : g.communityPrice) ?? null,
-                    stock: g.lowestPrice?.stockStatus ?? null,
+                    // ★ Asked about ONE data centre, RunPod gives no stockStatus
+                    //   at all for a GPU it has none of there. Read as "unknown",
+                    //   that recommended a GPU the data centre did not have, and
+                    //   the Pod was refused ("could not find any pods with
+                    //   required specifications"). Scoped, no answer means none.
+                    stock: g.lowestPrice?.stockStatus ?? (a.scoped ? 'None' : null),
                 })),
             };
         } catch (e) { lastErr = e; }

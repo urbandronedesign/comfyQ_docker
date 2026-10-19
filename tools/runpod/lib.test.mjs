@@ -27,6 +27,8 @@ check('a card too small is marked and sorted after the ones that fit', r.rows.fi
 check('a card out of stock is never recommended, however cheap', r.rows.find(g => g.id === 'big-cheap-out').available === false);
 check('a card with no price is not recommended', r.recommended !== 'noprice');
 check('Community Cloud drops cards it does not offer', !rankGpus(gpus, 20, { community: true }).rows.some(g => g.id === 'mid-cheaper'));
+check('a card out of stock in the data centre is never recommended, even the cheapest',
+    rankGpus([{ id: 'cheap', vramGb: 16, pricePerHr: 0.2, stock: 'None', secureCloud: true }, { id: 'ok', vramGb: 20, pricePerHr: 0.25, stock: 'Low', secureCloud: true }], 10).recommended === 'ok');
 check('with no VRAM figure nothing is ruled out on size', rankGpus(gpus, null).rows.every(g => g.fits === null));
 
 // ---- Pod body ---------------------------------------------------------------

@@ -154,12 +154,23 @@ route('POST', '/api/launch', async ({ body }) => {
     const volume = vols.find(v => v.id === body.volumeId);
     if (!volume) throw new RunPodError('pick a network volume', 400);
 
-    const pod = await rest(key, 'POST', '/pods', podBody({
+    const create = () => rest(key, 'POST', '/pods', podBody({
         volume, gpuTypeIds, serve, secrets: secretsOf(s),
         name: body.name, image: s.image, diskGb: body.diskGb || s.diskGb,
         community: !!body.community, fetchModels: body.fetchModels !== false,
         syncWorkflows: !!body.syncWorkflows, allowOpen: !!body.allowOpen && missing.length > 0,
     }));
+    let pod;
+    try { pod = await create(); }
+    catch (e) {
+        // RunPod's wording for "no free machine matches": say what to change.
+        if (/required specifications|no.*available|insufficient/i.test(e.message)) {
+            throw new RunPodError(`RunPod has no free machine right now with ${gpuTypeIds.length > 1 ? 'any of these GPUs' : 'this GPU'} in ${volume.dataCenterId} `
+                + `(on ${body.community ? 'Community' : 'Secure'} Cloud, with a CUDA 12.8 driver). Pick a GPU showing stock, tick a few more as fallbacks, `
+                + `or try again in a few minutes — stock in one data centre changes often.`, 409);
+        }
+        throw e;
+    }
     // Remember the choices for next time (never the secrets — those are
     // already stored separately).
     saveSettings({ ...s, volumeId: volume.id, community: !!body.community, diskGb: body.diskGb || s.diskGb || 30 });

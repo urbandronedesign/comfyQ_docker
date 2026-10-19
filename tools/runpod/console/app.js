@@ -109,6 +109,12 @@ let volumes = [];
 let chosen = [];          // workflow ids, in order: first = main lane
 let gpuPick = null;       // primary GPU id
 let gpuFallback = new Set();
+// Until someone ticks or unticks a fallback by hand, the next few cheapest
+// GPUs that fit and are in stock are offered as fallbacks: stock in one data
+// centre moves within seconds, and with a single choice RunPod refuses the
+// Pod outright when that one card has just gone.
+let fallbackTouched = false;
+const AUTO_FALLBACKS = 3;
 let gpuData = null;
 let launchLoaded = false;
 
@@ -227,6 +233,11 @@ async function loadGpus() {
         const still = d.rows.find(g => g.id === gpuPick);
         if (!still || still.fits === false) gpuPick = d.recommended;
         for (const id of [...gpuFallback]) if (!d.rows.find(g => g.id === id && g.fits !== false)) gpuFallback.delete(id);
+        if (!fallbackTouched) {
+            gpuFallback = new Set(d.rows
+                .filter(g => g.id !== gpuPick && g.fits !== false && g.available !== false && g.pricePerHr != null)
+                .slice(0, AUTO_FALLBACKS).map(g => g.id));
+        }
         renderGpus();
     } catch (e) {
         if (my !== gpuReq) return;
@@ -258,7 +269,7 @@ function renderGpus() {
           <td>${esc(g.name)}${rec ? '<span class="badge rec">recommended</span>' : ''}${g.fits === false ? '<span class="badge">too small</span>' : ''}</td>
           <td>${g.vramGb} GB</td>
           <td>${g.pricePerHr != null ? '$' + Number(g.pricePerHr).toFixed(2) : '—'}</td>
-          <td class="stock-${esc(g.stock)}">${esc(g.stock || '—')}</td>
+          <td class="stock-${esc(g.stock)}">${g.stock === 'None' && d.scopedToDataCenter ? 'none here' : esc(g.stock || '—')}</td>
           <td title="Also accept this GPU if the first choice is not available"><label class="check small"><input type="checkbox" data-fb="${esc(g.id)}" ${gpuFallback.has(g.id) ? 'checked' : ''} ${g.fits === false || g.id === gpuPick ? 'disabled' : ''}> fallback</label></td>
         </tr>`;
     }).join('');
@@ -269,11 +280,12 @@ function renderGpus() {
             if (g.fits === false) return;
             gpuPick = g.id;
             gpuFallback.delete(g.id);
+            fallbackTouched = true;
             renderGpus();
         };
     }
     for (const cb of $('gpuRows').querySelectorAll('[data-fb]')) {
-        cb.onchange = () => { cb.checked ? gpuFallback.add(cb.dataset.fb) : gpuFallback.delete(cb.dataset.fb); updateSummary(); };
+        cb.onchange = () => { fallbackTouched = true; cb.checked ? gpuFallback.add(cb.dataset.fb) : gpuFallback.delete(cb.dataset.fb); updateSummary(); };
     }
     updateSummary();
 }
