@@ -49,6 +49,7 @@ Idle tabs park themselves after five minutes to keep a room of thirty laptops fr
 The library, and what is running.
 
 - **Running** — one row per lane: the workflow, its port, whether it is busy, and its resident VRAM.
+  ⚠ **Never press *Stop serving* on the main (primary) workflow while jobs are queued or rendering.** On the main workflow that button does not stop just that model: it puts the whole machine back in admin mode and restarts ComfyQ, so **every** lane stops, the job rendering fails (`server-restart`) and the queued jobs wait until the machine serves again. *Close lane* on an extra workflow only closes that one. To drop the main workflow during a class, wait until the queue is empty.
 - **Workflow library** — all 61 bundles, searchable, filtered by type (Image generation · Image editing · Video generation · Video editing · 3D · Audio · Description · Utilities). Each card shows the measured duration, a **VRAM chip** judged against *this* machine's card, and whether its models are on disk. Per card: *Activate & serve*, *Open in ComfyUI*, *Calibrate*, *Edit*, *Validate*, *Delete*.
 - **Storyboard batch** — submit a whole multi-shot document as one job set.
 - **Add workflow** — drop in a new ComfyUI API-format export.
