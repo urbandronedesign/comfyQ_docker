@@ -793,73 +793,181 @@ $('refreshAttempts').onclick = loadAttempts;
 
 // ---- stock history -----------------------------------------------------------------
 //
-// Readings taken every 15 minutes by a GitHub Actions job. For one data centre
-// and one card: in how many readings it was free, by weekday and hour, in this
-// computer's local time.
+// Readings taken every 15 minutes by a GitHub Actions job. Three views of the
+// same question — "how often was this card free?" — for the chosen period:
+// per data centre (bars), over time (one strip per data centre), and by
+// weekday × hour for one data centre. Times are this computer's local time.
 
 let stock = null;
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const RANGES = [['24h', '24 hours', 864e5], ['7d', '7 days', 7 * 864e5], ['30d', '30 days', 30 * 864e5]];
+const stockSel = { gpu: store('rpc.stockGpu') || '*', range: store('rpc.stockRange') || '7d', dc: store('rpc.stockDc') || null };
+// Five steps of one blue, from "rarely free" to "almost always": a share of
+// 0 shows the empty cell itself, so "never free" and "free 5%" never look alike.
+const seqStep = (p) => p <= 0 ? 0 : 1 + Math.min(4, Math.floor(p * 5));
 
 async function loadStock() {
     $('stockNote').textContent = 'Reading the history from GitHub…';
     try { stock = await api('GET', '/api/stock?months=2'); }
     catch (e) { $('stockNote').textContent = e.message; return; }
-    const r = stock.readings;
-    if (!r.length) {
-        $('stockNote').innerHTML = `No reading yet. The GitHub job writes one every 15 minutes to the <code>runpod-stock</code> branch once it is set up (see <code>tools/runpod/README.md</code>). Looked in ${esc(stock.source)}.`;
-        $('stockGrid').innerHTML = '';
-        return;
-    }
-    const dcs = [...new Set(r.flatMap(x => Object.keys(x.dc)))].sort();
-    const gpus = [...new Set(r.flatMap(x => Object.values(x.dc).flatMap(l => l.map(g => g[0]))))].sort();
-    const keepDc = $('stockDc').value || selectedVolume()?.dataCenterId || settings?.stockDc || 'EU-RO-1';
-    const keepGpu = $('stockGpu').value || store('rpc.stockGpu') || 'NVIDIA GeForce RTX 5090';
-    $('stockDc').innerHTML = dcs.map(d => `<option>${esc(d)}</option>`).join('');
-    $('stockGpu').innerHTML = '<option value="*">any card of 24 GB or more</option>' + gpus.map(g => `<option value="${esc(g)}">${esc(shortGpu(g))}</option>`).join('');
-    if (dcs.includes(keepDc)) $('stockDc').value = keepDc;
-    if (keepGpu === '*' || gpus.includes(keepGpu)) $('stockGpu').value = keepGpu;
     renderStock();
 }
 
+const tip = () => $('chartTip');
+function showTip(ev, html) {
+    const t = tip();
+    t.innerHTML = html;
+    t.hidden = false;
+    const pad = 14, w = t.offsetWidth, h = t.offsetHeight;
+    let x = ev.clientX + pad, y = ev.clientY + pad;
+    if (x + w > innerWidth - 8) x = ev.clientX - w - pad;
+    if (y + h > innerHeight - 8) y = ev.clientY - h - pad;
+    t.style.left = `${x}px`; t.style.top = `${y}px`;
+}
+const hideTip = () => { tip().hidden = true; };
+
 function renderStock() {
-    if (!stock?.readings.length) return;
-    const dc = $('stockDc').value, gpu = $('stockGpu').value;
-    store('rpc.stockGpu', gpu);
-    // Only readings where this data centre answered: a failed read is not "none free".
-    const rows = stock.readings.filter(x => x.dc[dc] !== undefined);
-    const free = (x) => gpu === '*' ? x.dc[dc].length > 0 : x.dc[dc].some(g => g[0] === gpu);
-    const total = Array.from({ length: 7 }, () => Array(24).fill(0));
-    const hits = Array.from({ length: 7 }, () => Array(24).fill(0));
-    const prices = [];
+    const all = stock?.readings || [];
+    if (!all.length) {
+        $('stockNote').innerHTML = `No reading yet. The GitHub job writes one every 15 minutes to the <code>runpod-stock</code> branch (see <code>tools/runpod/README.md</code>). Looked in ${esc(stock?.source || '')}.`;
+        for (const id of ['stockBars', 'stockStrips', 'stockHeat', 'stockTable', 'stockGpuChips']) $(id).innerHTML = '';
+        return;
+    }
+    // ---- filters --------------------------------------------------------------------
+    const gpus = [...new Set(all.flatMap(x => Object.values(x.dc).flatMap(l => l.map(g => g[0]))))].sort();
+    if (stockSel.gpu !== '*' && !gpus.includes(stockSel.gpu)) stockSel.gpu = '*';
+    $('stockGpuChips').innerHTML = [['*', 'Any card of 24 GB+'], ...gpus.map(g => [g, shortGpu(g)])]
+        .map(([v, l]) => `<button class="chip-btn ${v === stockSel.gpu ? 'on' : ''}" data-gpu="${esc(v)}">${esc(l)}</button>`).join('');
+    $('stockRangeChips').innerHTML = RANGES
+        .map(([v, l]) => `<button class="chip-btn ${v === stockSel.range ? 'on' : ''}" data-range="${v}">${l}</button>`).join('');
+
+    const span = RANGES.find(r => r[0] === stockSel.range)[2];
+    const since = Date.now() - span;
+    const rows = all.filter(x => Date.parse(x.at) >= since);
+    const wanted = (g) => stockSel.gpu === '*' || g[0] === stockSel.gpu;
+    // A data centre that could not be read is left out of that reading, never
+    // counted as "none free".
+    const dcs = [...new Set(rows.flatMap(x => Object.keys(x.dc)))];
+    const per = dcs.map(dc => {
+        const seen = rows.filter(x => x.dc[dc] !== undefined);
+        const freeRows = seen.filter(x => x.dc[dc].some(wanted));
+        const prices = freeRows.flatMap(x => x.dc[dc].filter(wanted).map(g => g[2])).filter(p => p != null);
+        return { dc, n: seen.length, free: freeRows.length, share: seen.length ? freeRows.length / seen.length : 0, cheapest: prices.length ? Math.min(...prices) : null };
+    }).sort((a, b) => b.share - a.share || a.dc.localeCompare(b.dc));
+    const volDc = selectedVolume()?.dataCenterId;
+    // Unless one was clicked: the volume's data centre (EU-RO-1 when the Launch
+    // tab has not loaded the volumes yet), else the one with the most stock.
+    if (!stockSel.dc || !per.some(p => p.dc === stockSel.dc)) stockSel.dc = per.find(p => p.dc === (volDc || 'EU-RO-1'))?.dc || per[0]?.dc;
+
+    const label = stockSel.gpu === '*' ? 'a card of 24 GB or more' : shortGpu(stockSel.gpu);
+    const last = rows.at(-1);
+    const sel = per.find(p => p.dc === stockSel.dc);
+    const nowFree = last?.dc[stockSel.dc]?.some(wanted);
+    $('stockNote').innerHTML = `<b>${rows.length}</b> readings in the last ${RANGES.find(r => r[0] === stockSel.range)[1]}`
+        + (rows[0] ? ` (since ${new Date(rows[0].at).toLocaleString()})` : '') + `. ${esc(stockSel.dc)}: ${esc(label)} free in <b>${sel ? Math.round(100 * sel.share) : 0}%</b> of them`
+        + (sel?.cheapest != null ? `, from $${sel.cheapest.toFixed(2)}/h` : '') + '. '
+        + (last ? `Latest reading (${new Date(last.at).toLocaleTimeString()}): <b>${nowFree ? 'free' : 'none free'}</b>.` : '');
+    $('stockNote').className = 'note ' + (nowFree ? 'good' : '');
+
+    // ---- 1. bars: share of readings free, per data centre ----------------------------------
+    $('stockBarsTitle').textContent = `How often ${label} was free, by data centre`;
+    $('stockBars').innerHTML = per.map((p, i) => `
+        <div class="bar-row ${p.dc === stockSel.dc ? 'sel' : ''}" data-dc="${esc(p.dc)}" data-i="${i}">
+          <span class="bar-label">${esc(p.dc)}</span>
+          <span class="bar-track"><span class="bar-fill" style="width:${(100 * p.share).toFixed(1)}%"></span></span>
+          <span class="bar-value">${p.free ? `${Math.round(100 * p.share)}%` : 'never'}</span>
+        </div>`).join('');
+
+    // ---- 2. strips: over time, per data centre, by the hour ----------------------------------
+    const hour = 36e5;
+    const start = Math.floor((rows[0] ? Date.parse(rows[0].at) : since) / hour) * hour;
+    const nCols = Math.max(1, Math.ceil((Date.now() - start) / hour));
+    // Only the data centres that had it at least once, plus the chosen one.
+    const stripDcs = per.filter(p => p.free > 0 || p.dc === stockSel.dc).map(p => p.dc);
+    const cells = {};
     for (const x of rows) {
-        const t = new Date(x.at);
-        const day = (t.getDay() + 6) % 7, hour = t.getHours();
-        total[day][hour]++;
-        if (free(x)) {
-            hits[day][hour]++;
-            for (const g of x.dc[dc]) if ((gpu === '*' || g[0] === gpu) && g[2] != null) prices.push(g[2]);
+        const c = Math.floor((Date.parse(x.at) - start) / hour);
+        for (const dc of stripDcs) {
+            if (x.dc[dc] === undefined) continue;
+            const k = `${dc}|${c}`;
+            const cell = cells[k] || (cells[k] = { n: 0, free: 0, cards: new Map() });
+            cell.n++;
+            const hit = x.dc[dc].filter(wanted);
+            if (hit.length) cell.free++;
+            for (const g of hit) cell.cards.set(g[0], g[2]);
         }
     }
-    const all = rows.length, ok = rows.filter(free).length;
-    const last = rows.at(-1);
-    const nowFree = last && free(last);
-    const first = rows[0] && new Date(rows[0].at);
-    $('stockNote').innerHTML = `<b>${all}</b> readings since ${first ? first.toLocaleString() : '—'}. `
-        + `${esc(gpu === '*' ? 'Some card of 24 GB or more' : shortGpu(gpu))} was free in ${esc(dc)} in <b>${all ? Math.round(100 * ok / all) : 0}%</b> of them`
-        + (prices.length ? `, from $${Math.min(...prices).toFixed(2)}/h` : '') + '. '
-        + (last ? `Latest reading (${new Date(last.at).toLocaleTimeString()}): <b>${nowFree ? 'free' : 'none free'}</b>.` : '')
-        + ' A reading says what RunPod listed at that moment; a card listed as free can still be taken a second later.';
-    $('stockNote').className = 'note ' + (nowFree ? 'good' : '');
-    const cell = (d, h) => {
-        if (!total[d][h]) return '<td class="hm none" title="no reading"></td>';
-        const p = hits[d][h] / total[d][h];
-        return `<td class="hm" style="background:rgba(74,222,128,${(0.08 + 0.85 * p).toFixed(2)})" title="${DAYS[d]} ${h}:00 — free in ${hits[d][h]} of ${total[d][h]} readings">${Math.round(100 * p)}</td>`;
-    };
-    $('stockGrid').innerHTML = `<thead><tr><th></th>${Array.from({ length: 24 }, (_, h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>`
-        + DAYS.map((d, i) => `<tr><th>${d}</th>${Array.from({ length: 24 }, (_, h) => cell(i, h)).join('')}</tr>`).join('') + '</tbody>';
+    stockCells = { cells, start, hour };
+    const tickEvery = nCols > 48 ? 24 : 6;
+    const ticks = Array.from({ length: nCols }, (_, c) => {
+        const t = new Date(start + c * hour);
+        return t.getHours() % tickEvery === 0 ? `<span style="grid-column:${c + 1}">${tickEvery === 24 ? `${DAYS[(t.getDay() + 6) % 7]} ${t.getDate()}` : `${t.getHours()}:00`}</span>` : '';
+    }).join('');
+    $('stockStrips').innerHTML = stripDcs.map(dc => `
+        <div class="strip-row ${dc === stockSel.dc ? 'sel' : ''}" data-dc="${esc(dc)}">
+          <span class="bar-label">${esc(dc)}</span>
+          <span class="strip" style="grid-template-columns:repeat(${nCols},1fr)">${Array.from({ length: nCols }, (_, c) => {
+              const cell = cells[`${dc}|${c}`];
+              const cls = !cell ? 'gap' : `s${seqStep(cell.free / cell.n)}`;
+              return `<i class="${cls}" data-k="${esc(dc)}|${c}"></i>`;
+          }).join('')}</span>
+        </div>`).join('')
+        + `<div class="strip-row axis"><span class="bar-label"></span><span class="strip ticks" style="grid-template-columns:repeat(${nCols},1fr)">${ticks}</span></div>`
+        + (stripDcs.length ? '' : `<p class="muted">${esc(label)} was not free anywhere in this period.</p>`);
+
+    // ---- 3. heatmap: by weekday and hour, chosen data centre ----------------------------------
+    const total = Array.from({ length: 7 }, () => Array(24).fill(0));
+    const hits = Array.from({ length: 7 }, () => Array(24).fill(0));
+    for (const x of rows) {
+        if (x.dc[stockSel.dc] === undefined) continue;
+        const t = new Date(x.at);
+        const d = (t.getDay() + 6) % 7, h = t.getHours();
+        total[d][h]++;
+        if (x.dc[stockSel.dc].some(wanted)) hits[d][h]++;
+    }
+    stockHeat = { total, hits };
+    $('stockHeatTitle').textContent = `${stockSel.dc}: by weekday and hour (your local time)`;
+    $('stockHeat').innerHTML = `<thead><tr><th></th>${Array.from({ length: 24 }, (_, h) => `<th>${h % 3 === 0 ? h : ''}</th>`).join('')}</tr></thead><tbody>`
+        + DAYS.map((d, i) => `<tr><th>${d}</th>${Array.from({ length: 24 }, (_, h) =>
+            `<td class="hm ${total[i][h] ? `s${seqStep(hits[i][h] / total[i][h])}` : 'gap'}" data-d="${i}" data-h="${h}"></td>`).join('')}</tr>`).join('') + '</tbody>';
+
+    // ---- table view: the same figures as text ----------------------------------------------
+    $('stockTable').innerHTML = `<thead><tr><th>Data centre</th><th>Readings</th><th>Free in</th><th>Cheapest</th></tr></thead><tbody>`
+        + per.map(p => `<tr><td>${esc(p.dc)}</td><td>${p.n}</td><td>${p.free} (${Math.round(100 * p.share)}%)</td><td>${p.cheapest != null ? `$${p.cheapest.toFixed(2)}/h` : '—'}</td></tr>`).join('') + '</tbody>';
+    stockPer = per;
 }
-$('stockDc').onchange = renderStock;
-$('stockGpu').onchange = renderStock;
+
+let stockCells = null, stockHeat = null, stockPer = [];
+const pct = (a, b) => b ? Math.round(100 * a / b) : 0;
+
+// One set of listeners on the stable containers (the contents are redrawn).
+$('stockGpuChips').onclick = (e) => { const b = e.target.closest('[data-gpu]'); if (!b) return; stockSel.gpu = b.dataset.gpu; store('rpc.stockGpu', stockSel.gpu); renderStock(); };
+$('stockRangeChips').onclick = (e) => { const b = e.target.closest('[data-range]'); if (!b) return; stockSel.range = b.dataset.range; store('rpc.stockRange', stockSel.range); renderStock(); };
+for (const id of ['stockBars', 'stockStrips']) {
+    $(id).onclick = (e) => { const r = e.target.closest('[data-dc]'); if (!r) return; stockSel.dc = r.dataset.dc; store('rpc.stockDc', stockSel.dc); renderStock(); };
+}
+$('stockBars').onmousemove = (e) => {
+    const r = e.target.closest('[data-i]'); if (!r) return hideTip();
+    const p = stockPer[Number(r.dataset.i)];
+    showTip(e, `<b>${esc(p.dc)}</b><br>free in ${p.free} of ${p.n} readings (${pct(p.free, p.n)}%)${p.cheapest != null ? `<br>from $${p.cheapest.toFixed(2)}/h` : ''}<br><span class="muted">click to see it below</span>`);
+};
+$('stockStrips').onmousemove = (e) => {
+    const i = e.target.closest('[data-k]'); if (!i) return hideTip();
+    const [dc, c] = i.dataset.k.split('|');
+    const cell = stockCells.cells[i.dataset.k];
+    const t = new Date(stockCells.start + Number(c) * stockCells.hour);
+    const when = `${DAYS[(t.getDay() + 6) % 7]} ${t.toLocaleDateString()} ${t.getHours()}:00–${t.getHours() + 1}:00`;
+    if (!cell) return showTip(e, `<b>${esc(dc)}</b> · ${when}<br>no reading`);
+    showTip(e, `<b>${esc(dc)}</b> · ${when}<br>free in ${cell.free} of ${cell.n} readings`
+        + (cell.cards.size ? '<br>' + [...cell.cards].map(([g, p]) => `${esc(shortGpu(g))}${p != null ? ` $${p.toFixed(2)}/h` : ''}`).join('<br>') : ''));
+};
+$('stockHeat').onmousemove = (e) => {
+    const td = e.target.closest('td[data-d]'); if (!td) return hideTip();
+    const d = Number(td.dataset.d), h = Number(td.dataset.h);
+    const n = stockHeat.total[d][h], f = stockHeat.hits[d][h];
+    showTip(e, `<b>${DAYS[d]} ${h}:00–${h + 1}:00</b><br>${n ? `free in ${f} of ${n} readings (${pct(f, n)}%)` : 'no reading yet'}`);
+};
+for (const id of ['stockBars', 'stockStrips', 'stockHeat']) $(id).onmouseleave = hideTip;
 $('refreshStock').onclick = loadStock;
 
 async function podAction(verb) {

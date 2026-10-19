@@ -184,18 +184,34 @@
   <section id="tab-stock" class="tab" hidden>
     <div class="card">
       <div class="row"><h2>When are cards free?</h2><button id="refreshStock" class="ghost">Refresh</button></div>
-      <p class="muted">RunPod keeps no history of its stock, so a GitHub job notes every 15 minutes which cards are free in each data centre. Each cell: in what share of the readings at that weekday and hour (your local time) the card was free. Use it to choose when to launch before a class.</p>
-      <div class="row wrap">
-        <label class="field"><span>Data centre</span><select id="stockDc"></select></label>
-        <label class="field"><span>Card</span><select id="stockGpu"></select></label>
+      <p class="muted">RunPod keeps no history of its stock, so a GitHub job notes every 15 minutes which cards are free in each data centre. A reading says what RunPod listed at that moment; a card listed as free can still be taken a second later.</p>
+      <div class="filters">
+        <div id="stockGpuChips" class="chips-row" role="group" aria-label="Card"></div>
+        <div id="stockRangeChips" class="chips-row" role="group" aria-label="Period"></div>
       </div>
       <div id="stockNote" class="note"></div>
-      <div class="tablewrap"><table id="stockGrid" class="heat"></table></div>
+    </div>
+    <div class="card">
+      <h2 id="stockBarsTitle">By data centre</h2>
+      <p class="muted small">Share of the readings in which it was free. Click a data centre to see it below.</p>
+      <div id="stockBars" class="bars"></div>
+    </div>
+    <div class="card">
+      <h2>Over time</h2>
+      <p class="muted small">One strip per data centre that had it at least once, one cell per hour, darker when it was free in more of that hour's readings.</p>
+      <div id="stockStrips" class="strips"></div>
+      <div class="seq-legend"><span class="muted small">never free</span><i class="s0"></i><i class="s1"></i><i class="s2"></i><i class="s3"></i><i class="s4"></i><i class="s5"></i><span class="muted small">always free</span><i class="gap"></i><span class="muted small">no reading</span></div>
+    </div>
+    <div class="card">
+      <h2 id="stockHeatTitle">By weekday and hour</h2>
+      <div class="tablewrap"><table id="stockHeat" class="heat"></table></div>
+      <details class="tableview"><summary class="muted small">Show the figures as a table</summary><div class="tablewrap"><table id="stockTable" class="gpus"></table></div></details>
     </div>
   </section>
 </main>
 
 <div id="toast" class="toast" hidden></div>
+<div id="chartTip" class="chart-tip" role="tooltip" hidden></div>
 <script src="/app.js"></script>
 </body>
 </html>
