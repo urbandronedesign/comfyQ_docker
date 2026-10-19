@@ -534,6 +534,7 @@ function renderPodList() {
           <div class="vhead">
             <div><b>${vname}</b>${g.volume?.dataCenterId ? ` <span class="muted small">${esc(g.volume.dataCenterId)}</span>` : ''}</div>
             <div class="muted small">${g.running ? `${g.running} running · <b>$${g.costPerHr.toFixed(2)}/h</b>${g.running > 1 ? ' together' : ''}` : 'nothing running'}</div>
+            ${g.volume ? `<button class="ghost small" data-folders="${esc(g.volume.id)}" ${g.running ? '' : 'disabled title="Start a Pod on this volume to look inside it"'}>Folders…</button>` : ''}
             ${g.running > 1 ? `<button class="ghost small" data-stopall="${esc(g.volume?.id || '')}">Stop all ${g.running}</button>` : ''}
           </div>
           ${buildLine(g)}
@@ -543,8 +544,11 @@ function renderPodList() {
     for (const el of $('podList').querySelectorAll('[data-pod]')) {
         el.onclick = (ev) => {
             if (ev.target.closest('a')) return;
-            selectedPod = el.dataset.pod; store('rpc.pod', selectedPod); renderPodList(); loadDetail();
+            selectedPod = el.dataset.pod; store('rpc.pod', selectedPod); folderView = null; renderPodList(); loadDetail();
         };
+    }
+    for (const b of $('podList').querySelectorAll('[data-folders]')) {
+        b.onclick = () => { folderView = b.dataset.folders; loadFolders(); };
     }
     for (const b of $('podList').querySelectorAll('[data-stopall]')) {
         b.onclick = async () => {
@@ -594,6 +598,7 @@ const STAGES = [['booting', 'Booting'], ['fetching', 'Models'], ['starting', 'St
 
 async function loadDetail() {
     clearTimeout(detailTimer);
+    if (folderView) return;
     const box = $('podDetail');
     if (!selectedPod) { box.innerHTML = '<p class="muted">Pick a Pod.</p>'; return; }
     let d;
@@ -662,6 +667,71 @@ async function loadDetail() {
     // Poll fast while something is happening, slowly once it is settled.
     const busy = ['booting', 'fetching', 'starting'].includes(st.key);
     detailTimer = setTimeout(() => { if (!$('tab-pods').hidden && !document.hidden) loadDetail(); else detailTimer = setTimeout(loadDetail, 5000); }, busy ? 5000 : 20000);
+}
+
+// ---- folders Pods left on a volume (I6) -------------------------------------------
+
+let folderView = null;   // volume id whose folders the detail panel shows
+
+const size = (b) => b >= 1024 ** 3 ? `${gb(b)} GB` : `${(Number(b || 0) / 1024 ** 2).toFixed(1)} MB`;
+const KIND = {
+    reader: (f, via) => `this is the folder of ${esc(via.name)}, the Pod reading the volume`,
+    running: (f) => `Pod ${esc(f.pod?.name || f.id)} is running`,
+    stopped: (f) => `Pod ${esc(f.pod?.name || f.id)} is stopped — this is its queue and results, kept for when it starts again`,
+    orphan: () => '<b>no Pod with this id exists any more</b> — left behind',
+    unfinished: () => 'a delete that did not finish',
+};
+
+async function loadFolders() {
+    clearTimeout(detailTimer);
+    const box = $('podDetail');
+    const vol = groups.find(g => g.volume?.id === folderView)?.volume;
+    box.innerHTML = `<h2>Folders on ${esc(vol?.name || folderView)}</h2><p class="muted">Reading the volume through a running Pod… (sizing large folders takes a moment)</p>`;
+    let d;
+    try { d = await api('GET', `/api/volumes/${encodeURIComponent(folderView)}/folders`); }
+    catch (e) { box.innerHTML = `<h2>Folders on ${esc(vol?.name || folderView)}</h2><div class="note bad">${esc(e.message)}</div>`; return; }
+    if (!folderView) return;
+    const left = d.folders.filter(f => f.kind === 'orphan' || f.kind === 'unfinished');
+    const leftBytes = left.reduce((s, f) => s + f.bytes, 0);
+    box.innerHTML = `
+      <div class="row"><h2>Folders on ${esc(vol?.name || folderView)}</h2><button id="refreshFolders" class="ghost">Refresh</button></div>
+      <p class="muted">Each Pod keeps its queue, settings, results and uploads in its own folder. Terminating a Pod leaves its folder behind. Read through Pod ${esc(d.via.name)}. The models are shared and not listed here.</p>
+      <div class="note ${left.length ? '' : 'good'}">${left.length
+          ? `${left.length} folder${left.length > 1 ? 's' : ''} left behind by Pods that no longer exist: <b>${size(leftBytes)}</b>. Download their results if you need them, then delete them. Nothing is deleted unless you ask.`
+          : 'No folder left behind: every folder belongs to a Pod that still exists.'}</div>
+      <div class="folders">${d.folders.map(f => `
+        <div class="folder ${f.kind}">
+          <div class="fmain">
+            <div><b>${esc(f.id)}</b> <span class="muted small">${size(f.bytes)} · ${f.outputs} result file${f.outputs === 1 ? '' : 's'} · ${f.files} files · changed ${since(f.lastModified ? new Date(f.lastModified).toISOString() : null)} ago</span></div>
+            <div class="small ${f.kind === 'orphan' ? '' : 'muted'}">${KIND[f.kind](f, d.via)}</div>
+          </div>
+          ${f.kind === 'orphan' && f.outputs ? `<button class="secondary small" data-dl="${esc(f.id)}">Download results</button>` : ''}
+          ${f.kind === 'orphan' || f.kind === 'unfinished' ? `<button class="danger small" data-del="${esc(f.id)}">Delete…</button>` : ''}
+        </div>`).join('')}</div>`;
+    $('refreshFolders').onclick = loadFolders;
+    for (const b of box.querySelectorAll('[data-dl]')) {
+        b.onclick = async () => {
+            try {
+                const { url } = await api('POST', `/api/volumes/${encodeURIComponent(folderView)}/folders/${encodeURIComponent(b.dataset.dl)}/download`);
+                location.href = url;
+                toast('The download starts once the Pod has begun zipping the results');
+            } catch (e) { toast(e.message, true); }
+        };
+    }
+    for (const b of box.querySelectorAll('[data-del]')) {
+        b.onclick = async () => {
+            const f = d.folders.find(x => x.id === b.dataset.del);
+            const typed = prompt(`Delete the folder ${f.id} from the volume?\n\n${size(f.bytes)}, ${f.outputs} result file(s) and the job queue of a Pod that no longer exists. `
+                + `This cannot be undone${f.outputs ? ' — download the results first if anyone needs them' : ''}.\n\nType the folder name to confirm:\n${f.id}`);
+            if (typed === null) return;
+            b.disabled = true;
+            try {
+                const r = await api('DELETE', `/api/volumes/${encodeURIComponent(folderView)}/folders/${encodeURIComponent(f.id)}`, { confirm: typed.trim() });
+                toast(`Deleted ${f.id}: ${size(r.bytes)} freed`);
+                loadFolders();
+            } catch (e) { toast(e.message, true); b.disabled = false; }
+        };
+    }
 }
 
 async function podAction(verb) {

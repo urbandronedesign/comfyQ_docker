@@ -156,7 +156,9 @@ in a folder named after its RunPod Pod id:
 
 A **stopped and restarted** Pod keeps its id, so it finds its own queue and
 results again. A **terminated** Pod's folder stays on the volume (results
-included) until you delete it. Outside RunPod the folder is `pods/default`, or
+included) until you delete it — from the RunPod console's **Folders…** button,
+which lists the folders of Pods that no longer exist and lets you download their
+results first ([tools/runpod/README.md](../tools/runpod/README.md)). Outside RunPod the folder is `pods/default`, or
 the name in `COMFYQ_POD_ID`.
 
 **Several Pods can run on one volume at the same time.** Each Pod announces

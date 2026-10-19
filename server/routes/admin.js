@@ -14,6 +14,7 @@ const { buildModelUsage } = require('../workflows/modelUsage');
 const { listInstalledPacks, missingNodePacks, readRequirements } = require('../workflows/nodePacks');
 const { renderSweepReport } = require('../benchmark/sweepReport');
 const { revealPath } = require('../maintenance/revealPath');
+const { podsRoot, listFolders, deleteFolder, zipResults } = require('../cloud/podFolders');
 const {
     scoreDeletable, auditRedownload, invalidateReferenceNames,
 } = require('../workflows/modelConfidence');
@@ -629,6 +630,39 @@ function makeRouter({ configManager, registry, adminGate, exitForRestart, runtim
             image: process.env.COMFYQ_IMAGE_SHA || null,
             others: otherPods(),
         });
+    });
+
+    // ---- Folders Pods left on the volume (Phase I6) ------------------------------
+    // Listed, zipped and deleted on request only. The console decides which
+    // folders belong to Pods that no longer exist (it holds the RunPod key);
+    // this Pod refuses its own folder and any Pod with a fresh heartbeat.
+    const folderCtx = () => ({
+        root: podsRoot(),
+        me: runtime?.heartbeats?.id || null,
+        isAlive: (id) => !!runtime?.heartbeats?.isAlive?.(id),
+    });
+
+    router.get('/volume-folders', adminGate, async (req, res) => {
+        const ctx = folderCtx();
+        if (!ctx.root) return res.status(409).json({ error: 'this Pod is not on a shared volume' });
+        res.json({ me: ctx.me, folders: await listFolders(ctx) });
+    });
+
+    router.get('/volume-folders/:id/results.zip', adminGate, (req, res) => {
+        zipResults({ root: folderCtx().root, id: req.params.id, res, archiver: require('archiver') });
+    });
+
+    router.post('/volume-folders/:id/delete', adminGate, express.json(), async (req, res) => {
+        // adminGate lets everyone through when no admin password is set; a
+        // delete of somebody's results must not be one of those things.
+        if (!configManager.load().config.auth.adminPasswordHash) {
+            return res.status(403).json({ error: 'set an admin password on this Pod before deleting folders' });
+        }
+        if (req.body?.confirm !== req.params.id) return res.status(400).json({ error: 'confirm with the folder name' });
+        try {
+            const out = await deleteFolder({ ...folderCtx(), id: req.params.id });
+            res.status(out.ok ? 200 : 409).json(out);
+        } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
     });
 
     router.post('/models/quarantine/restore', adminGate, express.json(), (req, res) => {

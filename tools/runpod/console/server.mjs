@@ -21,6 +21,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
+import crypto from 'crypto';
+import { Readable } from 'stream';
 import { fileURLToPath } from 'url';
 import {
     rest, gpuTypes, podProbe, podBody, proxyUrl, missingSecrets, runningOnVolume, shareBlockers, cannotShare,
@@ -253,6 +255,101 @@ route('GET', '/api/volumes/([A-Za-z0-9]+)/builds', async ({ match }) => {
     return volumeBuilds(running.map(p => p.id));
 });
 
+// ---- folders Pods left on a volume (Phase I6) -----------------------------------
+//
+// The console cannot see inside a volume, so a running Pod on it lists the
+// pods/<id> folders. ★ Only the console knows which Pods still exist in the
+// account: a STOPPED Pod has no heartbeat, and its folder is its queue,
+// settings and results. So a folder is offered for deletion only when no Pod
+// with its id exists, and that is checked again at the moment of deleting.
+
+async function podCall(podId, route, { method = 'GET', body, timeout = 120000 } = {}) {
+    const res = await fetch(proxyUrl(podId) + route, {
+        method,
+        headers: { 'X-Admin-Password': loadSettings().adminPassword || '', ...(body ? { 'Content-Type': 'application/json' } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(timeout),
+    });
+    return res;
+}
+
+// A running Pod on the volume that can list its folders.
+async function folderPod(key, volumeId) {
+    const running = runningOnVolume(await rest(key, 'GET', '/pods'), volumeId);
+    if (!running.length) throw new RunPodError('no Pod is running on this volume: start one to look inside it (a Pod reads the volume for the console)', 409);
+    let tooOld = null;
+    for (const p of running) {
+        let r;
+        try { r = await podCall(p.id, '/admin/volume-folders', { timeout: 60000 }); } catch { continue; }
+        if (r.status === 401) throw new RunPodError(`Pod "${p.name}" refused the admin password saved here: save the one that Pod was launched with`, 401);
+        if (r.status === 404) { tooOld = p; continue; }
+        if (r.ok) return { pod: p, data: await r.json() };
+    }
+    if (tooOld) throw new RunPodError(`Pod "${tooOld.name}" runs an image without folder cleanup — stop and start it to get the new image`, 409);
+    throw new RunPodError('the Pods on this volume are not answering yet — wait until one is up', 409);
+}
+
+route('GET', '/api/volumes/([A-Za-z0-9]+)/folders', async ({ match }) => {
+    const key = apiKey();
+    const { pod: via, data } = await folderPod(key, match[1]);
+    const account = await rest(key, 'GET', '/pods');
+    const folders = data.folders.map(f => {
+        const owner = account.find(p => p.id === f.id) || null;
+        const kind = f.unfinishedDelete ? 'unfinished'
+            : f.isMe ? 'reader'
+            : owner?.desiredStatus === 'RUNNING' || f.alive ? 'running'
+            : owner ? 'stopped'
+            : 'orphan';
+        return { ...f, kind, pod: owner ? { id: owner.id, name: owner.name, desiredStatus: owner.desiredStatus } : null };
+    });
+    return { via: { id: via.id, name: via.name }, folders };
+});
+
+// A download is a browser navigation, which cannot carry the console header,
+// so the page first asks (with the header) for a one-use link valid a minute.
+const downloads = new Map();
+route('POST', '/api/volumes/([A-Za-z0-9]+)/folders/([A-Za-z0-9_-]+)/download', async ({ match }) => {
+    const token = crypto.randomBytes(18).toString('hex');
+    downloads.set(token, { volumeId: match[1], folderId: match[2], until: Date.now() + 60000 });
+    return { url: `/download/${token}` };
+});
+
+async function serveDownload(token, res) {
+    const d = downloads.get(token);
+    downloads.delete(token);
+    if (!d || d.until < Date.now()) { res.writeHead(410); return res.end('This download link has expired: ask for it again in the console.'); }
+    try {
+        const { pod } = await folderPod(apiKey(), d.volumeId);
+        const r = await podCall(pod.id, `/admin/volume-folders/${encodeURIComponent(d.folderId)}/results.zip`, { timeout: 6 * 3600_000 });
+        if (!r.ok) { res.writeHead(r.status); return res.end(await r.text()); }
+        res.writeHead(200, {
+            'Content-Type': 'application/zip',
+            'Content-Disposition': r.headers.get('content-disposition') || `attachment; filename="comfyq-pod-${d.folderId}-results.zip"`,
+        });
+        Readable.fromWeb(r.body).pipe(res);
+    } catch (e) {
+        res.writeHead(e.status || 502);
+        res.end(e.message);
+    }
+}
+
+route('DELETE', '/api/volumes/([A-Za-z0-9]+)/folders/([A-Za-z0-9._-]+)', async ({ match, body }) => {
+    const key = apiKey();
+    const [vid, fid] = [match[1], match[2]];
+    if (body.confirm !== fid) throw new RunPodError('type the folder name to confirm', 400);
+    // Checked again now, not trusted from the list the page showed.
+    const owner = (await rest(key, 'GET', '/pods')).find(p => p.id === fid);
+    if (owner) {
+        throw new RunPodError(`Pod "${owner.name}" (${fid}) still exists (${String(owner.desiredStatus).toLowerCase()}): this folder is its queue, settings and results. `
+            + 'Terminate the Pod first if you really want them gone.', 409);
+    }
+    const { pod } = await folderPod(key, vid);
+    const r = await podCall(pod.id, `/admin/volume-folders/${encodeURIComponent(fid)}/delete`, { method: 'POST', body: { confirm: fid }, timeout: 600000 });
+    const out = await r.json().catch(() => ({}));
+    if (!r.ok || !out.ok) throw new RunPodError(`Pod "${pod.name}" did not delete it: ${out.error || `HTTP ${r.status}`}`, r.status >= 400 ? r.status : 502);
+    return out;
+});
+
 route('POST', '/api/pods/([A-Za-z0-9]+)/(stop|start)', async ({ match }) => {
     const key = apiKey();
     if (match[2] === 'start') {
@@ -302,6 +399,9 @@ async function readBody(req) {
 const server = http.createServer(async (req, res) => {
     if (!ALLOWED_HOSTS.has(req.headers.host)) { res.writeHead(403); return res.end('forbidden'); }
     const url = new URL(req.url, `http://${req.headers.host}`);
+
+    const dl = req.method === 'GET' && url.pathname.match(/^\/download\/([a-f0-9]{36})$/);
+    if (dl) return serveDownload(dl[1], res);
 
     if (!url.pathname.startsWith('/api/')) {
         const file = STATIC[url.pathname];

@@ -51,6 +51,21 @@ Two ways to do the same thing, both needing only Node 22 or later (no
    student page, admin panel and ComfyUI links, and Stop / Start / Terminate.
    It keeps refreshing while it is open.
 
+**Folders left behind.** Each Pod keeps its queue, settings, results and
+uploads in its own folder on the volume (`pods/<pod id>/`), and terminating a
+Pod leaves that folder there, costing storage. **Folders…** on a volume in the
+Pods tab lists every Pod folder with its size and number of result files, read
+through a Pod running on that volume (the console itself cannot see inside a
+volume, so one Pod must be running). Each folder says whose it is: the reading
+Pod's own, a running Pod's, a **stopped** Pod's — kept, it is that Pod's state
+for when it starts again — or one whose Pod **no longer exists**. Only the
+last can be deleted, after typing its name; **Download results** first gets a
+zip of what its jobs produced, their settings and inputs, and the uploads.
+Whether the Pod still exists is checked against your account again at the
+moment of deleting, and the Pod doing the deleting refuses its own folder, a
+folder whose Pod is running, and anything at all if it has no admin password.
+Nothing is ever deleted automatically.
+
 **When may another Pod join a volume?** When every Pod already running on it
 answers that it can share (images from 2026-10-19 on, `sha-bca559f` or later).
 A Pod still booting cannot answer yet, so it blocks a new one — unless both use
