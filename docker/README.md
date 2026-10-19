@@ -122,9 +122,9 @@ them by hand in a RunPod template.
 | `COMFYQ_SERVE` | workflow ids, comma-separated: fetch their missing models, then serve them (the first as the main lane, the rest as parallel lanes) |
 | `COMFYQ_FETCH_MODELS` | `0` to serve without fetching |
 | `COMFYQ_ADMIN_PASSWORD` | admin password |
-| `COMFYQ_ACCESS_PASSWORD` | student access password |
+| `COMFYQ_ACCESS_PASSWORD` | student access password (optional: without it anyone with the link can book jobs) |
 | `COMFYQ_HF_TOKEN` or `HF_TOKEN` | HuggingFace token for gated models |
-| `COMFYQ_ALLOW_OPEN` | `1` to serve with no passwords. Without it, `COMFYQ_SERVE` is refused unless both passwords are set |
+| `COMFYQ_ALLOW_OPEN` | `1` to serve with no admin password. Without it, `COMFYQ_SERVE` is refused unless the admin password is set |
 
 They are applied once per container start. A password that has not changed
 is left alone, so restarting a Pod does not log students out. Progress and

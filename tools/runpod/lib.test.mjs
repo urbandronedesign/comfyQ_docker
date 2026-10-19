@@ -41,7 +41,8 @@ check('ComfyQ\'s port and ComfyUI\'s are exposed', body.ports.includes('3000/htt
 check('the workflows and secrets travel as the env the image reads',
     body.env.COMFYQ_SERVE === 'a,b' && body.env.COMFYQ_ADMIN_PASSWORD === 'x' && body.env.COMFYQ_ACCESS_PASSWORD === 'y' && body.env.COMFYQ_HF_TOKEN === 'hf');
 check('nothing is switched on that was not asked for', !('COMFYQ_ALLOW_OPEN' in body.env) && !('COMFYQ_FETCH_MODELS' in body.env));
-check('missing passwords are named', missingSecrets({ adminPassword: 'x' }).join() === 'student access password');
+check('only the admin password is required', missingSecrets({ adminPassword: 'x' }).length === 0
+    && missingSecrets({ accessPassword: 'y' }).join() === 'admin password');
 
 // ---- the real library ---------------------------------------------------------
 const wfs = listWorkflows();

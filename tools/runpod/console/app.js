@@ -293,12 +293,11 @@ function updateSummary() {
 $('launchBtn').onclick = async () => {
     const vol = selectedVolume();
     if (!vol || !gpuPick) return;
-    const missing = [];
-    if (!settings.adminPassword.set) missing.push('admin password');
-    if (!settings.accessPassword.set) missing.push('student access password');
+    // Only the admin password is required. No student password just means
+    // anyone with the link can book jobs, which is a fine choice to make.
     let allowOpen = false;
-    if (chosen.length && missing.length) {
-        allowOpen = confirm(`No ${missing.join(' or ')} is saved. Anyone with the Pod's URL could use it${!settings.adminPassword.set ? ' and its admin panel' : ''}.\n\nLaunch it open anyway?`);
+    if (chosen.length && !settings.adminPassword.set) {
+        allowOpen = confirm("No admin password is saved. Anyone with the Pod's URL could use its admin panel: switch workflows, delete jobs, empty the model quarantine.\n\nLaunch it open anyway?");
         if (!allowOpen) { showTab('creds'); return; }
     }
     const b = $('launchBtn');

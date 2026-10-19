@@ -18,7 +18,8 @@ Two ways to do the same thing, both needing only Node 22 or later (no
 ## The console
 
 1. **Credentials.** The RunPod API key (with read and write access), the
-   admin password and the student access password you choose, and a
+   admin password you choose (required), a student access password
+   (optional: leave it empty and anyone with the link can book jobs), and a
    HuggingFace token if you serve gated models. **Test the key** checks it
    against RunPod. Saved in `<your home folder>/.comfyq/runpod-console.json`;
    the page itself is only told whether each one is set.
@@ -53,15 +54,17 @@ the last image build is not on the Pod yet.
    *Network Volumes*). The models live on it, so they are downloaded only the
    first time. It sits in one data centre, and every Pod using it is started
    there.
-3. **The two passwords.** A Pod is on the public internet, so the launcher
-   refuses to serve without an admin password and a student access password.
+3. **An admin password.** A Pod is on the public internet, so the launcher
+   refuses to serve without one: otherwise anyone with the link could run
+   the admin panel. The student access password is optional; without it
+   anyone with the link can book jobs.
 
 On Windows (PowerShell):
 
 ```powershell
 $env:RUNPOD_API_KEY = "rpa_..."
 $env:COMFYQ_ADMIN_PASSWORD = "..."
-$env:COMFYQ_ACCESS_PASSWORD = "..."   # what students type to get in
+$env:COMFYQ_ACCESS_PASSWORD = "..."   # optional: what students type to get in
 $env:HF_TOKEN = "hf_..."              # only for gated models (FLUX.2, some LTX)
 ```
 
@@ -138,7 +141,7 @@ that case terminate it and launch a new one, which reuses the volume.
 The launcher stops following the Pod and prints the reason. The GPU is still
 billing, so either fix the cause or stop the Pod. Common reasons:
 
-- **`not serving: no COMFYQ_ADMIN_PASSWORD…`**: set the passwords.
+- **`not serving: no COMFYQ_ADMIN_PASSWORD…`**: set the admin password.
 - **`unknown or unavailable workflow`**: the id is wrong, or the workflow is
   not in this image (`--sync-workflows` if it is new).
 - **`could not be fetched: … 401`**: a gated model. Accept its licence on

@@ -39,13 +39,13 @@
 
     <div class="card">
       <h2>ComfyQ passwords</h2>
-      <p class="muted">Invent these. A Pod is reachable by anyone who has its URL, so it will not serve without both.</p>
+      <p class="muted">Invent these. A Pod is reachable by anyone who has its URL, so it will not serve without an admin password. The student password is optional: leave it empty and anyone with the link can book jobs.</p>
       <label class="field">
         <span>Admin password <em id="adminPasswordState" class="state"></em></span>
         <input id="adminPassword" type="password" autocomplete="new-password" placeholder="protects /admin">
       </label>
       <label class="field">
-        <span>Student access password <em id="accessPasswordState" class="state"></em></span>
+        <span>Student access password <span class="tag">optional</span> <em id="accessPasswordState" class="state"></em></span>
         <input id="accessPassword" type="password" autocomplete="new-password" placeholder="what students type to get in">
       </label>
     </div>

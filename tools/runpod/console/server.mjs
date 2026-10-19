@@ -148,7 +148,7 @@ route('POST', '/api/launch', async ({ body }) => {
     if (!gpuTypeIds.length) throw new RunPodError('pick a GPU', 400);
     const missing = missingSecrets(secretsOf(s));
     if (serve.length && missing.length && !body.allowOpen) {
-        throw new RunPodError(`set the ${missing.join(' and ')} under Credentials first: a Pod is reachable by anyone who has its URL`, 400);
+        throw new RunPodError('set the admin password under Credentials first: a Pod is reachable by anyone who has its URL, admin panel included', 400);
     }
     const vols = await rest(key, 'GET', '/networkvolumes');
     const volume = vols.find(v => v.id === body.volumeId);

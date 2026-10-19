@@ -60,7 +60,7 @@ async function launch(args) {
     // GPU that would then sit in admin mode.
     const missing = missingSecrets(secrets);
     if (serve.length && missing.length && !args['allow-open']) {
-        die(`set ${missing.map(m => m === 'admin password' ? 'COMFYQ_ADMIN_PASSWORD' : 'COMFYQ_ACCESS_PASSWORD').join(' and ')} first: a Pod is reachable by anyone who has its URL. (--allow-open serves it open on purpose.)`);
+        die('set COMFYQ_ADMIN_PASSWORD first: a Pod is reachable by anyone who has its URL, admin panel included. (--allow-open serves it open on purpose.)');
     }
 
     const volume = await findVolume(apiKey(), args.volume);

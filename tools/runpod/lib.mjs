@@ -165,12 +165,14 @@ export function podBody({ volume, gpuTypeIds, serve = [], secrets = {}, name, im
     };
 }
 
-/** The passwords a Pod needs before it will serve; empty when none is missing. */
+/**
+ * The passwords a Pod needs before it will serve; empty when none is missing.
+ * Only the admin one: without the student access password anyone with the
+ * link can book jobs, which is allowed — without the admin one they could
+ * also run the admin panel.
+ */
 export function missingSecrets(secrets) {
-    const out = [];
-    if (!secrets.adminPassword) out.push('admin password');
-    if (!secrets.accessPassword) out.push('student access password');
-    return out;
+    return secrets.adminPassword ? [] : ['admin password'];
 }
 
 // ---- workflows ----------------------------------------------------------------

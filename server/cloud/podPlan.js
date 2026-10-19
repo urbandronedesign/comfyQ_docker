@@ -25,7 +25,10 @@ const { estimateWorkflowVram, invalidateModelIndex } = require('../workflows/vra
 //   COMFYQ_ADMIN_PASSWORD  admin password.
 //   COMFYQ_ACCESS_PASSWORD student access password.
 //   COMFYQ_HF_TOKEN / HF_TOKEN  HuggingFace token for gated models.
-//   COMFYQ_ALLOW_OPEN      1 to serve with no password at all (see below).
+//   COMFYQ_ALLOW_OPEN      1 to serve with no admin password (see below).
+//
+// The student access password is optional, as it is on a LAN rig: without it
+// anyone who has the Pod's URL can book jobs, which is the owner's call.
 
 const PLAN_FILE = path.join(__dirname, '..', 'data', 'pod-plan.json');
 
@@ -106,16 +109,14 @@ function applyEnv({ env = process.env, configManager, registry, servingFlags, pl
     };
 
     // ★ A Pod is on the public internet: anyone holding its URL can reach it.
-    //   With no admin password the whole panel is open (including emptying the
-    //   model quarantine), and with no access password anyone can book the GPU.
-    //   Serving like that has to be asked for in so many words.
+    //   With no admin password the whole admin panel is open to them —
+    //   switching workflows, deleting jobs, emptying the model quarantine — so
+    //   serving like that has to be asked for in so many words. (No STUDENT
+    //   password only means anyone can book jobs; that is allowed.)
     const c = cfg();
-    const missing = [];
-    if (!c.auth?.adminPasswordHash) missing.push('COMFYQ_ADMIN_PASSWORD');
-    if (!c.auth?.accessPasswordHash) missing.push('COMFYQ_ACCESS_PASSWORD');
-    if (missing.length && !isOn(env.COMFYQ_ALLOW_OPEN)) {
+    if (!c.auth?.adminPasswordHash && !isOn(env.COMFYQ_ALLOW_OPEN)) {
         out.plan = { ...base, status: 'refused',
-            error: `not serving: no ${missing.join(' or ')} set, and this Pod is reachable by anyone with its URL. Set ${missing.length > 1 ? 'them' : 'it'}, or COMFYQ_ALLOW_OPEN=1 to serve it open on purpose.` };
+            error: 'not serving: no COMFYQ_ADMIN_PASSWORD set, and this Pod is reachable by anyone with its URL, admin panel included. Set it, or COMFYQ_ALLOW_OPEN=1 to serve it open on purpose.' };
         writePlan(out.plan, planFile);
         servingFlags.setServingIntent(false);
         return out;

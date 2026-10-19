@@ -67,11 +67,13 @@ const env = (extra = {}) => ({ COMFYQ_ADMIN_PASSWORD: 'Zq7-admin-secret', COMFYQ
     {
         const flags = makeFlags();
         const out = applyEnv({ env: { COMFYQ_SERVE: 'wf' }, configManager: makeConfig(), registry: registryOf({ wf: entry(linked) }), servingFlags: flags, planFile });
-        check('serving with no password is refused', out.plan.status === 'refused');
-        check('...naming both missing variables', /COMFYQ_ADMIN_PASSWORD/.test(out.plan.error) && /COMFYQ_ACCESS_PASSWORD/.test(out.plan.error));
+        check('serving with no admin password is refused', out.plan.status === 'refused');
+        check('...naming the missing variable', /COMFYQ_ADMIN_PASSWORD/.test(out.plan.error));
         check('...and the machine is not left serving', flags.f.serving === false);
         const open = applyEnv({ env: { COMFYQ_SERVE: 'wf', COMFYQ_ALLOW_OPEN: '1' }, configManager: makeConfig(), registry: registryOf({ wf: entry(linked) }), servingFlags: makeFlags(), planFile });
         check('COMFYQ_ALLOW_OPEN=1 serves open on purpose', open.plan.status === 'pending');
+        const noStudent = applyEnv({ env: { COMFYQ_SERVE: 'wf', COMFYQ_ADMIN_PASSWORD: 'Zq7-admin-secret' }, configManager: makeConfig(), registry: registryOf({ wf: entry(linked) }), servingFlags: makeFlags(), planFile });
+        check('no student password is fine: anyone with the link may book', noStudent.plan.status === 'pending');
     }
 
     // ---- unknown workflow --------------------------------------------------
