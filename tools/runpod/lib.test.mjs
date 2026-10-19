@@ -1,7 +1,7 @@
 // GPU choice and Pod body for the RunPod launcher. (node tools/runpod/lib.test.mjs)
 import assert from 'assert';
 import http from 'http';
-import { vramNeeded, rankGpus, podBody, missingSecrets, listWorkflows, runningOnVolume, shareBlockers, HEADROOM_GB } from './lib.mjs';
+import { vramNeeded, rankGpus, podBody, missingSecrets, listWorkflows, runningOnVolume, shareBlockers, volumeGroups, buildsOf, HEADROOM_GB } from './lib.mjs';
 
 const ok = [];
 const check = (label, cond) => { assert.ok(cond, label); ok.push(label); };
@@ -76,8 +76,46 @@ check('a Pod on an older image blocks it, saying so', old.length === 1 && old[0]
 const booting = await shareBlockers([pod('down')]);
 check('a Pod not answering yet blocks it until it is up', booting.length === 1 && /not answering/.test(booting[0].why));
 check('an empty volume blocks nothing', (await shareBlockers([])).length === 0);
+const img = 'ghcr.io/x/comfyq:latest';
+check('a Pod still booting the SAME image is a partner launched together, not a blocker',
+    (await shareBlockers([{ ...pod('down'), image: img }], { image: img })).length === 0);
+check('one booting a different image still blocks',
+    (await shareBlockers([{ ...pod('down'), image: 'ghcr.io/x/comfyq:sha-old' }], { image: img })).length === 1);
+check('an answering Pod without the route blocks even on the same tag (latest may be weeks old)',
+    (await shareBlockers([{ ...pod('old'), image: img }], { image: img })).length === 1);
 proxy.close();
 delete process.env.COMFYQ_POD_PROXY;
+
+// ---- Pods grouped by volume ----------------------------------------------------
+const slim = [
+    { id: 'a', desiredStatus: 'RUNNING', costPerHr: 0.25, networkVolume: { id: 'v1', name: 'models' } },
+    { id: 'b', desiredStatus: 'RUNNING', costPerHr: 0.59, networkVolume: { id: 'v1', name: 'models' } },
+    { id: 'c', desiredStatus: 'EXITED', costPerHr: 0.4, networkVolume: { id: 'v1', name: 'models' } },
+    { id: 'd', desiredStatus: 'RUNNING', costPerHr: 0.3, networkVolume: null },
+    { id: 'e', desiredStatus: 'EXITED', costPerHr: 0.3, networkVolume: { id: 'v2', name: 'archive' } },
+];
+const vg = volumeGroups(slim);
+check('Pods are grouped by volume, named groups first and no volume last',
+    vg.map(g => g.volume?.id || '-').join() === 'v2,v1,-');
+const v1 = vg.find(g => g.volume?.id === 'v1');
+check('a group counts its running Pods and adds up only their $/hour', v1.running === 2 && v1.costPerHr === 0.84 && v1.pods.length === 3);
+check('a group with nothing running costs nothing', vg.find(g => g.volume?.id === 'v2').costPerHr === 0);
+
+// ---- which build each Pod runs ------------------------------------------------------
+const same = buildsOf([
+    { podId: 'a', r: { image: 'sha1', others: [{ id: 'b', image: 'sha1' }] } },
+    { podId: 'b', r: { image: 'sha1', others: [{ id: 'a', image: 'sha1' }] } },
+]);
+check('two Pods on one build: one distinct build', same.distinct.join() === 'sha1');
+const mixed = buildsOf([
+    { podId: 'a', r: { image: 'sha2', others: [{ id: 'b', image: 'sha1' }] } },
+    { podId: 'b', r: { sharedReady: true, others: [{ id: 'a', image: 'sha2' }] } },
+]);
+check('a Pod too old to state its own build is known through a neighbour heartbeat',
+    mixed.builds.b === 'sha1' && mixed.distinct.length === 2);
+const gone = buildsOf([{ podId: 'a', r: { image: 'sha1', others: [{ id: 'ghost', image: 'sha0' }] } }, { podId: 'b', r: null }]);
+check('a heartbeat from a Pod no longer running does not count', !('ghost' in gone.builds) && gone.distinct.join() === 'sha1');
+check('a Pod not answering yet is unknown, never guessed', gone.builds.b === null);
 
 // ---- the real library ---------------------------------------------------------
 const wfs = listWorkflows();

@@ -290,50 +290,161 @@ function renderGpus() {
     updateSummary();
 }
 
-function updateSummary() {
+// ---- several Pods in one launch -----------------------------------------------------
+
+// Pods set up earlier in this launch. The form above always describes one
+// more Pod; "+ Add another Pod" files it here and clears the form.
+let batch = [];
+
+// The Pod the form describes, or null without a GPU that fits.
+function currentPlan() {
     const g = gpuData?.rows.find(x => x.id === gpuPick);
+    if (!g) return null;
+    return {
+        serve: [...chosen],
+        gpuTypeIds: [gpuPick, ...gpuFallback],
+        gpuName: g.name,
+        price: g.pricePerHr,
+        needGb: gpuData.need?.gb ?? null,
+        name: $('podName').value.trim() || null,
+    };
+}
+
+// What the Launch button creates. With Pods already listed, an empty form
+// (no workflow ticked) adds nothing: it is just the form being reset.
+function plansToLaunch() {
+    const cur = currentPlan();
+    const formCounts = !batch.length || chosen.length > 0;
+    return { plans: [...batch, ...(cur && formCounts ? [cur] : [])], formCounts, cur };
+}
+
+const wfName = (id) => workflows.find(w => w.id === id)?.name || id;
+
+function renderBatch() {
+    $('batchCard').hidden = !batch.length;
+    $('batchPodLabel').hidden = !batch.length;
+    $('batchPodLabel').textContent = `Pod ${batch.length + 1}`;
+    $('batchList').innerHTML = batch.map((p, i) => `
+        <div class="bpod ${p.error ? 'bad' : ''}">
+          <div class="bnum">Pod ${i + 1}</div>
+          <div class="bbody">
+            <div><b>${esc(p.serve.map(wfName).join(' + ') || 'admin mode')}</b>${p.name ? ` <span class="muted small">— ${esc(p.name)}</span>` : ''}</div>
+            <div class="muted small">${esc(p.gpuName)}${p.price != null ? ` · $${Number(p.price).toFixed(2)}/h` : ''}${p.gpuTypeIds.length > 1 ? ` · ${p.gpuTypeIds.length - 1} fallback(s)` : ''}${p.needGb ? ` · needs ${p.needGb} GB` : ''}</div>
+            ${p.error ? `<div class="small" style="color:var(--bad)">Not created: ${esc(p.error)}</div>` : ''}
+          </div>
+          <button class="ghost" data-bedit="${i}" title="Move it back into the form above">Edit</button>
+          <button class="ghost" data-brm="${i}" title="Remove from this launch">✕</button>
+        </div>`).join('');
+    for (const b of $('batchList').querySelectorAll('[data-brm]')) {
+        b.onclick = () => { batch.splice(Number(b.dataset.brm), 1); renderBatch(); updateSummary(); };
+    }
+    for (const b of $('batchList').querySelectorAll('[data-bedit]')) {
+        b.onclick = () => {
+            const [p] = batch.splice(Number(b.dataset.bedit), 1);
+            // What the form held goes into the list rather than being lost.
+            const cur = currentPlan();
+            if (cur && chosen.length) batch.push(cur);
+            chosen = [...p.serve];
+            $('podName').value = p.name || '';
+            gpuPick = p.gpuTypeIds[0];
+            gpuFallback = new Set(p.gpuTypeIds.slice(1));
+            fallbackTouched = true;
+            renderBatch();
+            renderWorkflows();
+            loadGpus();
+            $('wfSearch').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        };
+    }
+}
+
+function resetForm() {
+    chosen = [];
+    $('podName').value = '';
+    gpuPick = null;
+    gpuFallback = new Set();
+    fallbackTouched = false;
+    renderWorkflows();
+    loadGpus();
+}
+
+$('addToBatch').onclick = () => {
+    const cur = currentPlan();
+    if (!chosen.length) return toast('Tick the workflows this Pod serves first.', true);
+    if (!cur) return toast('Pick a GPU for this Pod first.', true);
+    if (batch.length >= 7) return toast('At most 8 Pods in one launch.', true);
+    batch.push(cur);
+    renderBatch();
+    resetForm();
+    toast(`Pod ${batch.length} kept. Now tick the workflows for Pod ${batch.length + 1}, or launch.`);
+    $('wfSearch').scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+
+function updateSummary() {
     const vol = selectedVolume();
+    const { plans, formCounts, cur } = plansToLaunch();
+    const b = $('launchBtn');
+    b.textContent = plans.length > 1 ? `Launch ${plans.length} Pods` : 'Launch Pod';
+    // A form with workflows but no GPU that fits would be dropped silently.
+    const formStuck = formCounts && !cur;
+    b.disabled = !vol || !plans.length || formStuck;
     const parts = [];
-    if (g) parts.push(`${g.name}${g.pricePerHr != null ? ` at about $${Number(g.pricePerHr).toFixed(2)}/hour` : ''}`);
-    if (gpuFallback.size) parts.push(`or ${gpuFallback.size} fallback(s)`);
-    if (vol) parts.push(`in ${vol.dataCenterId}`);
-    parts.push(chosen.length ? `serving ${chosen.length} workflow(s)` : 'in admin mode');
+    // With Pods listed, describe what will be created, not the form.
+    if (batch.length) {
+        const priced = plans.filter(p => p.price != null);
+        parts.push(plans.length > 1 ? `${plans.length} Pods` : '1 Pod (listed above)');
+        if (priced.length) parts.push(`about $${priced.reduce((s, p) => s + Number(p.price), 0).toFixed(2)}/hour${plans.length > 1 ? ' together' : ''}`);
+        if (vol) parts.push(`in ${vol.dataCenterId}`);
+        if (formStuck) parts.push('— pick a GPU for the Pod in the form, or untick its workflows');
+    } else {
+        const g = gpuData?.rows.find(x => x.id === gpuPick);
+        if (g) parts.push(`${g.name}${g.pricePerHr != null ? ` at about $${Number(g.pricePerHr).toFixed(2)}/hour` : ''}`);
+        if (gpuFallback.size) parts.push(`or ${gpuFallback.size} fallback(s)`);
+        if (vol) parts.push(`in ${vol.dataCenterId}`);
+        parts.push(chosen.length ? `serving ${chosen.length} workflow(s)` : 'in admin mode');
+    }
     $('launchSummary').textContent = parts.join(', ');
-    $('launchBtn').disabled = !gpuPick || !vol;
 }
 
 $('launchBtn').onclick = async () => {
     const vol = selectedVolume();
-    if (!vol || !gpuPick) return;
+    const { plans, formCounts, cur } = plansToLaunch();
+    if (!vol || !plans.length) return;
     // Only the admin password is required. No student password just means
     // anyone with the link can book jobs, which is a fine choice to make.
     let allowOpen = false;
-    if (chosen.length && !settings.adminPassword.set) {
+    if (plans.some(p => p.serve.length) && !settings.adminPassword.set) {
         allowOpen = confirm("No admin password is saved. Anyone with the Pod's URL could use its admin panel: switch workflows, delete jobs, empty the model quarantine.\n\nLaunch it open anyway?");
         if (!allowOpen) { showTab('creds'); return; }
     }
     const b = $('launchBtn');
     b.disabled = true;
-    b.textContent = 'Launching…';
+    b.textContent = plans.length > 1 ? `Launching ${plans.length} Pods…` : 'Launching…';
     try {
-        const { pod } = await api('POST', '/api/launch', {
+        const r = await api('POST', '/api/launch', {
             volumeId: vol.id,
-            gpuTypeIds: [gpuPick, ...gpuFallback],
-            serve: chosen,
-            name: $('podName').value.trim() || undefined,
+            pods: plans.map(p => ({ serve: p.serve, gpuTypeIds: p.gpuTypeIds, name: p.name || undefined })),
             diskGb: Number($('diskGb').value) || 30,
             community: $('community').checked,
             fetchModels: $('fetchModels').checked,
             syncWorkflows: $('syncWorkflows').checked,
             allowOpen,
         });
-        toast(`Pod ${pod.id} created — now billing`);
-        selectedPod = pod.id;
-        showTab('pods');
+        // Keep only the Pods RunPod refused, each with its reason, so pressing
+        // Launch again retries just those.
+        batch = plans.map((p, i) => ({ ...p, error: r.results[i].ok ? null : r.results[i].error })).filter(p => p.error);
+        if (cur && formCounts) resetForm();
+        renderBatch();
+        const n = r.created.length;
+        if (!batch.length) {
+            toast(n > 1 ? `${n} Pods created — now billing` : `Pod ${r.pod.id} created — now billing`);
+            selectedPod = r.pod.id;
+            showTab('pods');
+        } else {
+            toast(`${n} Pod(s) created and billing; ${batch.length} could not be created — kept below. Press Launch to try them again.`, true);
+        }
     } catch (e) {
         toast(e.message, true);
     } finally {
-        b.textContent = 'Launch Pod';
         updateSummary();
     }
 };
@@ -347,7 +458,7 @@ let listTimer = null;
 
 async function loadPods() {
     try {
-        pods = (await api('GET', '/api/pods')).pods;
+        ({ pods, groups } = await api('GET', '/api/pods'));
     } catch (e) {
         $('podList').innerHTML = `<p class="muted">${esc(e.message)}</p>`;
         return;
@@ -357,18 +468,97 @@ async function loadPods() {
     if (!selectedPod && pods.length) selectedPod = (pods.find(p => p.comfyq) || pods[0]).id;
     renderPodList();
     loadDetail();
+    loadBuilds();
     clearInterval(listTimer);
     listTimer = setInterval(() => { if (!$('tab-pods').hidden && !document.hidden) loadPods(); }, 30000);
 }
 
-function renderPodList() {
-    $('podList').innerHTML = pods.map(p => `
-        <div class="pod ${p.id === selectedPod ? 'sel' : ''}" data-pod="${esc(p.id)}">
-          <div><span class="dot ${p.desiredStatus === 'RUNNING' ? 'run' : 'stop'}"></span><b>${esc(p.name)}</b></div>
+// Pods grouped by network volume: Pods on one volume share its models, so
+// they are watched, priced and stopped together.
+let groups = [];
+const builds = {};       // volume id -> { key, builds, distinct } once read
+
+const shortSha = (sha) => String(sha).slice(0, 7);
+
+function podRow(p) {
+    const running = p.desiredStatus === 'RUNNING';
+    return `<div class="pod ${p.id === selectedPod ? 'sel' : ''}" data-pod="${esc(p.id)}">
+          <div><span class="dot ${running ? 'run' : 'stop'}"></span><b>${esc(p.name)}</b>
+            ${running ? `<a class="small podlink" href="${esc(p.links.students)}" target="_blank" rel="noreferrer" title="This Pod's student page">students ↗</a>` : ''}</div>
           <div class="muted small">${esc(p.id)} · ${esc(p.gpu?.name || 'no GPU')} · ${esc(String(p.desiredStatus || '').toLowerCase())}${p.costPerHr ? ` · $${Number(p.costPerHr).toFixed(2)}/h` : ''}</div>
-        </div>`).join('') || '<p class="muted">No Pods. Launch one from the Launch tab.</p>';
+          ${p.serve?.length ? `<div class="muted small">${esc(p.serve.join(', '))}</div>` : ''}
+        </div>`;
+}
+
+function buildLine(g) {
+    const b = builds[g.volume?.id];
+    const key = runningKey(g);
+    if (!g.volume || g.running < 2) return '';
+    if (!b || b.key !== key) return '<div class="vbuild muted small">Checking which build each Pod runs…</div>';
+    const byId = (id) => pods.find(p => p.id === id)?.name || id;
+    if (b.distinct.length > 1) {
+        return `<div class="vbuild note bad small"><b>These Pods run different builds</b>: ${Object.entries(b.builds)
+            .map(([id, sha]) => `${esc(byId(id))} ${sha ? esc(shortSha(sha)) : 'unknown'}`).join(', ')}.
+            A newer image may expect a newer layout on the volume. Stop the older Pod(s) and start them again so they all pull the same image.</div>`;
+    }
+    const unknown = Object.entries(b.builds).filter(([, sha]) => !sha).map(([id]) => byId(id));
+    if (b.distinct.length === 1) {
+        return `<div class="vbuild muted small">All on build ${esc(shortSha(b.distinct[0]))}${unknown.length ? `; not known yet for ${esc(unknown.join(', '))} (still starting?)` : ''}.</div>`;
+    }
+    return '<div class="vbuild muted small">Build not known yet (Pods still starting, or on an image older than the shared volume).</div>';
+}
+
+const runningKey = (g) => g.pods.map(id => pods.find(p => p.id === id)).filter(p => p?.desiredStatus === 'RUNNING').map(p => p.id).sort().join(',');
+
+async function loadBuilds() {
+    for (const g of groups) {
+        if (!g.volume || g.running < 2) continue;
+        const key = runningKey(g);
+        // A complete answer is kept a minute; one with a Pod still unknown
+        // (booting) is asked again at every refresh.
+        const prev = builds[g.volume.id];
+        if (prev?.key === key && Date.now() - prev.at < 60000 && Object.values(prev.builds).every(Boolean)) continue;
+        try {
+            const r = await api('GET', `/api/volumes/${encodeURIComponent(g.volume.id)}/builds`);
+            builds[g.volume.id] = { key, at: Date.now(), ...r };
+        } catch { /* leave it as "checking" */ }
+    }
+    renderPodList();
+}
+
+function renderPodList() {
+    $('podList').innerHTML = groups.map(g => {
+        const members = g.pods.map(id => pods.find(p => p.id === id)).filter(Boolean);
+        const vname = g.volume ? esc(g.volume.name) : 'No network volume';
+        return `<div class="vgroup">
+          <div class="vhead">
+            <div><b>${vname}</b>${g.volume?.dataCenterId ? ` <span class="muted small">${esc(g.volume.dataCenterId)}</span>` : ''}</div>
+            <div class="muted small">${g.running ? `${g.running} running · <b>$${g.costPerHr.toFixed(2)}/h</b>${g.running > 1 ? ' together' : ''}` : 'nothing running'}</div>
+            ${g.running > 1 ? `<button class="ghost small" data-stopall="${esc(g.volume?.id || '')}">Stop all ${g.running}</button>` : ''}
+          </div>
+          ${buildLine(g)}
+          ${members.map(podRow).join('')}
+        </div>`;
+    }).join('') || '<p class="muted">No Pods. Launch one from the Launch tab.</p>';
     for (const el of $('podList').querySelectorAll('[data-pod]')) {
-        el.onclick = () => { selectedPod = el.dataset.pod; store('rpc.pod', selectedPod); renderPodList(); loadDetail(); };
+        el.onclick = (ev) => {
+            if (ev.target.closest('a')) return;
+            selectedPod = el.dataset.pod; store('rpc.pod', selectedPod); renderPodList(); loadDetail();
+        };
+    }
+    for (const b of $('podList').querySelectorAll('[data-stopall]')) {
+        b.onclick = async () => {
+            const g = groups.find(x => (x.volume?.id || '') === b.dataset.stopall);
+            const running = g.pods.map(id => pods.find(p => p.id === id)).filter(p => p?.desiredStatus === 'RUNNING');
+            if (!confirm(`Stop ${running.length} Pods on "${g.volume?.name || 'no volume'}"?\n\n${running.map(p => p.name).join('\n')}\n\nGPU billing ends once each has stopped. Their queues and results stay on the volume.`)) return;
+            b.disabled = true;
+            const errors = [];
+            for (const p of running) {
+                try { await api('POST', `/api/pods/${p.id}/stop`); } catch (e) { errors.push(`${p.name}: ${e.message}`); }
+            }
+            errors.length ? toast(`Could not stop: ${errors.join('; ')}`, true) : toast(`Stopping ${running.length} Pods`);
+            setTimeout(loadPods, 1500);
+        };
     }
 }
 

@@ -11,9 +11,9 @@ Two ways to do the same thing, both needing only Node 22 or later (no
 
 > **Status:** written 2026-10-19 against RunPod's REST API
 > (`https://rest.runpod.io/v1`, checked against its OpenAPI spec that day) and
-> its GraphQL API for GPU prices. Both were tested end to end against a
-> stand-in RunPod, **not yet against a real account**: try a cheap GPU before
-> a class.
+> its GraphQL API for GPU prices. Used on a real account the same day (single
+> Pods, and two Pods sharing a volume). Launching several Pods from the console
+> in one go (added later that day) was tested against a stand-in RunPod only so far.
 
 ## The console
 
@@ -31,10 +31,33 @@ Two ways to do the same thing, both needing only Node 22 or later (no
    bundle's stated minimum when it was never measured. Tick **fallback** on
    other GPUs to accept them if the first is not available. Then **Launch
    Pod**.
-3. **Pods.** Each Pod's progress (booting, downloading models with a bar per
-   file, starting, serving), its cost per hour, how long it has run, students
-   connected, the queue, links to the student page, admin panel and ComfyUI,
-   and Stop / Start / Terminate. It keeps refreshing while it is open.
+
+   **Several Pods on one volume.** Set up the first Pod, press **+ Add another
+   Pod**, and the form clears for the next one: its own workflows, and a GPU
+   recommended for those workflows alone. **Launch N Pods** creates them all,
+   with the total $/hour shown beforehand. They share the volume's models;
+   a model several of them need is downloaded once, and the others wait for
+   it. If RunPod has no machine for one of them, the others are still created
+   (and billing), and the refused one stays in the list with the reason:
+   **Edit** it to pick another GPU, then **Launch** again.
+3. **Pods.** Grouped by network volume, with how many run on each and what
+   they cost together per hour, and **Stop all** for a volume. When two or more
+   Pods run on one volume, the console checks which image build each serves
+   and warns when they differ: Pods that pulled `latest` at different times
+   can, and a newer build may expect a newer layout on the volume. For each
+   Pod: its progress (booting, downloading models with a bar per file — or
+   *waiting for* another Pod downloading the same one — starting, serving),
+   cost per hour, how long it has run, students connected, the queue, its own
+   student page, admin panel and ComfyUI links, and Stop / Start / Terminate.
+   It keeps refreshing while it is open.
+
+**When may another Pod join a volume?** When every Pod already running on it
+answers that it can share (images from 2026-10-19 on, `sha-bca559f` or later).
+A Pod still booting cannot answer yet, so it blocks a new one — unless both use
+the **same image**, which is what launching or starting several together does.
+A Pod on an older image is refused outright: it has no download lock, so two
+Pods could write the same model file. Pinning an image older than `sha-bca559f`
+under *Advanced* and launching several Pods on it is therefore not safe.
 
 **Safety.** The console holds a key that can spend money, so it only answers
 on `127.0.0.1` and refuses requests from other websites open in the same

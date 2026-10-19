@@ -193,10 +193,15 @@ export function runningOnVolume(pods, volumeId, exceptId = null) {
  * ★ Only if every one of them answers /admin/volume-pods. That route came with
  *   the volume-wide download lock and the prune guards (Phase I, I3/I4); a Pod
  *   on an older image has neither, so two Pods missing the same model would
- *   write the same file. A Pod still booting cannot answer yet either: wait.
+ *   write the same file. A Pod still booting cannot answer yet either: wait —
+ *   unless it boots the SAME image as the one joining (`image`). Then both
+ *   carry the same code, and if that code shares safely, so do they. That is
+ *   what lets several Pods be launched or started together on purpose instead
+ *   of one at a time. A Pod that answers but lacks the route still blocks,
+ *   whatever its tag says: the tag `latest` may have been pulled weeks ago.
  *   Returns the Pods that block, each with the reason.
  */
-export async function shareBlockers(busy) {
+export async function shareBlockers(busy, { image = null } = {}) {
     const out = [];
     for (const p of busy) {
         const r = await podGet(p.id, '/admin/volume-pods');
@@ -205,11 +210,63 @@ export async function shareBlockers(busy) {
         // a Pod still starting answers none. They need different advice —
         // waiting never fixes the first.
         const alive = r || await podGet(p.id, '/federation/self');
+        if (!alive && image && p.image === image) continue;
         out.push({ pod: p, why: alive
             ? 'runs an image too old to share a volume — stop it, or restart it to get the new image'
-            : 'is not answering yet (still starting?) — wait until it is up' });
+            : 'is not answering yet (still starting?) — wait until it is up, or start it together with this one on the same image' });
     }
     return out;
+}
+
+// ---- several Pods on one volume -------------------------------------------------
+
+/**
+ * Pods grouped by the network volume they use, each group with how many run
+ * and what they cost together per hour. Pods take the shape the console sends
+ * the page (`networkVolume: {id, name}`). Groups by name; Pods with no volume last.
+ */
+export function volumeGroups(pods) {
+    const groups = new Map();
+    for (const p of pods || []) {
+        const v = p.networkVolume || null;
+        const key = v?.id || '';
+        if (!groups.has(key)) groups.set(key, { volume: v, pods: [], running: 0, costPerHr: 0 });
+        const g = groups.get(key);
+        g.pods.push(p);
+        if (p.desiredStatus === 'RUNNING') {
+            g.running++;
+            g.costPerHr += Number(p.costPerHr) || 0;
+        }
+    }
+    return [...groups.values()]
+        .map(g => ({ ...g, costPerHr: +g.costPerHr.toFixed(3) }))
+        .sort((a, b) => (!a.volume) - (!b.volume) || String(a.volume?.name).localeCompare(String(b.volume?.name)));
+}
+
+/**
+ * Which build each Pod on a volume runs, from their /admin/volume-pods answers.
+ * A Pod states its own build (`image`, images after 2026-10-19) and lists the
+ * others' from their heartbeats, so even a Pod too old to state its own is
+ * known through a neighbour. `answers` is [{ podId, r }]; returns
+ * { builds: {podId: sha|null}, distinct: [sha…] }.
+ */
+export function buildsOf(answers) {
+    const builds = {};
+    for (const { podId, r } of answers) {
+        if (!(podId in builds)) builds[podId] = null;
+        if (r?.image) builds[podId] = r.image;
+        for (const o of r?.others || []) if (o?.id && o.image) builds[o.id] = o.image;
+    }
+    // A heartbeat may name a Pod RunPod no longer lists as running: drop it.
+    const ids = new Set(answers.map(a => a.podId));
+    for (const id of Object.keys(builds)) if (!ids.has(id)) delete builds[id];
+    const distinct = [...new Set(Object.values(builds).filter(Boolean))];
+    return { builds, distinct };
+}
+
+export async function volumeBuilds(podIds) {
+    const answers = await Promise.all(podIds.map(async podId => ({ podId, r: await podGet(podId, '/admin/volume-pods') })));
+    return buildsOf(answers);
 }
 
 export const cannotShare = (blockers, volumeName) =>

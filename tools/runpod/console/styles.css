@@ -132,3 +132,20 @@ table.gpus { width: 100%; min-width: 560px; border-collapse: collapse; margin-to
 
 .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 16px; max-width: min(90vw, 640px); box-shadow: 0 8px 24px rgba(0,0,0,.3); z-index: 20; }
 .toast.bad { border-color: var(--bad); }
+
+/* several Pods in one launch */
+.batch { display: grid; gap: 8px; }
+.bpod { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
+.bpod.bad { border-color: var(--bad); }
+.bpod .bnum { font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.bpod .bbody { flex: 1; min-width: 0; }
+.bpod button { padding: 4px 8px; }
+
+/* Pods grouped by volume */
+.vgroup { margin-bottom: 14px; }
+.vgroup + .vgroup { padding-top: 10px; border-top: 1px solid var(--border); }
+.vhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-bottom: 6px; }
+.vhead > div:first-child { flex: 1 1 100%; }
+.vhead button { margin-left: auto; padding: 2px 8px; }
+.vbuild { margin: 4px 0 8px; }
+.podlink { margin-left: 6px; color: var(--accent); text-decoration: none; }

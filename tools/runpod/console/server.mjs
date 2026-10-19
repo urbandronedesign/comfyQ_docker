@@ -24,7 +24,7 @@ import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import {
     rest, gpuTypes, podProbe, podBody, proxyUrl, missingSecrets, runningOnVolume, shareBlockers, cannotShare,
-    listWorkflows, vramNeeded, rankGpus, DEFAULT_IMAGE, RunPodError,
+    listWorkflows, vramNeeded, rankGpus, volumeBuilds, volumeGroups, DEFAULT_IMAGE, RunPodError,
 } from '../lib.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -140,43 +140,78 @@ route('GET', '/api/gpus', async ({ query }) => {
     return { need, scopedToDataCenter, ...ranked };
 });
 
+// Launch one Pod or several on one volume. The body is either one Pod's
+// fields ({serve, gpuTypeIds, name}) or `pods: [{…}, …]`; the volume and
+// options are shared. Pods are created one after the other; one RunPod has no
+// machine for does not undo the others, which are already billing, so the
+// answer lists both what was created and what failed.
 route('POST', '/api/launch', async ({ body }) => {
     const s = loadSettings();
     const key = apiKey();
-    const serve = Array.isArray(body.serve) ? body.serve.filter(Boolean) : [];
-    const gpuTypeIds = Array.isArray(body.gpuTypeIds) ? body.gpuTypeIds.filter(Boolean) : [];
-    if (!gpuTypeIds.length) throw new RunPodError('pick a GPU', 400);
+    const image = s.image || DEFAULT_IMAGE;
+    const plans = (Array.isArray(body.pods) ? body.pods : [body]).map(p => ({
+        serve: Array.isArray(p.serve) ? p.serve.filter(Boolean) : [],
+        gpuTypeIds: Array.isArray(p.gpuTypeIds) ? p.gpuTypeIds.filter(Boolean) : [],
+        name: typeof p.name === 'string' && p.name.trim() ? p.name.trim() : null,
+    }));
+    if (!plans.length) throw new RunPodError('nothing to launch', 400);
+    if (plans.length > 8) throw new RunPodError('at most 8 Pods in one launch', 400);
+    if (plans.some(p => !p.gpuTypeIds.length)) throw new RunPodError('pick a GPU for every Pod', 400);
     const missing = missingSecrets(secretsOf(s));
-    if (serve.length && missing.length && !body.allowOpen) {
+    if (plans.some(p => p.serve.length) && missing.length && !body.allowOpen) {
         throw new RunPodError('set the admin password under Credentials first: a Pod is reachable by anyone who has its URL, admin panel included', 400);
     }
     const vols = await rest(key, 'GET', '/networkvolumes');
     const volume = vols.find(v => v.id === body.volumeId);
     if (!volume) throw new RunPodError('pick a network volume', 400);
-    const blockers = await shareBlockers(runningOnVolume(await rest(key, 'GET', '/pods'), volume.id));
+    // Pods already on the volume must be able to share it. The ones created
+    // here boot the same image as each other, so they never block each other.
+    const existing = await rest(key, 'GET', '/pods');
+    const blockers = await shareBlockers(runningOnVolume(existing, volume.id), { image });
     if (blockers.length) throw new RunPodError(cannotShare(blockers, volume.name), 409);
 
-    const create = () => rest(key, 'POST', '/pods', podBody({
-        volume, gpuTypeIds, serve, secrets: secretsOf(s),
-        name: body.name, image: s.image, diskGb: body.diskGb || s.diskGb,
-        community: !!body.community, fetchModels: body.fetchModels !== false,
-        syncWorkflows: !!body.syncWorkflows, allowOpen: !!body.allowOpen && missing.length > 0,
-    }));
-    let pod;
-    try { pod = await create(); }
-    catch (e) {
-        // RunPod's wording for "no free machine matches": say what to change.
-        if (/required specifications|requested specifications|instances available|no.*available|insufficient/i.test(e.message)) {
-            throw new RunPodError(`RunPod has no free machine right now with ${gpuTypeIds.length > 1 ? 'any of these GPUs' : 'this GPU'} in ${volume.dataCenterId} `
-                + `(on ${body.community ? 'Community' : 'Secure'} Cloud, with a CUDA 12.8 driver). Pick a GPU showing stock, tick a few more as fallbacks, `
-                + `or try again in a few minutes — stock in one data centre changes often.`, 409);
+    // Two Pods serving the same workflow would get the same default name, in
+    // this launch or beside one launched earlier: keep names unique.
+    const names = new Set(existing.map(p => p.name));
+    for (const p of plans) {
+        const base = (p.name || `comfyq-${p.serve[0] || 'admin'}`).slice(0, 180);
+        let n = base;
+        for (let i = 2; names.has(n); i++) n = `${base}-${i}`;
+        names.add(n);
+        p.name = n;
+    }
+
+    const created = [];
+    const failed = [];
+    const results = [];          // one per Pod asked for, in order
+    for (const p of plans) {
+        try {
+            const pod = await rest(key, 'POST', '/pods', podBody({
+                volume, gpuTypeIds: p.gpuTypeIds, serve: p.serve, secrets: secretsOf(s),
+                name: p.name, image: s.image, diskGb: body.diskGb || s.diskGb,
+                community: !!body.community, fetchModels: body.fetchModels !== false,
+                syncWorkflows: !!body.syncWorkflows, allowOpen: !!body.allowOpen && missing.length > 0,
+            }));
+            created.push(slimPod(pod, [volume]));
+            results.push({ ok: true, pod: created.at(-1) });
+        } catch (e) {
+            // RunPod's wording for "no free machine matches": say what to change.
+            const error = /required specifications|requested specifications|instances available|no.*available|insufficient/i.test(e.message)
+                ? `RunPod has no free machine right now with ${p.gpuTypeIds.length > 1 ? 'any of these GPUs' : 'this GPU'} in ${volume.dataCenterId} `
+                  + `(on ${body.community ? 'Community' : 'Secure'} Cloud, with a CUDA 12.8 driver). Pick a GPU showing stock, tick a few more as fallbacks, `
+                  + `or try again in a few minutes — stock in one data centre changes often.`
+                : e.message;
+            failed.push({ name: p.name, serve: p.serve, error, status: e.status || 500 });
+            results.push({ ok: false, error });
         }
-        throw e;
     }
     // Remember the choices for next time (never the secrets — those are
     // already stored separately).
-    saveSettings({ ...s, volumeId: volume.id, community: !!body.community, diskGb: body.diskGb || s.diskGb || 30 });
-    return { pod: slimPod(pod, [volume]) };
+    if (created.length) saveSettings({ ...s, volumeId: volume.id, community: !!body.community, diskGb: body.diskGb || s.diskGb || 30 });
+    // Nothing created: an error, as a single launch always was.
+    if (!created.length) throw new RunPodError(plans.length === 1 ? failed[0].error : failed.map(f => `${f.name}: ${f.error}`).join(' — '),
+        failed.every(f => /no free machine/.test(f.error)) ? 409 : failed[0].status);
+    return { pod: created[0], created, failed, results };
 });
 
 // The Pod object minus its environment, which holds the passwords. RunPod
@@ -200,7 +235,8 @@ const slimPod = (p, volumes = []) => p && ({
 route('GET', '/api/pods', async () => {
     const key = apiKey();
     const [pods, volumes] = await Promise.all([rest(key, 'GET', '/pods'), rest(key, 'GET', '/networkvolumes')]);
-    return { pods: pods.map(p => slimPod(p, volumes)) };
+    const slim = pods.map(p => slimPod(p, volumes));
+    return { pods: slim, groups: volumeGroups(slim).map(g => ({ ...g, pods: g.pods.map(p => p.id) })) };
 });
 
 route('GET', '/api/pods/([A-Za-z0-9]+)', async ({ match }) => {
@@ -210,12 +246,21 @@ route('GET', '/api/pods/([A-Za-z0-9]+)', async ({ match }) => {
     return { pod: slimPod(pod, volumes), probe };
 });
 
+// Which build each running Pod on a volume serves. Pods that pulled `latest`
+// at different times can differ, and a newer image may expect a newer layout.
+route('GET', '/api/volumes/([A-Za-z0-9]+)/builds', async ({ match }) => {
+    const running = runningOnVolume(await rest(apiKey(), 'GET', '/pods'), match[1]);
+    return volumeBuilds(running.map(p => p.id));
+});
+
 route('POST', '/api/pods/([A-Za-z0-9]+)/(stop|start)', async ({ match }) => {
     const key = apiKey();
     if (match[2] === 'start') {
         const pod = await rest(key, 'GET', `/pods/${match[1]}`);
         const vid = pod.networkVolumeId || pod.networkVolume?.id;
-        const blockers = vid ? await shareBlockers(runningOnVolume(await rest(key, 'GET', '/pods'), vid, pod.id)) : [];
+        // Starting several stopped Pods on one volume together is fine when
+        // they boot the same image, so a booting neighbour on it is no blocker.
+        const blockers = vid ? await shareBlockers(runningOnVolume(await rest(key, 'GET', '/pods'), vid, pod.id), { image: pod.image }) : [];
         if (blockers.length) {
             const vols = await rest(key, 'GET', '/networkvolumes');
             throw new RunPodError(cannotShare(blockers, vols.find(v => v.id === vid)?.name || vid), 409);

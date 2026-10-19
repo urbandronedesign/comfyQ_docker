@@ -96,8 +96,8 @@
     </div>
 
     <div class="card">
-      <h2>Workflows to serve</h2>
-      <p class="muted">The first one ticked is the main one; others run beside it on the same GPU.</p>
+      <h2>Workflows to serve <span id="batchPodLabel" class="tag" hidden></span></h2>
+      <p class="muted">The first one ticked is the main one; others run beside it on the same GPU. For a second Pod with other workflows, use <i>+ Add another Pod</i> below.</p>
       <div class="row wrap">
         <input id="wfSearch" type="search" placeholder="Search workflows…">
         <label class="check"><input id="wfHideExp" type="checkbox"> hide experimental</label>
@@ -132,8 +132,15 @@
       <label class="check"><input id="syncWorkflows" type="checkbox"> Replace the volume's workflow bundles with the image's</label>
     </div>
 
+    <div id="batchCard" class="card" hidden>
+      <h2>Pods in this launch</h2>
+      <p class="muted">They are created together on the same volume and image, so none waits for another to boot. Models they all need are downloaded once: the others wait for it.</p>
+      <div id="batchList" class="batch"></div>
+    </div>
+
     <div class="row sticky">
       <button id="launchBtn" class="primary big">Launch Pod</button>
+      <button id="addToBatch" class="secondary" title="Keep this Pod's workflows and GPU, and set up another Pod to launch with it">+ Add another Pod</button>
       <span id="launchSummary" class="muted"></span>
     </div>
   </section>

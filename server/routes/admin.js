@@ -625,6 +625,8 @@ function makeRouter({ configManager, registry, adminGate, exitForRestart, runtim
             sharedReady: true,
             shared: !!hb?.enabled,
             me: hb ? hb.id : null,
+            // This Pod's own build, so a console can compare Pods on one volume.
+            image: process.env.COMFYQ_IMAGE_SHA || null,
             others: otherPods(),
         });
     });
