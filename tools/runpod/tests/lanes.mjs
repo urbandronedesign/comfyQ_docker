@@ -40,10 +40,10 @@ const PORT = 4792;
 const consoleProc = spawn(process.execPath, [path.join(HERE, '..', 'console', 'server.mjs'), '--no-open'], {
     env: { ...process.env, COMFYQ_CONSOLE_PORT: String(PORT), COMFYQ_CONSOLE_SOURCE: 'lanes test' }, stdio: 'ignore',
 });
-async function api(method, route, body) {
+async function api(method, route, body, timeoutMs = 900_000) {
     const r = await fetch(`http://localhost:${PORT}${route}`, {
         method, headers: { 'X-ComfyQ-Console': '1', ...(body ? { 'Content-Type': 'application/json' } : {}) },
-        body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(900_000),
+        body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(timeoutMs),
     });
     const data = await r.json().catch(() => ({}));
     if (!r.ok) { const e = new Error(data.error || `HTTP ${r.status}`); e.status = r.status; throw e; }
@@ -60,11 +60,12 @@ try {
     // ---- wait for the card ---------------------------------------------------------
     for (const end = Date.now() + WAIT_MIN * 60_000; !pod;) {
         try {
-            const r = await api('POST', '/api/launch', { volumeId: VOLUME, pods: [{ serve: WFS, gpuTypeIds: GPUS, name: 'comfyq-lanes' }], diskGb: 40 });
+            // A try that hangs must not stall the hunt: give up on it after a minute.
+            const r = await api('POST', '/api/launch', { volumeId: VOLUME, pods: [{ serve: WFS, gpuTypeIds: GPUS, name: 'comfyq-lanes' }], diskGb: 40 }, 60_000);
             pod = r.pod;
             log(`Pod ${pod.id} created on ${pod.gpu?.name || GPUS[0]} at $${pod.costPerHr}/h, serving ${WFS.join(' + ')}`);
         } catch (e) {
-            if (Date.now() > end || !(e.status === 409 || e.status >= 500)) throw e;
+            if (Date.now() > end || !(e.status === 409 || e.status >= 500 || e.name === 'TimeoutError')) throw e;
             tries = (tries || 0) + 1;
             if (tries === 1 || tries % Math.max(1, Math.round(60 / RETRY_SEC)) === 0) {
                 log(`no ${GPUS.length > 1 ? 'card of these types' : 'card'} free yet — asking every ${RETRY_SEC} s (${tries} tries, ${Math.round((end - Date.now()) / 60000)} min left)`);
