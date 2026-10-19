@@ -23,6 +23,13 @@ const GPUS = String(arg('gpus') || '').split(',').map(s => s.trim()).filter(Bool
 const WAIT_MIN = Number(arg('wait-min') || 60);
 // How often to ask RunPod for the card. RunPod has no queue: a card freed
 // goes to whoever asks first, so ask often (each try is one quick request).
+// --volume none: Plan B, no network volume. RunPod may pick any data centre;
+// the Pod downloads its models onto its own disk (--pod-disk GB) and is
+// TERMINATED at the end, after its results are saved: a stopped one keeps
+// billing for that disk.
+const NO_VOLUME = VOLUME === 'none';
+const POD_DISK = Number(arg('pod-disk') || 120);
+const onOurVolume = (p) => NO_VOLUME ? !p.networkVolume : p.networkVolume?.id === VOLUME;
 const RETRY_SEC = Math.max(3, Number(arg('retry-sec') || 30));
 const OUT = arg('out') || os.tmpdir();
 if (!VOLUME || !WFS.length || !GPUS.length) { console.log('usage: node lanes.mjs --volume <id> --workflows <id>,<id> --gpus "<type>,<type>"'); process.exit(1); }
@@ -51,24 +58,36 @@ async function api(method, route, body, timeoutMs = 900_000) {
 }
 
 let pod = null;
+let saved = false;
+async function saveResults() {
+    const { url } = await api('POST', `/api/pods/${pod.id}/download`);
+    const r = await fetch(`http://localhost:${PORT}${url}`, { signal: AbortSignal.timeout(600_000) });
+    if (!r.ok) throw new Error(`results download ${r.status}`);
+    const file = path.join(OUT, `lanes-${pod.id}-results.zip`);
+    fs.writeFileSync(file, Buffer.from(await r.arrayBuffer()));
+    saved = true;
+    log(`results saved: ${file}`);
+}
 let tries = 0;
+let seenBefore = new Set();   // Pods that existed before this run: never adopted
 try {
     for (let i = 0; i < 20; i++) { try { await api('GET', '/api/settings'); break; } catch { await sleep(300); } }
     const { pods } = await api('GET', '/api/pods');
-    if (pods.some(p => p.desiredStatus === 'RUNNING' && p.networkVolume?.id === VOLUME)) throw new Error('a Pod is already running on this volume — stop it first');
+    seenBefore = new Set(pods.map(p => p.id));
+    if (!NO_VOLUME && pods.some(p => p.desiredStatus === 'RUNNING' && onOurVolume(p))) throw new Error('a Pod is already running on this volume — stop it first');
 
     // ---- wait for the card ---------------------------------------------------------
     for (const end = Date.now() + WAIT_MIN * 60_000; !pod;) {
         try {
             // A try that hangs must not stall the hunt: give up on it after a minute.
-            const r = await api('POST', '/api/launch', { volumeId: VOLUME, pods: [{ serve: WFS, gpuTypeIds: GPUS, name: 'comfyq-lanes' }], diskGb: 40 }, 60_000);
+            const r = await api('POST', '/api/launch', { volumeId: VOLUME, pods: [{ serve: WFS, gpuTypeIds: GPUS, name: 'comfyq-lanes' }], diskGb: 40, podVolumeGb: POD_DISK }, 60_000);
             pod = r.pod;
             log(`Pod ${pod.id} created on ${pod.gpu?.name || GPUS[0]} at $${pod.costPerHr}/h, serving ${WFS.join(' + ')}`);
         } catch (e) {
             // A try we gave up on may still have created the Pod on RunPod's
             // side: adopt it rather than create a second one billing too.
             const late = (await api('GET', '/api/pods').catch(() => ({ pods: [] }))).pods
-                .find(p => p.name?.startsWith('comfyq-lanes') && p.desiredStatus === 'RUNNING' && p.networkVolume?.id === VOLUME);
+                .find(p => p.name?.startsWith('comfyq-lanes') && p.desiredStatus === 'RUNNING' && onOurVolume(p) && !seenBefore.has(p.id));
             if (late) { pod = late; log(`Pod ${pod.id} turned up after a try timed out — using it ($${pod.costPerHr}/h)`); break; }
             if (Date.now() > end || !(e.status === 409 || e.status >= 500 || e.name === 'TimeoutError')) throw e;
             tries = (tries || 0) + 1;
@@ -120,17 +139,21 @@ try {
     }
 
     // ---- keep the results -------------------------------------------------------------
-    const { url } = await api('POST', `/api/pods/${pod.id}/download`);
-    const r = await fetch(`http://localhost:${PORT}${url}`);
-    const file = path.join(OUT, `lanes-${pod.id}-results.zip`);
-    fs.writeFileSync(file, Buffer.from(await r.arrayBuffer()));
-    log(`results saved: ${file}`);
+    await saveResults();
 } catch (e) {
     log('TEST STOPPED:', e.message.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 300));
     process.exitCode = 1;
 } finally {
+    // Plan B: terminating deletes the Pod's disk, so save what it made first,
+    // even when the test broke halfway.
+    if (pod && NO_VOLUME && !saved) {
+        try { await saveResults(); } catch (e) { log(`results NOT saved before terminating: ${e.message}`); }
+    }
     if (pod) {
-        try { await api('POST', `/api/pods/${pod.id}/stop`); log(`stopped ${pod.id}`); }
+        try {
+            if (NO_VOLUME) { await api('DELETE', `/api/pods/${pod.id}`, { confirm: pod.id }); log(`terminated ${pod.id} (no volume: a stopped one would keep billing for its disk)`); }
+            else { await api('POST', `/api/pods/${pod.id}/stop`); log(`stopped ${pod.id}`); }
+        }
         catch (e) { log(`COULD NOT STOP ${pod.id}: ${e.message} — stop it on runpod.io`); }
     }
     consoleProc.kill();
