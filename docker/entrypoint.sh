@@ -28,7 +28,12 @@ link_to_volume() {
     local inside="$1" outside="$2"
     if [[ -L "$inside" ]]; then return; fi
     if [[ -d "$inside" ]]; then
-        rsync -a --ignore-existing "$inside"/ "$outside"/
+        # -rlt, not -a: copy files, links and times but not permissions or
+        # owners. On Thunder Compute (a container running our container)
+        # setting a folder's permissions fails, and -a then exits 23 after
+        # copying everything, which restarted the container for ever. The
+        # entrypoint runs as root, so the default permissions are enough.
+        rsync -rlt --ignore-existing "$inside"/ "$outside"/
         rm -rf "$inside"
     fi
     ln -s "$outside" "$inside"
@@ -40,7 +45,7 @@ link_to_volume() {
 # copy (local edits to those files are lost — commit them to git first).
 if [[ "${COMFYQ_SYNC_WORKFLOWS:-0}" == "1" && ! -L "$APP/workflows" ]]; then
     echo "[entrypoint] COMFYQ_SYNC_WORKFLOWS=1: updating this Pod's bundles from the image"
-    rsync -a "$APP/workflows"/ "$MINE/workflows"/
+    rsync -rlt "$APP/workflows"/ "$MINE/workflows"/
 fi
 link_to_volume "$APP/workflows"      "$MINE/workflows"
 link_to_volume "$APP/server/data"    "$MINE/data"
