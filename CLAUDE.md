@@ -4,33 +4,54 @@ Portable project knowledge for ComfyQ (multi-user ComfyUI workflow scheduler). T
 
 Detailed, evolving plans live in [implementation_plan.md](implementation_plan.md); user-facing overview in [README.md](README.md). This file is the durable, auto-loaded summary + the "why" behind decisions that aren't obvious from the code.
 
-## Latest progress (2026-10-19)
+## Latest progress (2026-10-20)
 
-### ▶ Resume here (paused 2026-10-19, late evening — all tests cancelled by the owner)
+### ▶ Resume here (paused 2026-10-20, ~01:45 local)
 
-**Where things stand.** Phase I (several RunPod Pods on one network volume, [implementation_plan.md](implementation_plan.md) "Phase I") is **built: I0–I6**. I0–I4 are verified on real Pods; I5, I6 and everything added this evening are tested only against a stand-in RunPod (fake REST + GraphQL + Pod proxy, driven in headless Chrome), **because RunPod had no free GPU all evening**. Latest image: **`ghcr.io/urbandronedesign/comfyq:latest` = `sha-6255e65`** (built 2026-10-19; contains everything server-side below). **No Pod exists; nothing bills except the volume.**
+**Where things stand.** RunPod had no 48 GB+ card in Europe all evening, so the owner asked for a **backup provider**. After comparing Vast.ai, Verda, OVHcloud, Scaleway, Lambda (too dear for the owner) and then cheaper US+EU options, the owner chose **Thunder Compute** (US, per-minute, RTX A6000 $0.35 / **L40 48 GB $0.79** / A100 80 GB $1.09 / H100 $3.20). It is now **built into the RunPod console as its own *Thunder* tab and proven on a real instance**: LTX 2.5 i2v + SDXL served side by side on one L40. Latest image: **`ghcr.io/urbandronedesign/comfyq:latest` = `sha-85a1fe2`** (has the rsync fix below).
 
-**Next, when RunPod has GPUs (check the console's *Stock* tab first):**
-1. **One card, two workflows, 20 students** — the owner's real question ("can one machine hold the class?"):
-   `node tools/runpod/tests/lanes.mjs --volume uxd7q30mim --workflows video_ltx2_5_i2v,image_qwen_image_2_1_t2i --gpus "NVIDIA RTX PRO 6000 Blackwell Server Edition,NVIDIA RTX PRO 6000 Blackwell Workstation Edition" --students 20 --retry-sec 5 --wait-min 120`
-   Variants the owner also asked for: `--split --gpus "NVIDIA GeForce RTX 5090"` (one 5090 per workflow), and `--volume none` (Plan B, any data centre; Pods are then TERMINATED at the end after their results are saved). The script waits for cards, follows the downloads, renders on every workflow at once, then [load.mjs](tools/runpod/tests/load.mjs) plays 20 students from this PC (page load, socket.io, picture upload for LTX, booking within a minute) and reports waits, render times, whether both workflows ran side by side, failures and dropped connections; results are zipped to `--out`, and every Pod is stopped/terminated in `finally`. ⚠ The socket.io part could not be dry-run here (a ComfyQ without a GPU never enters student mode) — watch its first minute.
-2. **I7 shared-volume pass:** `node tools/runpod/tests/i7.mjs --volume uxd7q30mim --workflow image_qwen_image_2_1_t2i --delete 28ok0kh19v1zzg,omm9bzmhxbuuqe,99iojscyz1egda` (`--single` when only one card can be had). Deletes ONLY those three folders; never touches `ti82rjdo8eo144`. Still never seen on RunPod: two Pods downloading the same file at once (the lock's waiting path; proven only by [sharedVolume.test.js](server/cloud/sharedVolume.test.js)).
-3. **Check the stock recorder is running:** `gh run list --workflow "RunPod stock"` should show `schedule` runs every ~15 min (at 21:37 UTC only two manual runs existed — a new schedule can start late). Data: `runpod-stock` branch, `stock/YYYY-MM.jsonl`.
-4. **Backup provider:** the owner is planning it in a **separate session, plan only** (Vast.ai, Verda/ex-DataCrunch, OVHcloud, Scaleway researched; the prompt with the findings was given to the owner).
+**⚠ Open at the pause — do first:**
+1. **Instance `7eztit6o` (L40, $0.79/h) may still exist.** A 20-student LTX 2.5 load test was running on it (started 01:26, ~1 min 50 s per job, 7/20 done at 01:41). Check the console's Thunder tab; when the test is done, record its summary here and **delete the instance** (Delete… → type `7eztit6o`; the owner approved the test spend, not leaving it on).
+2. RunPod items still pending from 2026-10-19 (only when RunPod has stock — console *Stock* tab): the one-card/two-workflow 20-student lanes test (`node tools/runpod/tests/lanes.mjs --volume uxd7q30mim --workflows video_ltx2_5_i2v,image_qwen_image_2_1_t2i --gpus "NVIDIA RTX PRO 6000 Blackwell Server Edition,NVIDIA RTX PRO 6000 Blackwell Workstation Edition" --students 20 --retry-sec 5 --wait-min 120`, variants `--split --gpus "NVIDIA GeForce RTX 5090"` and `--volume none`); the I7 shared-volume pass (`node tools/runpod/tests/i7.mjs --volume uxd7q30mim --workflow image_qwen_image_2_1_t2i --delete 28ok0kh19v1zzg,omm9bzmhxbuuqe,99iojscyz1egda`, `--single` with one card; never touch `ti82rjdo8eo144`); check `gh run list --workflow "RunPod stock"` shows schedule runs every ~15 min.
+
+**Thunder Compute — measured on the real L40 (2026-10-20)**
+- **LTX 2.5 i2v, 1920×1088, 5 s: 1 min 53 s** (the owner's own run) — *faster* than the rig's RTX 5090 (~127 s). The load test's jobs ran ~1 min 50 s each, back to back.
+- Instance RUNNING ~15 s after create; SSH as `ubuntu` worked at once; image pull ~2 min; GPU visible inside our container with `--device nvidia.com/gpu=all`; **models downloaded fast** (23 GB LTX transformer in ~1.5 min; SDXL + all of LTX 2.5 ≈ 4 min).
+- 20 simulated students ([load.mjs](tools/runpod/tests/load.mjs) with `COMFYQ_POD_PROXY=https://<uuid>-{port}.thundercompute.net`): page 20/20 in <1 s, **20/20 bookings accepted**, connect median 1 s. One card renders one job at a time: **~30 LTX videos/hour per L40; if 20 book at once the last waits ~38 min** (2 L40s ≈ 19 min, 3 ≈ 13 min).
+- **Several instances: yes** (no account cap documented; each Launch is another instance), but **each has its own disk, models, student links and queue** — the class must be split between links by hand. **No shared storage on Thunder.** Snapshots exist (a copy of a disk, ~$0.05/GB/month) — **the owner said no snapshots**. A 2-GPU instance does not help: ComfyQ runs one queue per workflow.
+- **Account:** opened from **France** with the owner's professor email ($10 credit). Morocco is B2B-only (VAT number) on Thunder; France is unrestricted. Thunder's student credits are for US universities only.
+
+**Thunder in the console** ([thunder.mjs](tools/runpod/thunder.mjs), [server.mjs](tools/runpod/console/server.mjs), [tools/runpod/README.md](tools/runpod/README.md) "Thunder Compute"): API key under Credentials (stored with the others, last-4 hint, *Test the key* lists instances + live prices/stock). Thunder tab = workflow picker, card table (cheapest that fits and is in stock), vCPU/disk, Launch → create (`template: base`; Thunder returns the private key once → `~/.comfyq/thunder-keys/<uuid>.pem`) → wait RUNNING → SSH (`ubuntu`, else `root`) → a bash script on stdin pulls and runs our image (secrets via a 0600 env file, never a command line) → `PATCH /v1/instances/{id}/ports` adds 3000 → probes `https://<uuid>-3000.thundercompute.net` like a Pod. *Retry setup* (idempotent), *Download results* (the instance zips its own `pods/<COMFYQ_POD_ID>` folder), *Delete* (type the uuid's first 8 characters). Launches go in the Attempts tab. Records: `~/.comfyq/thunder-instances.json`. Tests: [thunder.test.mjs](tools/runpod/thunder.test.mjs) 27 checks (in `test:storyboard`); [tests/thunder-console.mjs](tools/runpod/tests/thunder-console.mjs) 14 end-to-end checks against a fake Thunder + fake ssh + fake ComfyQ (`--browser <chrome.exe>` adds 3 headless-Chrome checks). Hooks: `THUNDER_API_URL`, `COMFYQ_THUNDER_PROXY`, `COMFYQ_THUNDER_SSH` (a `.mjs` stand-in is run with node).
+
+**Thunder facts learned the hard way**
+1. ★★ **`rsync -a` exits 23 on Thunder even inside our own container** — setting folder permissions fails there (their dockerd itself runs in a container). Every file was copied, then the entrypoint's `set -e` restarted the container in a loop and the student URL showed Thunder's "Nothing running here". **Fixed in the image: `rsync -rlt`** ([entrypoint.sh](docker/entrypoint.sh), `sha-85a1fe2`).
+2. ★ The setup script used to say "started" while the container was restarting; it now waits 20 s, checks `Up`, else prints the container's last lines and exits 21 (setup shown as failed, the instance still billing).
+3. Docker needs `sudo` for `ubuntu` (the script falls back to `sudo -n docker`); each `docker run` takes ~1 min there; `--gpus` is unsupported (use `--device nvidia.com/gpu=all`); Compose does not work.
+4. The API has **no exec**: anything inside the instance goes over SSH. Calls copied from Thunder's own CLI (github.com/Thunder-Compute/thunder-cli): `GET /v1/instances/list[?update_ips=true]` (an object keyed by numeric id), `POST /v1/instances/create`, `POST /v1/instances/{id}/delete`, `PATCH /v1/instances/{id}/ports`, `POST /v1/instances/{id}/add_key`; public `GET /v2/specs|pricing|status`.
+5. Thunder publishes stock twice (`specs.<type>_x1` and `gpu_type.<type>["1"]`) and they **disagree** (A6000: one "available", one "unavailable") → the console says *unclear*.
+6. There is **no stop**: an instance is running (billing) or deleted (disk gone). Launch early on the day; *Download results* before Delete.
+
+**Student links — found on the real instance:** a student page books only the workflow its address names, and the working form is **`/user?workflow=<id>`** — the bare `/?workflow=` does NOT work (`/` redirects to `/user` and drops the query). With two workflows the console's single *Student page* link reached only the main one, so **the console now lists one link per workflow** (RunPod Pods tab and Thunder tab; `studentLinks()` in [lib.mjs](tools/runpod/lib.mjs)).
 
 **Owner's account and settings**
-- Volume **`comfyq-models`**, id `uxd7q30mim`, **EU-RO-1, 100 GB** (grown from 40 on the owner's request; volumes never shrink; ~$7/month). Holds SDXL, Gemma 4 captioner, Qwen Image 2.1 (~32 GB). LTX 2.5 (≈45 GB) is **not** on it yet.
-- **No Pods** (all terminated on the owner's word, "only keep the storage"). Folders left on the volume: `pods/ti82rjdo8eo144/` = pre-conversion settings + **8 old jobs** (shows as "left behind" under *Folders…*; touch only on the owner's word); test folders `28ok…`, `omm9…`, `99io…` (approved for deletion), `pgeoe2uut7uv9i`, `tiizef0uf2v0gi`, `s0omo7ggm3hx8r` (I7 attempts, not yet approved). `/workspace/_stage0/` has small stage-0 files.
-- Console credentials in `~/.comfyq/runpod-console.json`: RunPod key (read/write), admin password, HuggingFace token (it **does** have access to the gated `Lightricks/LTX-2.5` files). **No student password, on purpose.**
-- GitHub secret **`RUNPOD_API_KEY_READONLY`** (a separate read-only key) feeds the stock recorder.
-- The owner runs workshops **from Morocco**; Europe is the right region, but stock decides more than distance.
+- RunPod volume **`comfyq-models`**, id `uxd7q30mim`, **EU-RO-1, 100 GB** (~$7/month). Holds SDXL, Gemma 4 captioner, Qwen Image 2.1 (~32 GB); LTX 2.5 (≈45 GB) not on it yet. **No Pods.** Folders left: `pods/ti82rjdo8eo144/` (pre-conversion settings + 8 old jobs; touch only on the owner's word); test folders `28ok…`, `omm9…`, `99io…` (approved for deletion), `pgeoe2uut7uv9i`, `tiizef0uf2v0gi`, `s0omo7ggm3hx8r` (not yet approved). `/workspace/_stage0/` has small stage-0 files.
+- Console credentials in `~/.comfyq/runpod-console.json`: RunPod key (read/write), **Thunder API key**, admin password, HuggingFace token (has access to gated `Lightricks/LTX-2.5`). **No student password, on purpose.**
+- GitHub secret **`RUNPOD_API_KEY_READONLY`** feeds the stock recorder.
+- The owner runs workshops **from Morocco**; Thunder being US-only was fine for the booking page and downloads.
 
 **Decisions the owner made (keep them)**
-- Safest route by default; short "go" approvals; verify on real Pods. **Ask once, with the cost, before any RunPod spend** (memory: runpod-spend-confirm).
-- Phase I: results and each Pod's workflow copy stay **on the volume, per Pod**; a download lock is abandoned only after 10 min stale + owner heartbeat gone + `.part` quiet 2 min. I6: **a running Pod reads the volume** (not RunPod S3).
-- **Keep one volume in EU-RO-1; no second volume.** Plan B (*No network volume*) is the fallback when EU-RO-1 has no card.
-- Stock history via **GitHub Actions**, not a machine left on.
-- Lane test wants **LTX 2.5 image-to-video as it is** (its Gemma 4 prompt enhancer and upscaler stay).
+- Safest route by default; short "go" approvals; verify on real machines. **Ask once, with the cost, before any spend** (RunPod or Thunder).
+- **Backup provider = Thunder Compute**; cheap over EU-only; **no snapshots**.
+- Phase I: results and each Pod's workflow copy stay **on the volume, per Pod**; a download lock is abandoned only after 10 min stale + owner heartbeat gone + `.part` quiet 2 min. I6: **a running Pod reads the volume**.
+- **Keep one volume in EU-RO-1; no second volume.** Plan B (*No network volume*) is the RunPod fallback; Thunder is the next one.
+- Stock history via **GitHub Actions**. Lane test uses **LTX 2.5 image-to-video as it is**.
+
+**RunPod facts learned the hard way**
+1. Scoped to one data centre, a missing `stockStatus` means **none**. 2. Stock changes within seconds; no queue or reservation. 3. Three wordings for "no machine" (`isNoMachine()`). 4. A Pod's volume is `networkVolumeId`; its image is `imageName`. 5. A cheap Pod can sit ~12 min "rented" with no machine. 6. The API cannot tell a read-only key from a read/write one without trying a write. 7. A network volume pins every Pod to its data centre. 8. RunPod keeps no stock history. 9. On 2026-10-19 evening no 48 GB+ card was free anywhere in Europe for hours.
+
+**This machine**: `npm install` done in `server/` and `client/`; `better-sqlite3` fetched with `npx prebuild-install`, so `npm run test:storyboard` runs here in full. ⚠ **A console started before a code change must be restarted** (its routes don't reload) — it bit twice on 2026-10-20 ("failed to fetch", then missing links). The console uses Windows' built-in `ssh.exe` for Thunder.
+
+## Latest progress (2026-10-19)
 
 **Built this evening (after I0–I4), all pushed**
 - **I5** — console launches several Pods in one go (+ Add another Pod / Launch N Pods), Pods tab grouped by volume with combined $/h, *Stop all*, build-mismatch warning. ★ Join rule: a Pod still booting no longer blocks a newcomer **on the same image**. ★★ RunPod's REST returns a Pod's image as **`imageName`**, not `image` — the stand-in used `image`, so the rule silently never matched until the first real run (`podImage()` in [lib.mjs](tools/runpod/lib.mjs)).
