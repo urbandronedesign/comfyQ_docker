@@ -4,9 +4,9 @@ One image holds ComfyQ, ComfyUI and the node packs. Everything that has to
 outlive a container (models, results, the job queue, settings) lives on a
 volume mounted at `/workspace`.
 
-> **Status:** written 2026-10-13 and not yet run on RunPod. Treat the first
-> Pod as a test: check the logs, book one light workflow, then move the big
-> models.
+> **Status:** verified on a real RunPod Pod on 2026-10-13: the SDXL smoke test
+> rendered a picture end to end. On a new Pod, still check the logs and run
+> the smoke test before downloading the big models.
 
 ## What is in the image
 
@@ -62,16 +62,16 @@ what it installed in `/opt/ComfyUI/custom_nodes/.comfyq-packs.txt`
 A pack installed from the admin panel on a running Pod sits on the container's
 own disk and **disappears when the Pod restarts**. Add it to the list instead.
 
-## The image is private at first
+## Image visibility
 
-GitHub publishes the image as a **private** package. Before RunPod can pull it,
-do one of these:
+The package `ghcr.io/urbandronedesign/comfyq` is **public**: it inherited the
+public repository's visibility, so RunPod pulls it with no login.
 
-- make it public: GitHub → your profile → *Packages* → `comfyq` →
-  *Package settings* → *Change visibility*; or
-- keep it private and give RunPod a login: RunPod → *Settings* →
-  *Container Registry Auth*, with your GitHub username and a personal access
-  token that has the `read:packages` scope.
+A fork built from a **private** repository gets a private package. In that
+case, either make it public (GitHub → your profile → *Packages* → `comfyq` →
+*Package settings* → *Change visibility*), or give RunPod a login: RunPod →
+*Settings* → *Container Registry Auth*, with your GitHub username and a
+personal access token that has the `read:packages` scope.
 
 ## Running it on RunPod
 
