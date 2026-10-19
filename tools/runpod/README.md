@@ -129,8 +129,13 @@ machine has to stay on.
 3. *Actions → RunPod stock → Run workflow* takes a first reading at once; the
    schedule does the rest.
 
-Good to know: GitHub often runs scheduled jobs 5–15 minutes late, which does
-not matter for daily patterns. It pauses scheduled jobs in a repository with
+Good to know: GitHub's schedule is best-effort — a new one starts late, and
+triggers are delayed or dropped at busy hours (the first three 15-minute slots
+never fired here). So the workflow does not rely on it every 15 minutes: one
+run stays up for ~5h45m and takes its own readings at :07, :22, :37 and :52,
+and the hourly trigger only has to land once in that time to keep it going (a
+newer run takes over; a reading under 10 minutes old is not repeated). In the
+Actions tab you will therefore see one long run, not one per reading. It pauses scheduled jobs in a repository with
 no activity for 60 days: re-enable it from the Actions tab. And a reading says
 what RunPod listed at that moment; a card listed as free can still be taken a
 second later.

@@ -3,18 +3,24 @@
 # clutter its history nor trigger anything. The RunPod console's Stock tab
 # reads them from there. Needs the repository secret RUNPOD_API_KEY_READONLY:
 # a READ-ONLY RunPod key (Settings → API Keys), which cannot create Pods.
+# ★ GitHub's scheduler is best-effort: a new cron starts late and busy-hour
+#   triggers are delayed or dropped (on 2026-10-19 the first three 15-minute
+#   slots never fired). So a run does not take one reading and exit: it stays
+#   up for ~5h45m and reads at :07/:22/:37/:52 itself. The hourly trigger only
+#   has to land once every ~6 hours to keep readings flowing; a newer run
+#   replaces the older one, and a reading under 10 min old is not repeated.
 # ⚠ GitHub pauses scheduled workflows in a repository with no activity for
 #   60 days; re-enable it from the Actions tab if that happens.
 name: RunPod stock
 
 on:
   schedule:
-    - cron: '7,22,37,52 * * * *'   # every 15 min, off the busy :00
+    - cron: '3 * * * *'   # hourly wake-up; the run itself reads every 15 min
   workflow_dispatch:
 
 concurrency:
   group: runpod-stock
-  cancel-in-progress: false
+  cancel-in-progress: true   # the newest run takes over the reading loop
 
 permissions:
   contents: write
@@ -22,7 +28,7 @@ permissions:
 jobs:
   record:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 350
     steps:
       - name: Code (for the recorder)
         uses: actions/checkout@v4
@@ -45,25 +51,41 @@ jobs:
         with:
           node-version: 22
 
-      - name: Take a reading
+      - name: Read every 15 minutes, for up to ~5h45m
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY_READONLY }}
         run: |
           # Not set up yet: say so once per run, without failing (and emailing).
           if [ -z "$RUNPOD_API_KEY" ]; then
             echo "::warning::Secret RUNPOD_API_KEY_READONLY is not set — no reading taken. See tools/runpod/README.md, 'Stock history'."
-            echo "SKIP=1" >> "$GITHUB_ENV"
             exit 0
           fi
-          node code/tools/runpod/stock-recorder.mjs --out data/stock
-
-      - name: Save it
-        if: env.SKIP != '1'
-        run: |
           cd data
           git config user.name "runpod-stock-bot"
           git config user.email "runpod-stock-bot@users.noreply.github.com"
-          git add -A
-          git commit -q -m "stock $(date -u +%FT%TZ)"
-          # Two runs never overlap (concurrency), but retry once on a race anyway.
-          git push -q origin runpod-stock || (git pull -q --rebase origin runpod-stock && git push -q origin runpod-stock)
+          end=$(( $(date +%s) + 345*60 ))
+          while :; do
+            git pull -q --rebase origin runpod-stock 2>/dev/null || true
+            # Skip if the last reading is under 10 minutes old (a run that just
+            # took over from another must not record the same slot twice).
+            last=$(cat stock/*.jsonl 2>/dev/null | tail -n 1 | sed -n 's/^{"at":"\([^"]*\)".*/\1/p')
+            age=999999
+            [ -n "$last" ] && age=$(( $(date +%s) - $(date -d "$last" +%s) ))
+            if [ "$age" -ge 600 ]; then
+              if node ../code/tools/runpod/stock-recorder.mjs --out stock; then
+                git add -A
+                git commit -q -m "stock $(date -u +%FT%TZ)" || true
+                git push -q origin runpod-stock || (git pull -q --rebase origin runpod-stock && git push -q origin runpod-stock) || echo "::warning::push failed; will retry with the next reading"
+              else
+                echo "::warning::reading failed at $(date -u +%T); trying again next slot"
+              fi
+            else
+              echo "last reading ${age}s old — skipping this slot"
+            fi
+            # Sleep to the next :07/:22/:37/:52 (UTC).
+            now=$(date +%s); m=$(( (now/60) % 60 )); s=$(( now % 60 ))
+            next=7; for t in 7 22 37 52 67; do if [ $m -lt $t ]; then next=$t; break; fi; done
+            wait=$(( (next - m)*60 - s ))
+            [ $(( $(date +%s) + wait )) -ge $end ] && break
+            sleep "$wait"
+          done
