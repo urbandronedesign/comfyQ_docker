@@ -84,6 +84,11 @@
         <button id="refreshVolumes" class="ghost">Refresh</button>
         <button id="newVolumeBtn" class="ghost">New volume…</button>
       </div>
+      <div id="noVolumeNote" class="note" hidden>
+        <b>The fallback for when the volume's data centre has no free GPU.</b> RunPod puts the Pod in any data centre with the GPU free. It downloads its models at its first boot onto its own disk (Qwen Image 2.1 is about 16 GB, 2–3 minutes), and keeps students' results there too.
+        That disk survives Stop and Start, but <b>Terminate deletes everything on it</b>: use <i>Download results</i> on the Pod before terminating.
+        Gated models (FLUX.2, some LTX) need the HuggingFace token under Credentials.
+      </div>
       <div id="newVolume" class="inset" hidden>
         <div class="grid3">
           <label class="field"><span>Name</span><input id="nvName" value="comfyq-models"></label>
@@ -127,6 +132,7 @@
       <div class="grid3">
         <label class="field"><span>Pod name</span><input id="podName" placeholder="comfyq-…"></label>
         <label class="field"><span>Container disk (GB)</span><input id="diskGb" type="number" min="20" value="30"></label>
+        <label class="field" id="podVolumeField" hidden><span>Pod's own disk for models and results (GB)</span><input id="podVolumeGb" type="number" min="40" value="80"></label>
       </div>
       <label class="check"><input id="fetchModels" type="checkbox" checked> Download missing models before serving</label>
       <label class="check"><input id="syncWorkflows" type="checkbox"> Replace the volume's workflow bundles with the image's</label>

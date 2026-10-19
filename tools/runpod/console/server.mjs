@@ -32,6 +32,7 @@ import {
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.COMFYQ_CONSOLE_PORT || 4777);
 const HOST = '127.0.0.1';
+const NO_VOLUME = 'none';
 const SETTINGS_FILE = path.join(os.homedir(), '.comfyq', 'runpod-console.json');
 
 // From RunPod's OpenAPI spec (dataCenterIds, checked 2026-10-19).
@@ -163,13 +164,17 @@ route('POST', '/api/launch', async ({ body }) => {
     if (plans.some(p => p.serve.length) && missing.length && !body.allowOpen) {
         throw new RunPodError('set the admin password under Credentials first: a Pod is reachable by anyone who has its URL, admin panel included', 400);
     }
-    const vols = await rest(key, 'GET', '/networkvolumes');
-    const volume = vols.find(v => v.id === body.volumeId);
-    if (!volume) throw new RunPodError('pick a network volume', 400);
+    // volumeId "none": no network volume, so RunPod may use any data centre
+    // with the GPU free (the fallback when the volume's own has none).
+    const noVolume = body.volumeId === NO_VOLUME;
+    const vols = noVolume ? [] : await rest(key, 'GET', '/networkvolumes');
+    const volume = noVolume ? null : vols.find(v => v.id === body.volumeId);
+    if (!noVolume && !volume) throw new RunPodError('pick a network volume', 400);
+    const where = volume ? volume.dataCenterId : 'any data centre';
     // Pods already on the volume must be able to share it. The ones created
     // here boot the same image as each other, so they never block each other.
     const existing = await rest(key, 'GET', '/pods');
-    const blockers = await shareBlockers(runningOnVolume(existing, volume.id), { image });
+    const blockers = volume ? await shareBlockers(runningOnVolume(existing, volume.id), { image }) : [];
     if (blockers.length) throw new RunPodError(cannotShare(blockers, volume.name), 409);
 
     // Two Pods serving the same workflow would get the same default name, in
@@ -190,16 +195,16 @@ route('POST', '/api/launch', async ({ body }) => {
         try {
             const pod = await rest(key, 'POST', '/pods', podBody({
                 volume, gpuTypeIds: p.gpuTypeIds, serve: p.serve, secrets: secretsOf(s),
-                name: p.name, image: s.image, diskGb: body.diskGb || s.diskGb,
+                name: p.name, image: s.image, diskGb: body.diskGb || s.diskGb, podVolumeGb: body.podVolumeGb,
                 community: !!body.community, fetchModels: body.fetchModels !== false,
                 syncWorkflows: !!body.syncWorkflows, allowOpen: !!body.allowOpen && missing.length > 0,
             }));
-            created.push(slimPod(pod, [volume]));
+            created.push(slimPod(pod, vols));
             results.push({ ok: true, pod: created.at(-1) });
         } catch (e) {
             // RunPod's wording for "no free machine matches": say what to change.
             const error = isNoMachine(e.message)
-                ? `RunPod has no free machine right now with ${p.gpuTypeIds.length > 1 ? 'any of these GPUs' : 'this GPU'} in ${volume.dataCenterId} `
+                ? `RunPod has no free machine right now with ${p.gpuTypeIds.length > 1 ? 'any of these GPUs' : 'this GPU'} in ${where} `
                   + `(on ${body.community ? 'Community' : 'Secure'} Cloud, with a CUDA 12.8 driver). Pick a GPU showing stock, tick a few more as fallbacks, `
                   + `or try again in a few minutes — stock in one data centre changes often.`
                 : e.message;
@@ -209,7 +214,7 @@ route('POST', '/api/launch', async ({ body }) => {
     }
     // Remember the choices for next time (never the secrets — those are
     // already stored separately).
-    if (created.length) saveSettings({ ...s, volumeId: volume.id, community: !!body.community, diskGb: body.diskGb || s.diskGb || 30 });
+    if (created.length) saveSettings({ ...s, volumeId: noVolume ? NO_VOLUME : volume.id, community: !!body.community, diskGb: body.diskGb || s.diskGb || 30 });
     // Nothing created: an error, as a single launch always was.
     if (!created.length) throw new RunPodError(plans.length === 1 ? failed[0].error : failed.map(f => `${f.name}: ${f.error}`).join(' — '),
         failed.every(f => /no free machine/.test(f.error)) ? 409 : failed[0].status);
@@ -230,6 +235,8 @@ const slimPod = (p, volumes = []) => p && ({
         return { id, name: v.name || id, dataCenterId: v.dataCenterId || null };
     })(),
     serve: String(p.env?.COMFYQ_SERVE || '').split(',').filter(Boolean),
+    // A Pod with no network volume keeps everything on its own volume: lost on Terminate.
+    podVolumeGb: p.volumeInGb || null,
     comfyq: /comfyq/i.test(podImage(p) || ''),
     links: { students: proxyUrl(p.id), admin: `${proxyUrl(p.id)}/admin`, comfyui: proxyUrl(p.id, 8188) },
 });
@@ -314,12 +321,20 @@ route('POST', '/api/volumes/([A-Za-z0-9]+)/folders/([A-Za-z0-9_-]+)/download', a
     return { url: `/download/${token}` };
 });
 
+// A Pod's own results, read by that Pod — the way out for a Pod with no
+// network volume, whose results go when it is terminated.
+route('POST', '/api/pods/([A-Za-z0-9]+)/download', async ({ match }) => {
+    const token = crypto.randomBytes(18).toString('hex');
+    downloads.set(token, { podId: match[1], folderId: match[1], until: Date.now() + 60000 });
+    return { url: `/download/${token}` };
+});
+
 async function serveDownload(token, res) {
     const d = downloads.get(token);
     downloads.delete(token);
     if (!d || d.until < Date.now()) { res.writeHead(410); return res.end('This download link has expired: ask for it again in the console.'); }
     try {
-        const { pod } = await folderPod(apiKey(), d.volumeId);
+        const { pod } = d.podId ? { pod: { id: d.podId } } : await folderPod(apiKey(), d.volumeId);
         const r = await podCall(pod.id, `/admin/volume-folders/${encodeURIComponent(d.folderId)}/results.zip`, { timeout: 6 * 3600_000 });
         if (!r.ok) { res.writeHead(r.status); return res.end(await r.text()); }
         res.writeHead(200, {

@@ -153,7 +153,7 @@ export async function findVolume(apiKey, ref) {
  * The body for POST /pods. `secrets` holds the passwords and token, which go
  * into the Pod's environment for the image to apply at boot.
  */
-export function podBody({ volume, gpuTypeIds, serve = [], secrets = {}, name, image, diskGb = 30, community = false, fetchModels = true, syncWorkflows = false, allowOpen = false }) {
+export function podBody({ volume, gpuTypeIds, serve = [], secrets = {}, name, image, diskGb = 30, podVolumeGb = 80, community = false, fetchModels = true, syncWorkflows = false, allowOpen = false }) {
     const env = {};
     if (secrets.adminPassword) env.COMFYQ_ADMIN_PASSWORD = secrets.adminPassword;
     if (secrets.accessPassword) env.COMFYQ_ACCESS_PASSWORD = secrets.accessPassword;
@@ -168,10 +168,19 @@ export function podBody({ volume, gpuTypeIds, serve = [], secrets = {}, name, im
         gpuTypeIds,
         gpuCount: 1,
         cloudType: community ? 'COMMUNITY' : 'SECURE',
-        networkVolumeId: volume.id,
         volumeMountPath: '/workspace',
-        // The volume lives in one data centre, so the GPU has to be there too.
-        dataCenterIds: [volume.dataCenterId],
+        ...(volume ? {
+            networkVolumeId: volume.id,
+            // The volume lives in one data centre, so the GPU has to be there too.
+            dataCenterIds: [volume.dataCenterId],
+        } : {
+            // ★ No network volume: RunPod may place the Pod in ANY data centre
+            //   with the GPU free — the fallback when the volume's own data
+            //   centre has none. /workspace is then the Pod's own volume: it
+            //   survives Stop/Start but not Terminate, and the models are
+            //   downloaded onto it at the first boot.
+            volumeInGb: Number(podVolumeGb) || 80,
+        }),
         allowedCudaVersions: CUDA_VERSIONS,
         containerDiskInGb: Number(diskGb) || 30,
         ports: [`${PORT}/http`, '8188/http'],

@@ -47,6 +47,13 @@ check('nothing is switched on that was not asked for', !('COMFYQ_ALLOW_OPEN' in 
 check('only the admin password is required', missingSecrets({ adminPassword: 'x' }).length === 0
     && missingSecrets({ accessPassword: 'y' }).join() === 'admin password');
 
+// ---- no network volume: any data centre --------------------------------------------
+const free = podBody({ volume: null, gpuTypeIds: ['g'], serve: ['a'], secrets: { adminPassword: 'x' }, podVolumeGb: 60 });
+check('with no volume the Pod is not pinned to a data centre', !('dataCenterIds' in free) && !('networkVolumeId' in free));
+check('it gets a disk of its own at /workspace, where the image keeps everything', free.volumeInGb === 60 && free.volumeMountPath === '/workspace');
+check('and still downloads its models at boot (nothing turns that off)', !('COMFYQ_FETCH_MODELS' in free.env) && free.env.COMFYQ_SERVE === 'a');
+check('a volume Pod gets no disk of its own', !('volumeInGb' in body));
+
 // ---- one running Pod per volume ------------------------------------------------
 const pods = [
     { id: 'p1', name: 'one', desiredStatus: 'RUNNING', networkVolumeId: 'v1' },

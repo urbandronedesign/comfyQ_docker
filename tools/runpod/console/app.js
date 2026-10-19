@@ -136,13 +136,24 @@ async function loadVolumes() {
         sel.innerHTML = `<option value="">${esc(e.message)}</option>`;
         throw e;
     }
+    // Always offered, last: the fallback when the volume's data centre has no GPU.
+    const none = `<option value="${NO_VOLUME}">No network volume — any data centre, models downloaded at boot</option>`;
     if (!volumes.length) {
-        sel.innerHTML = '<option value="">No network volume yet — create one</option>';
+        sel.innerHTML = '<option value="">No network volume yet — create one</option>' + none;
         $('newVolume').hidden = false;
+        noVolumeUi();
         return;
     }
-    sel.innerHTML = volumes.map(v => `<option value="${esc(v.id)}">${esc(v.name)} — ${esc(v.size)} GB in ${esc(v.dataCenterId)}</option>`).join('');
-    if (settings?.volumeId && volumes.some(v => v.id === settings.volumeId)) sel.value = settings.volumeId;
+    sel.innerHTML = volumes.map(v => `<option value="${esc(v.id)}">${esc(v.name)} — ${esc(v.size)} GB in ${esc(v.dataCenterId)}</option>`).join('') + none;
+    if (settings?.volumeId && (settings.volumeId === NO_VOLUME || volumes.some(v => v.id === settings.volumeId))) sel.value = settings.volumeId;
+    noVolumeUi();
+}
+
+// Show the Pod-disk field and the explanation only for a no-volume launch.
+function noVolumeUi() {
+    const none = $('volume').value === NO_VOLUME;
+    $('podVolumeField').hidden = !none;
+    $('noVolumeNote').hidden = !none;
 }
 
 async function loadDataCenters() {
@@ -198,7 +209,7 @@ $('wfSearch').oninput = renderWorkflows;
 $('wfHideExp').onchange = renderWorkflows;
 $('refreshVolumes').onclick = () => loadVolumes().then(loadGpus).catch(e => toast(e.message, true));
 $('newVolumeBtn').onclick = () => { $('newVolume').hidden = !$('newVolume').hidden; };
-$('volume').onchange = loadGpus;
+$('volume').onchange = () => { noVolumeUi(); loadGpus(); };
 $('community').onchange = loadGpus;
 $('refreshGpus').onclick = loadGpus;
 
@@ -216,14 +227,19 @@ $('createVolume').onclick = async () => {
     finally { b.disabled = false; }
 };
 
-const selectedVolume = () => volumes.find(v => v.id === $('volume').value) || null;
+const NO_VOLUME = 'none';
+// The "no volume" choice behaves as a volume everywhere a volume is needed:
+// it has no data centre of its own, so RunPod may use any.
+const selectedVolume = () => $('volume').value === NO_VOLUME
+    ? { id: NO_VOLUME, name: 'no network volume', dataCenterId: 'any data centre', none: true }
+    : volumes.find(v => v.id === $('volume').value) || null;
 
 let gpuReq = 0;
 async function loadGpus() {
     const my = ++gpuReq;
     const vol = selectedVolume();
     const qs = new URLSearchParams({ workflows: chosen.join(','), community: $('community').checked ? '1' : '0' });
-    if (vol) qs.set('dataCenterId', vol.dataCenterId);
+    if (vol && !vol.none) qs.set('dataCenterId', vol.dataCenterId);
     $('gpuRows').innerHTML = '<tr><td colspan="6" class="muted">Loading prices…</td></tr>';
     try {
         const d = await api('GET', `/api/gpus?${qs}`);
@@ -256,7 +272,8 @@ function renderGpus() {
               + (need.unknown.length ? `; no figure for ${esc(need.unknown.join(', '))}` : '') + '.'
             : 'No VRAM figure for these workflows — pick a GPU with room to spare.';
     const notes = [];
-    if (vol && !d.scopedToDataCenter) notes.push(`Stock is RunPod-wide, not for ${esc(vol.dataCenterId)}: RunPod would not answer for one data centre. A GPU shown in stock may be missing there.`);
+    if (vol?.none) notes.push('No network volume: stock is RunPod-wide, and RunPod puts the Pod in whichever data centre has the GPU free.');
+    else if (vol && !d.scopedToDataCenter) notes.push(`Stock is RunPod-wide, not for ${esc(vol.dataCenterId)}: RunPod would not answer for one data centre. A GPU shown in stock may be missing there.`);
     if (!vol) notes.push('No volume selected: stock is RunPod-wide.');
     $('gpuNote').hidden = !notes.length;
     $('gpuNote').innerHTML = notes.join('<br>');
@@ -424,6 +441,7 @@ $('launchBtn').onclick = async () => {
             volumeId: vol.id,
             pods: plans.map(p => ({ serve: p.serve, gpuTypeIds: p.gpuTypeIds, name: p.name || undefined })),
             diskGb: Number($('diskGb').value) || 30,
+            podVolumeGb: Number($('podVolumeGb').value) || 80,
             community: $('community').checked,
             fetchModels: $('fetchModels').checked,
             syncWorkflows: $('syncWorkflows').checked,
@@ -637,6 +655,7 @@ async function loadDetail() {
         <a href="${esc(pod.links.admin)}" target="_blank" rel="noreferrer">Admin panel ↗</a>
         <a href="${esc(pod.links.comfyui)}" target="_blank" rel="noreferrer">ComfyUI ↗</a>
         <button class="ghost small" id="copyStudents">Copy student link</button>
+        ${!pod.networkVolume ? '<button class="secondary small" id="podResults">Download results</button>' : ''}
       </div>` : ''}
       <dl class="kv">
         <dt>Pod id</dt><dd>${esc(pod.id)}</dd>
@@ -655,9 +674,15 @@ async function loadDetail() {
     if ($('stopPod')) $('stopPod').onclick = () => podAction('stop');
     if ($('startPod')) $('startPod').onclick = () => podAction('start');
     $('termPod').onclick = async () => {
-        const typed = prompt(`Terminate deletes the Pod (the network volume and its models stay).\n\nType the Pod id to confirm:\n${pod.id}`);
+        const typed = prompt(pod.networkVolume
+            ? `Terminate deletes the Pod (the network volume and its models stay).\n\nType the Pod id to confirm:\n${pod.id}`
+            : `This Pod has NO network volume: terminating it deletes its models AND every result students made on it. Download its results first (Download results, while it runs).\n\nType the Pod id to confirm:\n${pod.id}`);
         if (typed === null) return;
         try { await api('DELETE', `/api/pods/${pod.id}`, { confirm: typed.trim() }); toast('Pod terminated'); selectedPod = null; loadPods(); }
+        catch (e) { toast(e.message, true); }
+    };
+    if ($('podResults')) $('podResults').onclick = async () => {
+        try { const { url } = await api('POST', `/api/pods/${pod.id}/download`); location.href = url; toast('The download starts once the Pod has begun zipping the results'); }
         catch (e) { toast(e.message, true); }
     };
     if ($('copyStudents')) $('copyStudents').onclick = () => {

@@ -51,6 +51,29 @@ Two ways to do the same thing, both needing only Node 22 or later (no
    student page, admin panel and ComfyUI links, and Stop / Start / Terminate.
    It keeps refreshing while it is open.
 
+**No network volume — any data centre.** The last choice in the volume list.
+A network volume lives in one data centre and its Pods must run there, so
+when that data centre has no free GPU, no Pod can start (it happened in
+EU-RO-1 for hours on 2026-10-19). With this choice RunPod puts the Pod in any
+data centre with the GPU free. The Pod gets a disk of its own at `/workspace`
+(80 GB by default) and downloads its models there at its first boot — public
+models only take a few minutes, gated ones need the HuggingFace token. That
+disk survives Stop and Start but **not Terminate**, which deletes the models
+and every result students made: use **Download results** on the Pod (a zip of
+its outputs, their settings and uploads) before terminating, and the console
+says so when you do.
+
+**Workshop day — so a class never meets "no GPU free":**
+1. Launch the Pods well before the class (the evening before, or early that
+   morning) and **do not stop them until it is over**: a running Pod keeps its
+   GPU, a stopped one gives it back with no promise of getting one again.
+   Leaving one running overnight costs a few dollars.
+2. Tick several fallback GPUs, including dearer ones, rather than waiting for
+   the cheapest.
+3. If the volume's data centre has nothing, launch with **No network
+   volume** instead.
+4. Rehearse at the same hour a few days before: stock depends on the time of day.
+
 **Folders left behind.** Each Pod keeps its queue, settings, results and
 uploads in its own folder on the volume (`pods/<pod id>/`), and terminating a
 Pod leaves that folder there, costing storage. **Folders…** on a volume in the
