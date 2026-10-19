@@ -106,6 +106,7 @@ const {
     markNextBootStudent, consumeStudentBootFlag,
     setServingIntent, isServingIntended, resolveBootMode,
 } = require('./config/servingFlags');
+const { runPlan } = require('./cloud/podPlan');
 
 // nextMode: 'student' = serve after the restart (and keep serving through
 // later ones); 'admin' = stop serving on purpose; omitted = a neutral restart
@@ -349,6 +350,11 @@ async function main() {
             console.log(`[ComfyQ] admin mode — API on http://${host}:${port}  •  open the UI at http://localhost:${servesClient ? port : 5173}`);
             logLanUrls(port);
             console.log('[ComfyQ] open the admin UI to configure ComfyUI and pick a workflow.');
+            // A Pod started with COMFYQ_SERVE: fetch the models, then serve.
+            // Runs with the API already up so GET /admin/pod-plan can report
+            // progress. A no-op unless the entrypoint wrote a pending plan.
+            runPlan({ configManager, registry, downloader: runtime.downloader, exitForRestart })
+                .catch(e => console.error('[pod-plan] failed:', e.message));
         });
         process.on('SIGINT', async () => {
             console.log('[ComfyQ] shutting down (admin mode)…');

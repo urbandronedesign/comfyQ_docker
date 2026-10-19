@@ -280,6 +280,18 @@ function makeRouter({ configManager, registry, adminGate, exitForRestart, runtim
         res.json({ downloads: runtime?.downloader ? runtime.downloader.list() : [], available: !!runtime?.downloader });
     });
 
+    // What a Pod started with COMFYQ_SERVE is doing: refused, fetching (with a
+    // row per model file), failed with the reason, or done. Ungated like the
+    // downloads list above — it carries file names and progress, no secret —
+    // because the launcher polls it before anyone has typed a password.
+    router.get('/pod-plan', (req, res) => {
+        const { readPlan } = require('../cloud/podPlan');
+        const plan = readPlan();
+        if (!plan) return res.json({ plan: null });
+        const files = (plan.files || []).map(({ key, ...f }) => f);
+        res.json({ plan: { ...plan, files } });
+    });
+
     router.post('/models/download', adminGate, express.json(), (req, res) => {
         const dl = runtime?.downloader;
         if (!dl) return res.status(503).json({ error: 'the downloader is not available' });

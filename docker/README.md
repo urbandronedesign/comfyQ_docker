@@ -106,6 +106,30 @@ Then:
 6. Pick a workflow and *Activate & serve*. Students use
    `https://<pod-id>-3000.proxy.runpod.net`.
 
+### Launching a Pod from a script
+
+Steps 2 to 6 can be done without the RunPod website. Double-click
+`RunPod-Console.bat` for a page on your own machine that takes the
+credentials, recommends a GPU, launches the Pod and monitors it; or use
+[tools/runpod/runpod.mjs](../tools/runpod/README.md) from a terminal. Both
+create the Pod through RunPod's API and follow it until students can book. It works because the
+image reads these environment variables at boot
+([server/cloud/podPlan.js](../server/cloud/podPlan.js)); you can also set
+them by hand in a RunPod template.
+
+| Variable | Effect |
+|---|---|
+| `COMFYQ_SERVE` | workflow ids, comma-separated: fetch their missing models, then serve them (the first as the main lane, the rest as parallel lanes) |
+| `COMFYQ_FETCH_MODELS` | `0` to serve without fetching |
+| `COMFYQ_ADMIN_PASSWORD` | admin password |
+| `COMFYQ_ACCESS_PASSWORD` | student access password |
+| `COMFYQ_HF_TOKEN` or `HF_TOKEN` | HuggingFace token for gated models |
+| `COMFYQ_ALLOW_OPEN` | `1` to serve with no passwords. Without it, `COMFYQ_SERVE` is refused unless both passwords are set |
+
+They are applied once per container start. A password that has not changed
+is left alone, so restarting a Pod does not log students out. Progress and
+any failure are at `/admin/pod-plan`.
+
 ### What lives where on the volume
 
 ```

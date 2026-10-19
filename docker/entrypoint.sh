@@ -76,6 +76,13 @@ cm.update(c => {
 console.log("[entrypoint] config.json points at", comfy);
 ' "$COMFY" "$PY" "$DATA"
 
+# Settings passed as environment variables when the Pod was created
+# (COMFYQ_SERVE, the passwords, the HuggingFace token): see
+# server/cloud/podPlan.js and "Launching a Pod from a script" in docker/README.md.
+# Once per container start, not per ComfyQ restart, so a mode switch made in
+# the admin panel is not undone by the next restart of the loop below.
+node server/cloud/podEnv.js || echo "[entrypoint] could not apply the environment settings — continuing without them"
+
 # ComfyUI's stdout/stderr are pipes into the ComfyQ process that spawned it.
 # When ComfyQ exits, ComfyUI survives with both ends gone, and the next
 # ComfyQ adopts it as already running — then the first line it prints during a
