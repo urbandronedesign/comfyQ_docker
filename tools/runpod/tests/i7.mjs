@@ -1,7 +1,7 @@
 // Phase I7 on real Pods, driven through the RunPod console's own API (so the
 // console's several-Pods launch, I5, and folder cleanup, I6, run for real).
 //
-//   node tools/runpod/tests/i7.mjs --volume <volume id> --workflow <id> [--delete <folder>,<folder>]
+//   node tools/runpod/tests/i7.mjs --volume <volume id> --workflow <id> [--delete <folder>,<folder>] [--max-price 1]
 //
 // 1. Two Pods launched in ONE console request, both needing the same missing
 //    models: one downloads, the other waits for it (the lock's waiting path).
@@ -26,6 +26,8 @@ import { proxyUrl } from '../lib.mjs';
 
 const arg = (k) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : null; };
 const VOLUME = arg('volume'), WF = arg('workflow');
+// A test does not need a $2/hour card: wait for a cheap one instead.
+const MAX_PRICE = Number(arg('max-price') || 1);
 const DELETE = new Set(String(arg('delete') || '').split(',').filter(Boolean));
 if (!VOLUME || !WF) { console.log('usage: node i7.mjs --volume <volume id> --workflow <id> [--delete <folder>,<folder>]'); process.exit(1); }
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -68,7 +70,7 @@ try {
     // ---- 1. two Pods in one launch ------------------------------------------------
     const plan = async () => {
         const g = await api('GET', `/api/gpus?workflows=${WF}&dataCenterId=${encodeURIComponent((await api('GET', '/api/volumes')).volumes.find(v => v.id === VOLUME).dataCenterId)}`);
-        const ok = g.rows.filter(x => x.fits !== false && x.available !== false && x.pricePerHr != null).map(x => x.id);
+        const ok = g.rows.filter(x => x.fits !== false && x.available !== false && x.pricePerHr != null && x.pricePerHr <= MAX_PRICE).map(x => x.id);
         if (!ok.length) throw Object.assign(new Error('no GPU in stock'), { status: 409 });
         return ok;
     };
@@ -81,8 +83,10 @@ try {
             want = want.filter(l => !created[l]);
             if (want.length) log(`no machine yet for ${want.join(', ')} — retrying (the others are booting: same image, so allowed to join)`);
         } catch (e) {
-            if (Date.now() > end || e.status !== 409) throw e;
-            log(`launch: ${e.message.slice(0, 90)} — retrying`);
+            // 409: no machine / no stock. 5xx: RunPod's own API hiccuped (a Cloudflare
+            // 502 page was seen). Both pass; anything else is a real fault.
+            if (Date.now() > end || !(e.status === 409 || e.status >= 500)) throw e;
+            log(`launch: ${e.message.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 90)} — retrying`);
         }
         if (want.length) await sleep(15_000);
     }
