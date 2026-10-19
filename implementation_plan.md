@@ -652,6 +652,67 @@ photo02.jpg,charcoal sketch,1
 
 **Relationship to federation:** instance mode and Phase F compose — each instance beacons separately, so the existing Discovery app shows them with no app change (once `uiPort` is per-instance). This also revives the deferred two-instance validation (the verification matrix below already anticipates "two instances on one host, different ports").
 
+### Phase I — One RunPod network volume shared by several Pods *(planned 2026-10-19, nothing built)*
+
+**Goal:** several Pods run at the same time on **one network volume** — one per class, or one per heavy workflow — and **share the models**, so each weight is downloaded once. Each Pod keeps its own settings, job queue, students and results, exactly as if it were alone. Owner request: *"I would like to be able to create a shared storage to be able to use it with multiple instances"*.
+
+**Why it is not safe today.** The image ([docker/entrypoint.sh](docker/entrypoint.sh)) puts **one machine's whole state** on the volume, not just the models: `config.json`, the SQLite queue, the boot plan and serving markers ([server/cloud/podPlan.js](server/cloud/podPlan.js), [servingFlags.js](server/config/servingFlags.js)), lanes, uploads and results. Two Pods on one volume would overwrite each other's `config.json`, **share one SQLite file** (two executors claiming the same students' jobs, and SQLite with two writers on a network disk is the classic way to corrupt it), and download the same missing model into the same `.part` at the same time.
+
+**What RunPod allows** (checked 2026-10-19): a network volume can be attached to several Pods, but RunPod's Pod docs say only **one running Pod should actively use it** at a time to avoid corruption, while their blog and users report several Pods reading one volume. Pods must be in the **volume's data centre**, on **Secure Cloud**, and the volume is fixed at Pod creation. Writing one file from two Pods at once can corrupt it. ~$0.07/GB/month. **Global volumes** (beta) are not tied to a data centre, but give last-write-wins semantics, no file locking, no atomic rename, and changes may take a while to appear on other Pods: fine for models, unsuitable for the queue. The design below keeps every shared write **rare (model downloads only) and serialised by a lock**, which is the case where multi-Pod use is reported to work. Stage 0 proves that rather than assuming it.
+
+**The core idea: split the volume into a shared part and one folder per Pod.**
+
+```
+/workspace/
+  shared/                     used by every Pod
+    models/                   the weights (large, rarely written)
+    assets/                   sample media for calibration
+    _model_quarantine/        what the prune tool moved aside
+    pods/<pod-id>.json        "I'm alive" heartbeat, one per running Pod
+  pods/<pod-id>/              used by that Pod only
+    config.json               passwords, served workflows, HF token
+    data/                     SQLite queue, serving markers, pod-plan.json
+    workflows/                its copy of the bundles (calibration writes here)
+    lanes/
+    comfyui/input, output, user, comfyq_ingredients
+```
+
+| Thing | Where | Why |
+|---|---|---|
+| Models | **shared** | Large, identical for every Pod, written only when downloaded |
+| Calibration assets | **shared** | Read-only samples |
+| Model quarantine | **shared** | It holds shared models; guarded by stage 4 |
+| SQLite queue | **per Pod** | Two writers on a network disk corrupt it |
+| config.json, boot plan, serving markers | **per Pod** | Each Pod serves different workflows with its own passwords |
+| Workflow bundles | **per Pod** | Calibration rewrites `runtime.json`; admin edits rewrite `config.meta.json` — a shared copy races |
+| Uploads, results, ingredients | **per Pod** | Students see only their own Pod; no filename collisions |
+| ComfyUI user folder | **per Pod** | That instance's saved graphs and settings |
+| ComfyUI install, custom nodes, model access log | **container disk** (unchanged) | Part of the image; already per Pod |
+
+**Pod identity:** RunPod sets `RUNPOD_POD_ID` in every Pod; fall back to the hostname. A **stopped and restarted** Pod keeps its id, so it finds its own queue and results again; a **terminated** Pod leaves an orphan folder (stage 6).
+
+**Stages:**
+
+- **I0 — prove RunPod's behaviour first (no code).** Two cheap Pods on one test volume. Confirm: (1) both can mount it at once; (2) a file one writes is visible to the other, and how fast; (3) **exclusive create** (`O_EXCL`) of the same lock file from both Pods succeeds for exactly one; (4) **rename is atomic** across Pods — a file renamed into place never appears half-written; (5) throughput when both cold-load the same ~20 GB model (RunPod quotes 200–400 MB/s per volume). ★ If (3) or (4) fails, I3's lock design changes — the fallback is one Pod that owns downloads while the others only read.
+- **I1 — new layout in the entrypoint.** Resolve the Pod id; create `shared/` and `pods/<id>/` if missing; link ComfyQ's and ComfyUI's folders to the right side (models and assets → shared, everything else → the Pod's own folder). The config rewrite and [podEnv.js](server/cloud/podEnv.js) already run per container start, so they simply operate on that Pod's `config.json`. Bundles are seeded into the Pod's own `workflows/` on its first start, as the whole volume is today; `COMFYQ_SYNC_WORKFLOWS` acts on that copy.
+- **I2 — migrate an existing volume (most care needed).** Detect the old layout (`/workspace/comfyq/` + `/workspace/comfyui/models/` present, no `shared/`). **Move, never copy:** models → `shared/models/` (a rename on the same disk, instant), the old ComfyQ state → the first Pod's own folder, so the queue and results survive. **Refuse while another Pod's heartbeat is fresh** — an old-image Pod would see its folders vanish. Leave a **compatibility link** `/workspace/comfyui/models → shared/models` so an older image still finds the weights. Write a marker so it never runs twice.
+- **I3 — one download per model, volume-wide** ([modelDownloader.js](server/models/modelDownloader.js), [podPlan.js](server/cloud/podPlan.js)). Before downloading, take `name.lock` beside the target with exclusive create. On failure, another Pod is fetching it, so **wait for the finished file** instead of downloading it again. The lock records the Pod id and is **refreshed every 30 seconds**. Another Pod may take it over, resuming the `.part`, only when **all three** hold: the lock has not been refreshed for **10 minutes**, the owner's heartbeat in `shared/pods/` is stale too, and the `.part` has not grown for a further **2 minutes** (decision 3 below). **Re-check "already installed" after taking the lock.** The boot plan gains a state, *"waiting for another Pod to finish downloading it"*, shown by the console and `/admin/pod-plan`. The 30 s model-index TTL in [vramEstimate.js](server/workflows/vramEstimate.js) needs no change: a model another Pod finished shows up within half a minute.
+- **I4 — live-Pod list, and guards on shared actions.** Each Pod rewrites `shared/pods/<id>.json` every minute (id, image tag, workflows served, last seen); stale after a few minutes. While **another Pod is alive** on the volume, refuse the actions that change shared models: **prune** (a model unused by this Pod may be loaded by another — `buildModelUsage` only knows this Pod's library and lanes), **empty quarantine**, **restore from quarantine**. Refusing is the first version; ★ later, the prune check could also count the workflows other Pods' heartbeats say they serve. Warn, but allow, the **library sweep** (it writes only to this Pod, but its loads slow everyone's cold starts). The admin panel shows *"this volume is also used by N other Pods"* so a refusal explains itself.
+- **I5 — console** ([tools/runpod/console](tools/runpod/README.md)). Launch several Pods on one volume, each with its own workflows; the GPU recommendation is made per Pod. Group the Pods tab by volume with a combined $/hour, each Pod keeping its own student link. Warn when Pods on one volume run **different image versions** (a newer image may expect a newer layout).
+- **I6 — orphan cleanup.** A terminated Pod's folder (queue, results, uploads) stays on the volume and keeps costing storage. The console lists folders whose Pod id no longer exists in the account, with their size, and offers an **explicit** delete after a chance to download the results. Never automatic: those are students' outputs.
+- **I7 — real-Pod test plan, before a class depends on it.** (1) Migrate the current `comfyq-models` volume: models present, old queue and results back, smoke test serves. (2) Two Pods, same volume, different workflows, both missing a model: one downloads, the other waits, both serve. (3) Two Pods missing the **same** model at the same moment: exactly one download. (4) Kill a Pod mid-download: the other takes over once the lock is stale and finishes it intact. (5) Prune refused while another Pod is alive, allowed when alone. (6) Stop and start one Pod: its own queue and results return, untouched by the other. (7) Both Pods cold-loading a big model at once: measure the slowdown.
+
+**Order and size:** I0 an hour on two cheap Pods and decides I3. I1 small and I2 medium, shipped together. I3 medium, required before two Pods may download at once. I4 medium, required before pruning on a shared volume. I5 medium. I6 small, any time after I1. I7 a session on real Pods. **I0–I4 make sharing safe; I5–I6 make it pleasant.**
+
+**Out of scope:** one student link in front of several Pods (a front door spreading students over Pods) — separate project; each Pod keeps its own URL. Global volumes — revisit when out of beta; the same split applies but downloads need a lock that does not rely on exclusive create.
+
+**Decisions (owner, 2026-10-19 — the safest route in each case):**
+1. **Results stay on the volume, in each Pod's own folder** (`pods/<id>/comfyui/output`, `input`, `comfyq_ingredients`). ★ The deciding fact: RunPod **wipes the container disk on every restart**, not only on terminate (`containerDiskInGb`: "Wiped on restart" in their API spec), so results kept there would vanish on a simple Stop and Start. Results are small next to the models, and I6 gives an explicit way to reclaim a deleted Pod's space after downloading its results.
+2. **Each Pod keeps its own copy of the workflows on the volume, seeded from the image.** Read straight from the image, they would sit on the container disk and lose every calibration and admin edit at each restart. One copy shared by all Pods would mean two Pods writing the same files. A per-Pod copy works as today: a new image only adds bundles, and `COMFYQ_SYNC_WORKFLOWS=1` refreshes that Pod's copy on purpose. I5's image-version warning is where drift between Pods surfaces.
+3. **A download lock is declared abandoned slowly, and only on three signs at once:** the lock is refreshed every **30 s** and must be unrefreshed for **10 min**, the owner Pod's own heartbeat must also be stale, and the `.part` must not have grown for a further **2 min**. The two mistakes are not equal: wrongly declaring a Pod dead lets two Pods write one file and can corrupt a model; wrongly declaring it alive only makes the waiting Pod wait. A 40 GB download at 200 MB/s takes ~3.5 min, so liveness is proven by the heartbeat, never by elapsed time. ★ 10 min is a starting value, to confirm against I0's measured cross-Pod visibility delay.
+
+**Relationship to Phase H:** the same principle — every path holding state becomes per instance — applied across Pods instead of within one machine. The per-instance config path planned in H1 (`COMFYQ_CONFIG`) would make I1 simpler, and either can land first.
+
 ---
 
 ## Open risks / decisions still to nail down
