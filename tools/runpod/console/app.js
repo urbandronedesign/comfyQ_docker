@@ -105,6 +105,22 @@ $('testKey').onclick = async () => {
     } catch (e) { out.textContent = e.message; out.className = 'muted'; }
 };
 
+// One student page per workflow served: a tab books only the workflow its
+// address names, so each workflow needs its own link.
+function studentLinksHtml(links, names = {}) {
+    const rows = links?.byWorkflow || [];
+    if (rows.length < 2) return '';
+    return `<div class="small muted" style="margin-top:8px">One student page per workflow (a page books only the workflow its link names):</div>
+      <div class="links">${rows.map(l => `<a href="${esc(l.url)}" target="_blank" rel="noreferrer">${esc(names[l.id] || l.id)}${l.main ? ' (main)' : ''} ↗</a>
+        <button class="ghost small" data-copylink="${esc(l.url)}">Copy</button>`).join('')}</div>`;
+}
+function wireCopyLinks(root) {
+    for (const b of root.querySelectorAll('[data-copylink]')) b.onclick = (ev) => {
+        ev.stopPropagation();
+        navigator.clipboard.writeText(b.dataset.copylink).then(() => toast('Student link copied'), () => toast(b.dataset.copylink));
+    };
+}
+
 const AVAIL_LABEL = { available: 'in stock', unavailable: 'none free', unclear: 'unclear (Thunder disagrees with itself)', unknown: 'unknown' };
 function renderThunderOffers(offers) {
     const t = $('thunderOffers');
@@ -288,7 +304,7 @@ async function loadThunderInstances() {
             <a href="${esc(i.links.students)}" target="_blank" rel="noreferrer">Student page ↗</a>
             <a href="${esc(i.links.admin)}" target="_blank" rel="noreferrer">Admin panel ↗</a>
             <button class="ghost small" data-tcopy="${esc(i.links.students)}">Copy student link</button>
-          </div>` : ''}
+          </div>${studentLinksHtml(i.links, Object.fromEntries((i.probe?.served || []).map(w => [w.id, w.name])))}` : ''}
           <dl class="kv">
             <dt>Thunder status</dt><dd>${esc(i.status)}${i.ip ? ` <span class="muted">(${esc(i.ip)})</span>` : ''}</dd>
             ${r ? `<dt>Cost</dt><dd>${r.pricePerHr != null ? `$${Number(r.pricePerHr).toFixed(2)} / hour` : '—'}, running for ${since(new Date(r.createdAt).toISOString())}</dd>
@@ -309,6 +325,7 @@ async function loadThunderInstances() {
         try { const { url } = await api('POST', `/api/thunder/instances/${b.dataset.tdl}/download`); location.href = url; toast('The download starts once ComfyQ has begun zipping the results'); }
         catch (e) { toast(e.message, true); }
     };
+    wireCopyLinks($('tList'));
     for (const b of $('tList').querySelectorAll('[data-tcopy]')) b.onclick = () => {
         navigator.clipboard.writeText(b.dataset.tcopy).then(() => toast('Student link copied'), () => toast(b.dataset.tcopy));
     };
@@ -879,7 +896,7 @@ async function loadDetail() {
         <a href="${esc(pod.links.comfyui)}" target="_blank" rel="noreferrer">ComfyUI ↗</a>
         <button class="ghost small" id="copyStudents">Copy student link</button>
         ${!pod.networkVolume ? '<button class="secondary small" id="podResults">Download results</button>' : ''}
-      </div>` : ''}
+      </div>${studentLinksHtml(pod.links, Object.fromEntries((probe?.served || []).map(w => [w.id, w.name])))}` : ''}
       <dl class="kv">
         <dt>Pod id</dt><dd>${esc(pod.id)}</dd>
         <dt>GPU</dt><dd>${esc(pod.gpu?.name || '—')}${probe?.gpu ? ` <span class="muted">(${esc(probe.gpu)})</span>` : ''}</dd>
@@ -894,6 +911,7 @@ async function loadDetail() {
       </dl>
       ${files ? `<h2>Models</h2><div class="files">${files}</div>` : ''}`;
 
+    wireCopyLinks(box);
     if ($('stopPod')) $('stopPod').onclick = () => podAction('stop');
     if ($('startPod')) $('startPod').onclick = () => podAction('start');
     $('termPod').onclick = async () => {

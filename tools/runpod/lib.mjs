@@ -112,6 +112,14 @@ export async function gpuTypes(apiKey, { dataCenterId, secureCloud = true } = {}
 export const isNoMachine = (message) =>
     /required specifications|requested specifications|instances available|does not have the resources|try a different machine|no.*available|insufficient/i.test(String(message || ''));
 
+/**
+ * One student page per workflow served. A tab books only the workflow its
+ * address names (?workflow=<id>); without it, the first one. So with two or
+ * more, each needs its own link or the others cannot be reached.
+ */
+export const studentLinks = (base, ids = []) =>
+    ids.map((id, i) => ({ id, main: i === 0, url: `${base}/user?workflow=${encodeURIComponent(id)}` }));
+
 export const proxyUrl = (podId, port = PORT) => process.env.COMFYQ_POD_PROXY
     ? process.env.COMFYQ_POD_PROXY.replace('{id}', podId).replace('{port}', port)
     : `https://${podId}-${port}.proxy.runpod.net`;

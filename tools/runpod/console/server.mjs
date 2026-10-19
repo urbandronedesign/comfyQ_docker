@@ -26,7 +26,7 @@ import { Readable } from 'stream';
 import { fileURLToPath } from 'url';
 import {
     rest, gpuTypes, podProbe, podBody, proxyUrl, missingSecrets, runningOnVolume, shareBlockers, cannotShare,
-    listWorkflows, vramNeeded, rankGpus, volumeBuilds, volumeGroups, podImage, isNoMachine, DEFAULT_IMAGE, RunPodError, probeUrl, PORT as POD_PORT,
+    listWorkflows, vramNeeded, rankGpus, volumeBuilds, volumeGroups, podImage, isNoMachine, DEFAULT_IMAGE, RunPodError, probeUrl, studentLinks, PORT as POD_PORT,
 } from '../lib.mjs';
 import {
     thunderOffers, thunderInstances, thunderCreate, thunderDelete, thunderAddKey, thunderUrl, thunderEnv, remoteScript, setupInstance,
@@ -284,7 +284,10 @@ const slimPod = (p, volumes = []) => p && ({
     // A Pod with no network volume keeps everything on its own volume: lost on Terminate.
     podVolumeGb: p.volumeInGb || null,
     comfyq: /comfyq/i.test(podImage(p) || ''),
-    links: { students: proxyUrl(p.id), admin: `${proxyUrl(p.id)}/admin`, comfyui: proxyUrl(p.id, 8188) },
+    links: {
+        students: proxyUrl(p.id), admin: `${proxyUrl(p.id)}/admin`, comfyui: proxyUrl(p.id, 8188),
+        byWorkflow: studentLinks(proxyUrl(p.id), String(p.env?.COMFYQ_SERVE || '').split(',').filter(Boolean)),
+    },
 });
 
 route('GET', '/api/pods', async () => {
@@ -657,7 +660,7 @@ route('GET', '/api/thunder/instances', async () => {
         const probe = i.status === 'RUNNING' && forwarded ? await probeUrl(base) : null;
         return {
             id: i.id, uuid: i.uuid, name: i.name, status: i.status, gpuType: i.gpuType, ip: i.ip || null, createdAt: i.createdAt || null,
-            forwarded, links: forwarded ? { students: base, admin: `${base}/admin` } : null,
+            forwarded, links: forwarded ? { students: base, admin: `${base}/admin`, byWorkflow: studentLinks(base, r?.serve || probe?.served?.map(w => w.id) || []) } : null,
             ours: !!r, setupRunning: thunderTasks.has(i.uuid), probe,
             rec: r && { state: r.state, error: r.error, serve: r.serve, gpuName: r.gpuName, pricePerHr: r.pricePerHr, diskGb: r.diskGb, podId: r.podId, createdAt: r.createdAt, steps: (r.steps || []).slice(-60) },
         };

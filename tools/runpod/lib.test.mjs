@@ -1,10 +1,15 @@
 // GPU choice and Pod body for the RunPod launcher. (node tools/runpod/lib.test.mjs)
 import assert from 'assert';
 import http from 'http';
-import { vramNeeded, rankGpus, podBody, missingSecrets, listWorkflows, runningOnVolume, shareBlockers, volumeGroups, buildsOf, podImage, isNoMachine, HEADROOM_GB } from './lib.mjs';
+import { studentLinks, vramNeeded, rankGpus, podBody, missingSecrets, listWorkflows, runningOnVolume, shareBlockers, volumeGroups, buildsOf, podImage, isNoMachine, HEADROOM_GB } from './lib.mjs';
 
 const ok = [];
 const check = (label, cond) => { assert.ok(cond, label); ok.push(label); };
+
+// ---- student links ---------------------------------------------------------
+const sl = studentLinks('https://x', ['a', 'b c']);
+check('one student page per workflow, on /user (the bare / drops ?workflow on its way to /user)',
+    sl.length === 2 && sl[0].url === 'https://x/user?workflow=a' && sl[0].main && !sl[1].main && sl[1].url.endsWith('workflow=b%20c'));
 
 // ---- VRAM needed ------------------------------------------------------------
 check('one workflow: its figure plus headroom', vramNeeded([{ id: 'a', vramGb: 17.5 }]).gb === 17.5 + HEADROOM_GB);
