@@ -21,6 +21,9 @@ const VOLUME = arg('volume');
 const WFS = String(arg('workflows') || '').split(',').filter(Boolean);
 const GPUS = String(arg('gpus') || '').split(',').map(s => s.trim()).filter(Boolean);
 const WAIT_MIN = Number(arg('wait-min') || 60);
+// How often to ask RunPod for the card. RunPod has no queue: a card freed
+// goes to whoever asks first, so ask often (each try is one quick request).
+const RETRY_SEC = Math.max(3, Number(arg('retry-sec') || 30));
 const OUT = arg('out') || os.tmpdir();
 if (!VOLUME || !WFS.length || !GPUS.length) { console.log('usage: node lanes.mjs --volume <id> --workflows <id>,<id> --gpus "<type>,<type>"'); process.exit(1); }
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -48,6 +51,7 @@ async function api(method, route, body) {
 }
 
 let pod = null;
+let tries = 0;
 try {
     for (let i = 0; i < 20; i++) { try { await api('GET', '/api/settings'); break; } catch { await sleep(300); } }
     const { pods } = await api('GET', '/api/pods');
@@ -61,8 +65,11 @@ try {
             log(`Pod ${pod.id} created on ${pod.gpu?.name || GPUS[0]} at $${pod.costPerHr}/h, serving ${WFS.join(' + ')}`);
         } catch (e) {
             if (Date.now() > end || !(e.status === 409 || e.status >= 500)) throw e;
-            log(`no ${GPUS.length > 1 ? 'card of these types' : 'card'} free yet — retrying (${Math.round((end - Date.now()) / 60000)} min left)`);
-            await sleep(30_000);
+            tries = (tries || 0) + 1;
+            if (tries === 1 || tries % Math.max(1, Math.round(60 / RETRY_SEC)) === 0) {
+                log(`no ${GPUS.length > 1 ? 'card of these types' : 'card'} free yet — asking every ${RETRY_SEC} s (${tries} tries, ${Math.round((end - Date.now()) / 60000)} min left)`);
+            }
+            await sleep(RETRY_SEC * 1000);
         }
     }
 
