@@ -48,9 +48,17 @@ jobs:
       - name: Take a reading
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY_READONLY }}
-        run: node code/tools/runpod/stock-recorder.mjs --out data/stock
+        run: |
+          # Not set up yet: say so once per run, without failing (and emailing).
+          if [ -z "$RUNPOD_API_KEY" ]; then
+            echo "::warning::Secret RUNPOD_API_KEY_READONLY is not set — no reading taken. See tools/runpod/README.md, 'Stock history'."
+            echo "SKIP=1" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          node code/tools/runpod/stock-recorder.mjs --out data/stock
 
       - name: Save it
+        if: env.SKIP != '1'
         run: |
           cd data
           git config user.name "runpod-stock-bot"
