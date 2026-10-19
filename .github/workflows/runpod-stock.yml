@@ -1,0 +1,61 @@
+# RunPod GPU stock, recorded every 15 minutes (RunPod keeps no history).
+# Readings go to the `runpod-stock` branch, never to main, so they neither
+# clutter its history nor trigger anything. The RunPod console's Stock tab
+# reads them from there. Needs the repository secret RUNPOD_API_KEY_READONLY:
+# a READ-ONLY RunPod key (Settings → API Keys), which cannot create Pods.
+# ⚠ GitHub pauses scheduled workflows in a repository with no activity for
+#   60 days; re-enable it from the Actions tab if that happens.
+name: RunPod stock
+
+on:
+  schedule:
+    - cron: '7,22,37,52 * * * *'   # every 15 min, off the busy :00
+  workflow_dispatch:
+
+concurrency:
+  group: runpod-stock
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Code (for the recorder)
+        uses: actions/checkout@v4
+        with:
+          path: code
+
+      - name: Data branch
+        run: |
+          set -e
+          url="https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+          if git ls-remote --exit-code --heads "$url" runpod-stock >/dev/null 2>&1; then
+            git clone --depth 1 --branch runpod-stock "$url" data
+          else
+            # First run: an empty branch with nothing but the readings.
+            mkdir data && cd data && git init -q -b runpod-stock && git remote add origin "$url"
+            printf '# RunPod GPU stock readings\n\nWritten every 15 minutes by .github/workflows/runpod-stock.yml on main.\nOne JSON line per reading in stock/YYYY-MM.jsonl; see tools/runpod/stock-recorder.mjs.\n' > README.md
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Take a reading
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY_READONLY }}
+        run: node code/tools/runpod/stock-recorder.mjs --out data/stock
+
+      - name: Save it
+        run: |
+          cd data
+          git config user.name "runpod-stock-bot"
+          git config user.email "runpod-stock-bot@users.noreply.github.com"
+          git add -A
+          git commit -q -m "stock $(date -u +%FT%TZ)"
+          # Two runs never overlap (concurrency), but retry once on a race anyway.
+          git push -q origin runpod-stock || (git pull -q --rebase origin runpod-stock && git push -q origin runpod-stock)

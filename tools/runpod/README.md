@@ -106,6 +106,35 @@ The workflow list comes from this checkout's `workflows/` folder. The Pod
 serves the workflows its image was built with, so a workflow added here after
 the last image build is not on the Pod yet.
 
+## Stock history: when are cards free?
+
+RunPod only says what is in stock **now** and keeps no history. A GitHub
+Actions job, [runpod-stock.yml](../../.github/workflows/runpod-stock.yml),
+takes a reading every 15 minutes with
+[stock-recorder.mjs](stock-recorder.mjs): which cards of 24 GB or more are
+free, at what price, in each of RunPod's data centres. It saves the readings on
+the repository's **`runpod-stock` branch** (one file per month, never on
+`main`). The console's **Stock** tab reads them and shows, for a data centre
+and a card, in what share of the readings it was free, by weekday and hour,
+in your local time. Use it to choose when to launch before a class. No
+machine has to stay on.
+
+**Setting it up, once:**
+1. On RunPod: *Settings → API Keys → Create API Key*, with **read-only**
+   permission. A read-only key cannot create Pods or spend money, which is
+   why it is the one to give GitHub.
+2. On GitHub, in this repository: *Settings → Secrets and variables →
+   Actions → New repository secret*, named `RUNPOD_API_KEY_READONLY`, with that
+   key as the value.
+3. *Actions → RunPod stock → Run workflow* takes a first reading at once; the
+   schedule does the rest.
+
+Good to know: GitHub often runs scheduled jobs 5–15 minutes late, which does
+not matter for daily patterns. It pauses scheduled jobs in a repository with
+no activity for 60 days: re-enable it from the Actions tab. And a reading says
+what RunPod listed at that moment; a card listed as free can still be taken a
+second later.
+
 ## The command line
 
 ### Once: what you need

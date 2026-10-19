@@ -413,6 +413,36 @@ route('POST', '/api/pods/([A-Za-z0-9]+)/(stop|start)', async ({ match }) => {
     return { ok: true };
 });
 
+// RunPod stock readings, recorded every 15 minutes by a GitHub Actions job
+// (.github/workflows/runpod-stock.yml) onto the repo's runpod-stock branch.
+// The page turns them into "how often was this card free, by weekday and hour".
+const STOCK_URL = process.env.COMFYQ_STOCK_URL
+    || 'https://raw.githubusercontent.com/urbandronedesign/comfyQ_docker/runpod-stock/stock/';
+route('GET', '/api/stock', async ({ query }) => {
+    const months = Math.min(6, Math.max(1, Number(query.get('months')) || 2));
+    const names = [];
+    const d = new Date();
+    for (let i = 0; i < months; i++) {
+        const m = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - i, 1));
+        names.push(`${m.toISOString().slice(0, 7)}.jsonl`);
+    }
+    const readings = [];
+    let found = 0;
+    for (const n of names) {
+        try {
+            const r = await fetch(STOCK_URL + n, { signal: AbortSignal.timeout(20000), headers: { 'Cache-Control': 'no-cache' } });
+            if (!r.ok) continue;
+            found++;
+            for (const line of (await r.text()).split('\n')) {
+                if (!line.trim()) continue;
+                try { readings.push(JSON.parse(line)); } catch { /* a torn line */ }
+            }
+        } catch { /* offline, or not recorded yet */ }
+    }
+    readings.sort((x, y) => x.at.localeCompare(y.at));
+    return { source: STOCK_URL, files: found, readings };
+});
+
 route('GET', '/api/attempts', ({ query }) => {
     const all = readAttempts(Math.min(3000, Number(query.get('limit')) || 300));
     const hour = all.filter(a => a.at > Date.now() - 3600_000);

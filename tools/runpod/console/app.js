@@ -47,6 +47,7 @@ function showTab(name) {
     if (name === 'launch') loadLaunch();
     if (name === 'pods') loadPods();
     if (name === 'attempts') loadAttempts();
+    if (name === 'stock') loadStock();
 }
 for (const b of document.querySelectorAll('.tabs button')) b.onclick = () => showTab(b.dataset.tab);
 
@@ -789,6 +790,77 @@ async function loadAttempts() {
     attemptsTimer = setTimeout(() => { if (!$('tab-attempts').hidden && !document.hidden) loadAttempts(); }, 5000);
 }
 $('refreshAttempts').onclick = loadAttempts;
+
+// ---- stock history -----------------------------------------------------------------
+//
+// Readings taken every 15 minutes by a GitHub Actions job. For one data centre
+// and one card: in how many readings it was free, by weekday and hour, in this
+// computer's local time.
+
+let stock = null;
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+async function loadStock() {
+    $('stockNote').textContent = 'Reading the history from GitHub…';
+    try { stock = await api('GET', '/api/stock?months=2'); }
+    catch (e) { $('stockNote').textContent = e.message; return; }
+    const r = stock.readings;
+    if (!r.length) {
+        $('stockNote').innerHTML = `No reading yet. The GitHub job writes one every 15 minutes to the <code>runpod-stock</code> branch once it is set up (see <code>tools/runpod/README.md</code>). Looked in ${esc(stock.source)}.`;
+        $('stockGrid').innerHTML = '';
+        return;
+    }
+    const dcs = [...new Set(r.flatMap(x => Object.keys(x.dc)))].sort();
+    const gpus = [...new Set(r.flatMap(x => Object.values(x.dc).flatMap(l => l.map(g => g[0]))))].sort();
+    const keepDc = $('stockDc').value || selectedVolume()?.dataCenterId || settings?.stockDc || 'EU-RO-1';
+    const keepGpu = $('stockGpu').value || store('rpc.stockGpu') || 'NVIDIA GeForce RTX 5090';
+    $('stockDc').innerHTML = dcs.map(d => `<option>${esc(d)}</option>`).join('');
+    $('stockGpu').innerHTML = '<option value="*">any card of 24 GB or more</option>' + gpus.map(g => `<option value="${esc(g)}">${esc(shortGpu(g))}</option>`).join('');
+    if (dcs.includes(keepDc)) $('stockDc').value = keepDc;
+    if (keepGpu === '*' || gpus.includes(keepGpu)) $('stockGpu').value = keepGpu;
+    renderStock();
+}
+
+function renderStock() {
+    if (!stock?.readings.length) return;
+    const dc = $('stockDc').value, gpu = $('stockGpu').value;
+    store('rpc.stockGpu', gpu);
+    // Only readings where this data centre answered: a failed read is not "none free".
+    const rows = stock.readings.filter(x => x.dc[dc] !== undefined);
+    const free = (x) => gpu === '*' ? x.dc[dc].length > 0 : x.dc[dc].some(g => g[0] === gpu);
+    const total = Array.from({ length: 7 }, () => Array(24).fill(0));
+    const hits = Array.from({ length: 7 }, () => Array(24).fill(0));
+    const prices = [];
+    for (const x of rows) {
+        const t = new Date(x.at);
+        const day = (t.getDay() + 6) % 7, hour = t.getHours();
+        total[day][hour]++;
+        if (free(x)) {
+            hits[day][hour]++;
+            for (const g of x.dc[dc]) if ((gpu === '*' || g[0] === gpu) && g[2] != null) prices.push(g[2]);
+        }
+    }
+    const all = rows.length, ok = rows.filter(free).length;
+    const last = rows.at(-1);
+    const nowFree = last && free(last);
+    const first = rows[0] && new Date(rows[0].at);
+    $('stockNote').innerHTML = `<b>${all}</b> readings since ${first ? first.toLocaleString() : '—'}. `
+        + `${esc(gpu === '*' ? 'Some card of 24 GB or more' : shortGpu(gpu))} was free in ${esc(dc)} in <b>${all ? Math.round(100 * ok / all) : 0}%</b> of them`
+        + (prices.length ? `, from $${Math.min(...prices).toFixed(2)}/h` : '') + '. '
+        + (last ? `Latest reading (${new Date(last.at).toLocaleTimeString()}): <b>${nowFree ? 'free' : 'none free'}</b>.` : '')
+        + ' A reading says what RunPod listed at that moment; a card listed as free can still be taken a second later.';
+    $('stockNote').className = 'note ' + (nowFree ? 'good' : '');
+    const cell = (d, h) => {
+        if (!total[d][h]) return '<td class="hm none" title="no reading"></td>';
+        const p = hits[d][h] / total[d][h];
+        return `<td class="hm" style="background:rgba(74,222,128,${(0.08 + 0.85 * p).toFixed(2)})" title="${DAYS[d]} ${h}:00 — free in ${hits[d][h]} of ${total[d][h]} readings">${Math.round(100 * p)}</td>`;
+    };
+    $('stockGrid').innerHTML = `<thead><tr><th></th>${Array.from({ length: 24 }, (_, h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>`
+        + DAYS.map((d, i) => `<tr><th>${d}</th>${Array.from({ length: 24 }, (_, h) => cell(i, h)).join('')}</tr>`).join('') + '</tbody>';
+}
+$('stockDc').onchange = renderStock;
+$('stockGpu').onchange = renderStock;
+$('refreshStock').onclick = loadStock;
 
 async function podAction(verb) {
     try { await api('POST', `/api/pods/${selectedPod}/${verb}`); toast(verb === 'stop' ? 'Stopping — GPU billing ends once it has stopped' : 'Starting'); setTimeout(loadPods, 1500); }

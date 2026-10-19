@@ -18,6 +18,7 @@
     <button role="tab" data-tab="launch">2 · Launch</button>
     <button role="tab" data-tab="pods">3 · Pods <span id="podCount" class="count"></span></button>
     <button role="tab" data-tab="attempts">Attempts</button>
+    <button role="tab" data-tab="stock">Stock</button>
   </nav>
   <button id="themeBtn" class="ghost icon" title="Light / dark">◐</button>
 </header>
@@ -177,6 +178,19 @@
       </table>
       </div>
       <p class="muted small">Kept in <code id="attemptsFile"></code>.</p>
+    </div>
+  </section>
+  <!-- ───────────── Stock history ───────────── -->
+  <section id="tab-stock" class="tab" hidden>
+    <div class="card">
+      <div class="row"><h2>When are cards free?</h2><button id="refreshStock" class="ghost">Refresh</button></div>
+      <p class="muted">RunPod keeps no history of its stock, so a GitHub job notes every 15 minutes which cards are free in each data centre. Each cell: in what share of the readings at that weekday and hour (your local time) the card was free. Use it to choose when to launch before a class.</p>
+      <div class="row wrap">
+        <label class="field"><span>Data centre</span><select id="stockDc"></select></label>
+        <label class="field"><span>Card</span><select id="stockGpu"></select></label>
+      </div>
+      <div id="stockNote" class="note"></div>
+      <div class="tablewrap"><table id="stockGrid" class="heat"></table></div>
     </div>
   </section>
 </main>
