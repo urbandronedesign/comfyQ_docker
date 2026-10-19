@@ -654,7 +654,7 @@ photo02.jpg,charcoal sketch,1
 
 ### Phase I — One RunPod network volume shared by several Pods *(planned and started 2026-10-19)*
 
-> **Status, 2026-10-19 (late):** I0–I4 ✅ built and verified on real Pods (image `sha-bca559f`). I5 ✅ and I6 ✅ built, tested against a stand-in RunPod in the browser, not yet on real Pods (I6 needs an image build: its routes run on the Pod). Image `aee73c1` built. **I7 started:** its first real run found the `imageName` bug (fixed); the rest waits for GPU stock in EU-RO-1 — see CLAUDE.md "Resume here". The resume notes, account state and open questions are at the top of [CLAUDE.md](CLAUDE.md), under "Resume here".
+> **Status, end of 2026-10-19:** I0–I6 ✅ built (I0–I4 verified on real Pods; I5, I6, per-workflow booking timelines, Plan B and the stock recorder tested against a stand-in RunPod only — RunPod had no free GPU all evening). Image `sha-6255e65`. **Next: the one-card + 20-students test and the I7 pass when RunPod has stock** — commands and state at the top of [CLAUDE.md](CLAUDE.md), "Resume here".
 
 **Goal:** several Pods run at the same time on **one network volume** — one per class, or one per heavy workflow — and **share the models**, so each weight is downloaded once. Each Pod keeps its own settings, job queue, students and results, exactly as if it were alone. Owner request: *"I would like to be able to create a shared storage to be able to use it with multiple instances"*.
 
