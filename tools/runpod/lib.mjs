@@ -104,6 +104,14 @@ export async function gpuTypes(apiKey, { dataCenterId, secureCloud = true } = {}
     throw lastErr;
 }
 
+/**
+ * Is this RunPod error "no free machine matches right now" (worth retrying, or
+ * picking more GPUs) rather than a real fault? RunPod words it at least three
+ * ways, all seen on 2026-10-19 in EU-RO-1.
+ */
+export const isNoMachine = (message) =>
+    /required specifications|requested specifications|instances available|does not have the resources|try a different machine|no.*available|insufficient/i.test(String(message || ''));
+
 export const proxyUrl = (podId, port = PORT) => process.env.COMFYQ_POD_PROXY
     ? process.env.COMFYQ_POD_PROXY.replace('{id}', podId).replace('{port}', port)
     : `https://${podId}-${port}.proxy.runpod.net`;

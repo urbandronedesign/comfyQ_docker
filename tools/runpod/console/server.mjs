@@ -26,7 +26,7 @@ import { Readable } from 'stream';
 import { fileURLToPath } from 'url';
 import {
     rest, gpuTypes, podProbe, podBody, proxyUrl, missingSecrets, runningOnVolume, shareBlockers, cannotShare,
-    listWorkflows, vramNeeded, rankGpus, volumeBuilds, volumeGroups, podImage, DEFAULT_IMAGE, RunPodError,
+    listWorkflows, vramNeeded, rankGpus, volumeBuilds, volumeGroups, podImage, isNoMachine, DEFAULT_IMAGE, RunPodError,
 } from '../lib.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -198,7 +198,7 @@ route('POST', '/api/launch', async ({ body }) => {
             results.push({ ok: true, pod: created.at(-1) });
         } catch (e) {
             // RunPod's wording for "no free machine matches": say what to change.
-            const error = /required specifications|requested specifications|instances available|no.*available|insufficient/i.test(e.message)
+            const error = isNoMachine(e.message)
                 ? `RunPod has no free machine right now with ${p.gpuTypeIds.length > 1 ? 'any of these GPUs' : 'this GPU'} in ${volume.dataCenterId} `
                   + `(on ${body.community ? 'Community' : 'Secure'} Cloud, with a CUDA 12.8 driver). Pick a GPU showing stock, tick a few more as fallbacks, `
                   + `or try again in a few minutes — stock in one data centre changes often.`

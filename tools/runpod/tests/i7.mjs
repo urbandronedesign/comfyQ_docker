@@ -129,12 +129,19 @@ try {
         if (live.every(L => serving[L])) break;
         await sleep(5000);
     }
+    // No download to interrupt (the models were already there): stop B on
+    // purpose, so prune-when-alone and stop/start still get tested.
+    if (!stopped && Object.keys(created).every(L => serving[L])) {
+        log('no download overlap (models already on the volume) — stopping B on purpose');
+        await api('POST', `/api/pods/${created.B.id}/stop`);
+        stopped = 'B'; stoppedAt = Date.now();
+    }
     results.overlapSeen = overlap;
     results.seen = Object.fromEntries(Object.entries(seen).map(([k, v]) => [k, [...v]]));
     log('what each Pod saw:', JSON.stringify(results.seen));
     const survivor = Object.keys(created).find(L => L !== stopped);
     if (!serving[survivor]) throw new Error(`${survivor} did not reach serving`);
-    if (stopped) results.takeoverMinutes = +((Date.now() - stoppedAt) / 60000).toFixed(1);
+    if (stopped && overlap) results.takeoverMinutes = +((Date.now() - stoppedAt) / 60000).toFixed(1);
 
     // ---- 3. prune refused while another is alive, allowed when alone -----------------
     const S = created[survivor];

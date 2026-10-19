@@ -1,7 +1,7 @@
 // GPU choice and Pod body for the RunPod launcher. (node tools/runpod/lib.test.mjs)
 import assert from 'assert';
 import http from 'http';
-import { vramNeeded, rankGpus, podBody, missingSecrets, listWorkflows, runningOnVolume, shareBlockers, volumeGroups, buildsOf, podImage, HEADROOM_GB } from './lib.mjs';
+import { vramNeeded, rankGpus, podBody, missingSecrets, listWorkflows, runningOnVolume, shareBlockers, volumeGroups, buildsOf, podImage, isNoMachine, HEADROOM_GB } from './lib.mjs';
 
 const ok = [];
 const check = (label, cond) => { assert.ok(cond, label); ok.push(label); };
@@ -117,6 +117,14 @@ check('a Pod too old to state its own build is known through a neighbour heartbe
 const gone = buildsOf([{ podId: 'a', r: { image: 'sha1', others: [{ id: 'ghost', image: 'sha0' }] } }, { podId: 'b', r: null }]);
 check('a heartbeat from a Pod no longer running does not count', !('ghost' in gone.builds) && gone.distinct.join() === 'sha1');
 check('a Pod not answering yet is unknown, never guessed', gone.builds.b === null);
+
+// ---- "no machine free" in all its wordings ------------------------------------------
+check('every wording RunPod uses for "no machine free" is recognised', [
+    'create pod: could not find any pods with required specifications',
+    'There are no longer any instances available with the requested specifications',
+    'create pod: This machine does not have the resources to deploy your pod. Please try a different machine',
+].every(isNoMachine));
+check('a real fault is not mistaken for it', !isNoMachine('RunPod refused POST /pods (401): the API key is wrong'));
 
 // ---- the real library ---------------------------------------------------------
 const wfs = listWorkflows();
