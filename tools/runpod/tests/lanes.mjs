@@ -38,7 +38,7 @@ const log = (...a) => console.log(`${String(Math.round((Date.now() - t0) / 1000)
 
 const PORT = 4792;
 const consoleProc = spawn(process.execPath, [path.join(HERE, '..', 'console', 'server.mjs'), '--no-open'], {
-    env: { ...process.env, COMFYQ_CONSOLE_PORT: String(PORT) }, stdio: 'ignore',
+    env: { ...process.env, COMFYQ_CONSOLE_PORT: String(PORT), COMFYQ_CONSOLE_SOURCE: 'lanes test' }, stdio: 'ignore',
 });
 async function api(method, route, body) {
     const r = await fetch(`http://localhost:${PORT}${route}`, {

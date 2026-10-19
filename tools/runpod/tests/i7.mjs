@@ -45,7 +45,7 @@ const results = {};
 // The console, on a port of its own.
 const PORT = 4791;
 const consoleProc = spawn(process.execPath, [path.join(HERE, '..', 'console', 'server.mjs'), '--no-open'], {
-    env: { ...process.env, COMFYQ_CONSOLE_PORT: String(PORT) }, stdio: 'ignore',
+    env: { ...process.env, COMFYQ_CONSOLE_PORT: String(PORT), COMFYQ_CONSOLE_SOURCE: 'I7 test' }, stdio: 'ignore',
 });
 async function api(method, route, body) {
     const r = await fetch(`http://localhost:${PORT}${route}`, {

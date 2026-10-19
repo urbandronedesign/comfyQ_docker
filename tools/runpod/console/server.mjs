@@ -35,6 +35,30 @@ const HOST = '127.0.0.1';
 const NO_VOLUME = 'none';
 const SETTINGS_FILE = path.join(os.homedir(), '.comfyq', 'runpod-console.json');
 
+// ---- attempt log ----------------------------------------------------------------
+// Every try at getting a GPU — launches and starts, whatever the outcome — one
+// JSON line each, in a file beside the settings. A file rather than memory, so
+// a test script running its own copy of the console shows up here too.
+const ATTEMPTS_FILE = path.join(os.homedir(), '.comfyq', 'runpod-attempts.jsonl');
+const SOURCE = process.env.COMFYQ_CONSOLE_SOURCE || 'console';
+function recordAttempt(entry) {
+    try {
+        fs.mkdirSync(path.dirname(ATTEMPTS_FILE), { recursive: true });
+        fs.appendFileSync(ATTEMPTS_FILE, JSON.stringify({ at: Date.now(), source: SOURCE, ...entry }) + '\n');
+        // Keep it small: past ~2 MB, keep the newest 3000 lines.
+        if (fs.statSync(ATTEMPTS_FILE).size > 2e6) {
+            const lines = fs.readFileSync(ATTEMPTS_FILE, 'utf8').trim().split('\n');
+            fs.writeFileSync(ATTEMPTS_FILE, lines.slice(-3000).join('\n') + '\n');
+        }
+    } catch { /* a log must never break a launch */ }
+}
+function readAttempts(limit = 300) {
+    try {
+        return fs.readFileSync(ATTEMPTS_FILE, 'utf8').trim().split('\n').slice(-limit)
+            .map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean).reverse();
+    } catch { return []; }
+}
+
 // From RunPod's OpenAPI spec (dataCenterIds, checked 2026-10-19).
 const DATA_CENTERS = ['EU-RO-1', 'EU-SE-1', 'EU-CZ-1', 'EU-NL-1', 'EU-FR-1', 'EUR-IS-1', 'EUR-IS-2', 'EUR-IS-3', 'EUR-NO-1',
     'CA-MTL-1', 'CA-MTL-2', 'CA-MTL-3', 'US-IL-1', 'US-TX-1', 'US-TX-3', 'US-TX-4', 'US-KS-2', 'US-KS-3', 'US-GA-1', 'US-GA-2',
@@ -201,6 +225,7 @@ route('POST', '/api/launch', async ({ body }) => {
             }));
             created.push(slimPod(pod, vols));
             results.push({ ok: true, pod: created.at(-1) });
+            recordAttempt({ action: 'launch', name: p.name, gpus: p.gpuTypeIds, where, result: 'created', podId: pod.id, costPerHr: pod.costPerHr ?? null });
         } catch (e) {
             // RunPod's wording for "no free machine matches": say what to change.
             const error = isNoMachine(e.message)
@@ -210,6 +235,7 @@ route('POST', '/api/launch', async ({ body }) => {
                 : e.message;
             failed.push({ name: p.name, serve: p.serve, error, status: e.status || 500 });
             results.push({ ok: false, error });
+            recordAttempt({ action: 'launch', name: p.name, gpus: p.gpuTypeIds, where, result: isNoMachine(e.message) ? 'no machine' : 'error', message: e.message.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 300) });
         }
     }
     // Remember the choices for next time (never the secrets — those are
@@ -378,8 +404,23 @@ route('POST', '/api/pods/([A-Za-z0-9]+)/(stop|start)', async ({ match }) => {
             throw new RunPodError(cannotShare(blockers, vols.find(v => v.id === vid)?.name || vid), 409);
         }
     }
-    await rest(key, 'POST', `/pods/${match[1]}/${match[2]}`);
+    try { await rest(key, 'POST', `/pods/${match[1]}/${match[2]}`); }
+    catch (e) {
+        if (match[2] === 'start') recordAttempt({ action: 'start', podId: match[1], result: isNoMachine(e.message) ? 'no machine' : 'error', message: e.message.slice(0, 300) });
+        throw e;
+    }
+    if (match[2] === 'start') recordAttempt({ action: 'start', podId: match[1], result: 'started' });
     return { ok: true };
+});
+
+route('GET', '/api/attempts', ({ query }) => {
+    const all = readAttempts(Math.min(3000, Number(query.get('limit')) || 300));
+    const hour = all.filter(a => a.at > Date.now() - 3600_000);
+    return {
+        file: ATTEMPTS_FILE,
+        attempts: all,
+        lastHour: { tries: hour.length, created: hour.filter(a => a.result === 'created' || a.result === 'started').length, noMachine: hour.filter(a => a.result === 'no machine').length },
+    };
 });
 
 route('DELETE', '/api/pods/([A-Za-z0-9]+)', async ({ match, body }) => {

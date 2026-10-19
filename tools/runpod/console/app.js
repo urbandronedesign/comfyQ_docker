@@ -46,6 +46,7 @@ function showTab(name) {
     store('rpc.tab', name);
     if (name === 'launch') loadLaunch();
     if (name === 'pods') loadPods();
+    if (name === 'attempts') loadAttempts();
 }
 for (const b of document.querySelectorAll('.tabs button')) b.onclick = () => showTab(b.dataset.tab);
 
@@ -758,6 +759,36 @@ async function loadFolders() {
         };
     }
 }
+
+// ---- attempts ----------------------------------------------------------------------
+
+let attemptsTimer = null;
+const shortGpu = (id) => String(id).replace(/^NVIDIA /, '').replace(/ Blackwell/, '').replace(/ Edition$/, '');
+async function loadAttempts() {
+    clearTimeout(attemptsTimer);
+    try {
+        const d = await api('GET', '/api/attempts?limit=300');
+        $('attemptsFile').textContent = d.file;
+        const h = d.lastHour;
+        const last = d.attempts[0];
+        $('attemptsSummary').innerHTML = `Last hour: <b>${h.tries}</b> tries, <b>${h.created}</b> got a GPU, ${h.noMachine} found no machine free.`
+            + (last ? ` Latest: ${new Date(last.at).toLocaleTimeString()} — ${esc(last.result)}.` : ' Nothing tried yet.');
+        $('attemptsSummary').className = 'note ' + (h.created ? 'good' : '');
+        $('attemptRows').innerHTML = d.attempts.map(a => {
+            const good = a.result === 'created' || a.result === 'started';
+            return `<tr class="${good ? 'picked' : ''}">
+              <td>${new Date(a.at).toLocaleTimeString()}</td>
+              <td>${esc(a.source)}</td>
+              <td>${esc(a.name || a.podId || '')}</td>
+              <td class="small">${esc((a.gpus || []).map(shortGpu).join(', ') || (a.action === 'start' ? '(its own)' : ''))}</td>
+              <td>${esc(a.where || '')}</td>
+              <td class="${good ? 'stock-High' : a.result === 'no machine' ? 'muted' : 'stock-None'}" title="${esc(a.message || '')}">${esc(a.result)}${good && a.podId ? ` · ${esc(a.podId)}` : ''}${good && a.costPerHr ? ` · $${Number(a.costPerHr).toFixed(2)}/h` : ''}${a.result === 'error' ? ` — ${esc(String(a.message || '').slice(0, 90))}` : ''}</td>
+            </tr>`;
+        }).join('') || '<tr><td colspan="6" class="muted">No attempt recorded yet.</td></tr>';
+    } catch (e) { $('attemptsSummary').textContent = e.message; }
+    attemptsTimer = setTimeout(() => { if (!$('tab-attempts').hidden && !document.hidden) loadAttempts(); }, 5000);
+}
+$('refreshAttempts').onclick = loadAttempts;
 
 async function podAction(verb) {
     try { await api('POST', `/api/pods/${selectedPod}/${verb}`); toast(verb === 'stop' ? 'Stopping — GPU billing ends once it has stopped' : 'Starting'); setTimeout(loadPods, 1500); }

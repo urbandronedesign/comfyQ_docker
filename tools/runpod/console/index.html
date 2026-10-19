@@ -17,6 +17,7 @@
     <button role="tab" data-tab="creds">1 · Credentials</button>
     <button role="tab" data-tab="launch">2 · Launch</button>
     <button role="tab" data-tab="pods">3 · Pods <span id="podCount" class="count"></span></button>
+    <button role="tab" data-tab="attempts">Attempts</button>
   </nav>
   <button id="themeBtn" class="ghost icon" title="Light / dark">◐</button>
 </header>
@@ -161,6 +162,21 @@
       <div id="podDetail" class="card detail">
         <p class="muted">Pick a Pod.</p>
       </div>
+    </div>
+  </section>
+  <!-- ───────────── Attempts ───────────── -->
+  <section id="tab-attempts" class="tab" hidden>
+    <div class="card">
+      <div class="row"><h2>Attempts to get a GPU</h2><button id="refreshAttempts" class="ghost">Refresh</button></div>
+      <p class="muted">Every launch and start tried, by this page or by a test script, newest first. RunPod has no queue: a free card goes to whoever asks first, so "no machine" just means none was free at that second.</p>
+      <div id="attemptsSummary" class="note"></div>
+      <div class="tablewrap">
+      <table class="gpus attempts">
+        <thead><tr><th>When</th><th>From</th><th>Pod</th><th>GPUs asked for</th><th>Where</th><th>Result</th></tr></thead>
+        <tbody id="attemptRows"></tbody>
+      </table>
+      </div>
+      <p class="muted small">Kept in <code id="attemptsFile"></code>.</p>
     </div>
   </section>
 </main>
