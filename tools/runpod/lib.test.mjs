@@ -1,6 +1,6 @@
 // GPU choice and Pod body for the RunPod launcher. (node tools/runpod/lib.test.mjs)
 import assert from 'assert';
-import { vramNeeded, rankGpus, podBody, missingSecrets, listWorkflows, HEADROOM_GB } from './lib.mjs';
+import { vramNeeded, rankGpus, podBody, missingSecrets, listWorkflows, runningOnVolume, HEADROOM_GB } from './lib.mjs';
 
 const ok = [];
 const check = (label, cond) => { assert.ok(cond, label); ok.push(label); };
@@ -45,6 +45,17 @@ check('the workflows and secrets travel as the env the image reads',
 check('nothing is switched on that was not asked for', !('COMFYQ_ALLOW_OPEN' in body.env) && !('COMFYQ_FETCH_MODELS' in body.env));
 check('only the admin password is required', missingSecrets({ adminPassword: 'x' }).length === 0
     && missingSecrets({ accessPassword: 'y' }).join() === 'admin password');
+
+// ---- one running Pod per volume ------------------------------------------------
+const pods = [
+    { id: 'p1', name: 'one', desiredStatus: 'RUNNING', networkVolumeId: 'v1' },
+    { id: 'p2', name: 'two', desiredStatus: 'EXITED', networkVolumeId: 'v1' },
+    { id: 'p3', name: 'three', desiredStatus: 'RUNNING', networkVolumeId: 'v2' },
+];
+check('a running Pod on the volume blocks another', runningOnVolume(pods, 'v1').map(p => p.id).join() === 'p1');
+check('a stopped Pod does not', !runningOnVolume(pods, 'v1').some(p => p.id === 'p2'));
+check('a Pod on another volume does not', runningOnVolume(pods, 'v2').map(p => p.id).join() === 'p3');
+check('a Pod does not block itself (restarting it)', runningOnVolume(pods, 'v1', 'p1').length === 0);
 
 // ---- the real library ---------------------------------------------------------
 const wfs = listWorkflows();

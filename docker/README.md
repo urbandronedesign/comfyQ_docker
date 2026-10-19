@@ -132,25 +132,52 @@ any failure are at `/admin/pod-plan`.
 
 ### What lives where on the volume
 
+The models and calibration samples are **shared** by every Pod on the volume;
+each Pod keeps **its own** settings, job queue, workflows, uploads and results
+in a folder named after its RunPod Pod id:
+
 ```
 /workspace/
-  comfyq/config.json        settings: passwords, active workflow, HF token
-  comfyq/data/              job queue (sqlite), serving state, logs
-  comfyq/workflows/         the workflow bundles (see below)
-  comfyq/lanes/             extra ComfyUI instances' working folders
-  comfyui/models/           model weights
-  comfyui/input/ output/    uploads and results
-  comfyui/user/             ComfyUI's own settings and saved graphs
-  assets/                   sample pictures/videos for calibration
-  _model_quarantine/        models the prune tool moved aside
+  shared/
+    models/                 model weights, used by every Pod
+    assets/                 sample pictures/videos for calibration
+    _model_quarantine/      models the prune tool moved aside
+    .layout-v2              marks the volume as using this layout
+    migration-*.log         what was moved, if the volume was converted
+  pods/<pod id>/
+    config.json             settings: passwords, active workflow, HF token
+    data/                   job queue (sqlite), serving state, start-up plan
+    workflows/              this Pod's copy of the workflow bundles
+    lanes/                  extra ComfyUI instances' working folders
+    comfyui/input/ output/  uploads and results
+    comfyui/user/           ComfyUI's own settings and saved graphs
+  comfyui/models -> ../shared/models   (only on a converted volume, for older images)
 ```
 
-**Workflows.** The bundles are copied onto the volume on the first start, so
-calibrations and admin edits survive restarts. A newer image only *adds*
-bundles the volume does not have yet. To replace the volume's bundles with the
-image's, start the Pod once with the environment variable
-`COMFYQ_SYNC_WORKFLOWS=1`. That overwrites them, so commit any edit you want to
-keep to git first.
+A **stopped and restarted** Pod keeps its id, so it finds its own queue and
+results again. A **terminated** Pod's folder stays on the volume (results
+included) until you delete it. Outside RunPod the folder is `pods/default`, or
+the name in `COMFYQ_POD_ID`.
+
+**One Pod per volume at a time, for now.** Two Pods running on one volume at
+the same time also need a volume-wide download lock and guards on pruning,
+which are not built yet (Phase I in the implementation plan). The console and
+the command line refuse to launch or start a second Pod on a volume that one
+is already using.
+
+**A volume from an older image is converted on first start.** The models move
+to `shared/models` and the old settings, queue and results become the first
+Pod's own folder. It is a move, not a copy, so it takes seconds and needs no
+extra space. Nothing is overwritten: if a file already exists at the
+destination, the old one is left where it was and the log says so. **Stop every
+other Pod on the volume first.** The conversion waits while files in the old
+queue folder are still changing, but an idle old Pod would not show up that way.
+
+**Workflows.** Each Pod's bundles are copied from the image on its first start,
+so calibrations and admin edits survive restarts. A newer image only *adds*
+bundles the Pod does not have yet. To replace them with the image's, start the
+Pod once with the environment variable `COMFYQ_SYNC_WORKFLOWS=1`. That
+overwrites them, so commit any edit you want to keep to git first.
 
 ## Known limits
 

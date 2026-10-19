@@ -181,6 +181,25 @@ export function missingSecrets(secrets) {
     return secrets.adminPassword ? [] : ['admin password'];
 }
 
+/**
+ * The Pods RUNNING on a network volume, other than `exceptId`.
+ *
+ * ★ One running Pod per volume, for now. The image's volume layout gives each
+ *   Pod its own folder (Phase I, stages I1/I2), but two Pods using one volume
+ *   at the same time also need the volume-wide download lock and the live-Pod
+ *   guards (I3/I4), which are not built: two Pods missing the same model
+ *   would download it into the same file. Lift this once they ship.
+ *   (RunPod reports a Pod's volume as `networkVolumeId`.)
+ */
+export function runningOnVolume(pods, volumeId, exceptId = null) {
+    return (pods || []).filter(p => p.desiredStatus === 'RUNNING'
+        && (p.networkVolumeId || p.networkVolume?.id) === volumeId && p.id !== exceptId);
+}
+
+export const oneAtATime = (busy, volumeName) =>
+    `${busy.map(p => `"${p.name}" (${p.id})`).join(', ')} ${busy.length > 1 ? 'are' : 'is'} already running on the volume "${volumeName}". `
+    + 'For now only one Pod may use a volume at a time: stop it first.';
+
 // ---- workflows ----------------------------------------------------------------
 
 /**

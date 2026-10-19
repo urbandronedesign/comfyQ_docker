@@ -23,7 +23,7 @@ import path from 'path';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import {
-    rest, gpuTypes, podProbe, podBody, proxyUrl, missingSecrets,
+    rest, gpuTypes, podProbe, podBody, proxyUrl, missingSecrets, runningOnVolume, oneAtATime,
     listWorkflows, vramNeeded, rankGpus, DEFAULT_IMAGE, RunPodError,
 } from '../lib.mjs';
 
@@ -153,6 +153,8 @@ route('POST', '/api/launch', async ({ body }) => {
     const vols = await rest(key, 'GET', '/networkvolumes');
     const volume = vols.find(v => v.id === body.volumeId);
     if (!volume) throw new RunPodError('pick a network volume', 400);
+    const busy = runningOnVolume(await rest(key, 'GET', '/pods'), volume.id);
+    if (busy.length) throw new RunPodError(oneAtATime(busy, volume.name), 409);
 
     const create = () => rest(key, 'POST', '/pods', podBody({
         volume, gpuTypeIds, serve, secrets: secretsOf(s),
@@ -174,34 +176,52 @@ route('POST', '/api/launch', async ({ body }) => {
     // Remember the choices for next time (never the secrets — those are
     // already stored separately).
     saveSettings({ ...s, volumeId: volume.id, community: !!body.community, diskGb: body.diskGb || s.diskGb || 30 });
-    return { pod: slimPod(pod) };
+    return { pod: slimPod(pod, [volume]) };
 });
 
-// The Pod object minus its environment, which holds the passwords.
-const slimPod = (p) => p && ({
+// The Pod object minus its environment, which holds the passwords. RunPod
+// gives only the volume's id, so its name comes from the volume list.
+const slimPod = (p, volumes = []) => p && ({
     id: p.id, name: p.name, image: p.image, desiredStatus: p.desiredStatus,
     gpu: p.gpu ? { id: p.gpu.id, name: p.gpu.displayName, count: p.gpu.count } : null,
     costPerHr: p.costPerHr ?? p.adjustedCostPerHr ?? null,
     lastStartedAt: p.lastStartedAt || null, lastStatusChange: p.lastStatusChange || null,
-    networkVolume: p.networkVolume ? { id: p.networkVolume.id, name: p.networkVolume.name, dataCenterId: p.networkVolume.dataCenterId } : null,
+    networkVolume: (() => {
+        const id = p.networkVolumeId || p.networkVolume?.id;
+        if (!id) return null;
+        const v = volumes.find(x => x.id === id) || p.networkVolume || {};
+        return { id, name: v.name || id, dataCenterId: v.dataCenterId || null };
+    })(),
     serve: String(p.env?.COMFYQ_SERVE || '').split(',').filter(Boolean),
     comfyq: /comfyq/i.test(p.image || ''),
     links: { students: proxyUrl(p.id), admin: `${proxyUrl(p.id)}/admin`, comfyui: proxyUrl(p.id, 8188) },
 });
 
 route('GET', '/api/pods', async () => {
-    const pods = await rest(apiKey(), 'GET', '/pods');
-    return { pods: pods.map(slimPod) };
+    const key = apiKey();
+    const [pods, volumes] = await Promise.all([rest(key, 'GET', '/pods'), rest(key, 'GET', '/networkvolumes')]);
+    return { pods: pods.map(p => slimPod(p, volumes)) };
 });
 
 route('GET', '/api/pods/([A-Za-z0-9]+)', async ({ match }) => {
-    const pod = await rest(apiKey(), 'GET', `/pods/${match[1]}`);
+    const key = apiKey();
+    const [pod, volumes] = await Promise.all([rest(key, 'GET', `/pods/${match[1]}`), rest(key, 'GET', '/networkvolumes')]);
     const probe = pod.desiredStatus === 'RUNNING' ? await podProbe(pod.id) : null;
-    return { pod: slimPod(pod), probe };
+    return { pod: slimPod(pod, volumes), probe };
 });
 
 route('POST', '/api/pods/([A-Za-z0-9]+)/(stop|start)', async ({ match }) => {
-    await rest(apiKey(), 'POST', `/pods/${match[1]}/${match[2]}`);
+    const key = apiKey();
+    if (match[2] === 'start') {
+        const pod = await rest(key, 'GET', `/pods/${match[1]}`);
+        const vid = pod.networkVolumeId || pod.networkVolume?.id;
+        const busy = vid ? runningOnVolume(await rest(key, 'GET', '/pods'), vid, pod.id) : [];
+        if (busy.length) {
+            const vols = await rest(key, 'GET', '/networkvolumes');
+            throw new RunPodError(oneAtATime(busy, vols.find(v => v.id === vid)?.name || vid), 409);
+        }
+    }
+    await rest(key, 'POST', `/pods/${match[1]}/${match[2]}`);
     return { ok: true };
 });
 

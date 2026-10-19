@@ -3,15 +3,14 @@
 # volume ($COMFYQ_DATA, /workspace on RunPod), point config.json at the Linux
 # install, then run ComfyQ in a restart loop.
 #
-# Volume layout (created on first start, reused afterwards):
-#   comfyq/config.json      ComfyQ settings (passwords, active workflow, …)
-#   comfyq/data/            job queue (sqlite), serving markers, logs
-#   comfyq/lanes/           per-lane ComfyUI user/temp dirs
-#   comfyq/workflows/       the bundles — seeded from the image, see below
-#   comfyui/models/         model weights (the big one)
-#   comfyui/{input,output,user,comfyq_ingredients}/
-#   assets/                 sample media for calibration
-#   _model_quarantine/      models the prune tool moved aside
+# Volume layout v2 (see volume-layout.sh): the models, calibration assets and
+# quarantine are SHARED by every Pod on the volume; each Pod keeps its own
+# settings, job queue, workflows, uploads and results in pods/<pod id>/. A
+# volume in the previous single-machine layout is converted on first start.
+#
+# ⚠ Pods using one volume AT THE SAME TIME also need the volume-wide download
+#   lock and the live-Pod guards (Phase I, stages I3/I4), not built yet.
+#   Until then, run one Pod per volume at a time.
 set -euo pipefail
 
 DATA="${COMFYQ_DATA:-/workspace}"
@@ -19,9 +18,8 @@ APP=/app
 COMFY=/opt/ComfyUI
 PY=/opt/venv/bin/python
 
-mkdir -p "$DATA"/comfyq/{data,lanes,workflows} \
-         "$DATA"/comfyui/{models,input,output,user,comfyq_ingredients} \
-         "$DATA"/assets "$DATA"/_model_quarantine
+source "$APP/docker/volume-layout.sh"
+layout_init        # sets POD_ID, SHARED and MINE
 
 # Replace a path in the image with a link to its home on the volume. What the
 # image shipped there is copied across first without overwriting anything, so
@@ -36,22 +34,23 @@ link_to_volume() {
     ln -s "$outside" "$inside"
 }
 
-# Bundles: a calibration or an admin edit writes into workflows/, so they live
-# on the volume. A new image therefore only ADDS bundles; set
-# COMFYQ_SYNC_WORKFLOWS=1 to let the image's versions overwrite the volume's
-# (local edits to those files are lost — commit them to git first).
+# Bundles: a calibration or an admin edit writes into workflows/, so each Pod
+# keeps its own copy on the volume. A new image therefore only ADDS bundles;
+# set COMFYQ_SYNC_WORKFLOWS=1 to let the image's versions overwrite this Pod's
+# copy (local edits to those files are lost — commit them to git first).
 if [[ "${COMFYQ_SYNC_WORKFLOWS:-0}" == "1" && ! -L "$APP/workflows" ]]; then
-    echo "[entrypoint] COMFYQ_SYNC_WORKFLOWS=1: updating bundles on the volume from the image"
-    rsync -a "$APP/workflows"/ "$DATA/comfyq/workflows"/
+    echo "[entrypoint] COMFYQ_SYNC_WORKFLOWS=1: updating this Pod's bundles from the image"
+    rsync -a "$APP/workflows"/ "$MINE/workflows"/
 fi
-link_to_volume "$APP/workflows"      "$DATA/comfyq/workflows"
-link_to_volume "$APP/server/data"    "$DATA/comfyq/data"
-link_to_volume "$APP/.comfyq-lanes"  "$DATA/comfyq/lanes"
-for d in models input output user comfyq_ingredients; do
-    link_to_volume "$COMFY/$d" "$DATA/comfyui/$d"
+link_to_volume "$APP/workflows"      "$MINE/workflows"
+link_to_volume "$APP/server/data"    "$MINE/data"
+link_to_volume "$APP/.comfyq-lanes"  "$MINE/lanes"
+link_to_volume "$COMFY/models"       "$SHARED/models"
+for d in input output user comfyq_ingredients; do
+    link_to_volume "$COMFY/$d" "$MINE/comfyui/$d"
 done
 # config.json is a file, so it is linked rather than seeded.
-[[ -L "$APP/config.json" ]] || ln -sf "$DATA/comfyq/config.json" "$APP/config.json"
+[[ -L "$APP/config.json" ]] || ln -sf "$MINE/config.json" "$APP/config.json"
 
 # Point the config at this install on every start (the volume may have been
 # filled on another machine, or by an older image). Everything else in it —
@@ -59,7 +58,7 @@ done
 cd "$APP"
 node -e '
 const cm = require("./server/config/configManager");
-const [comfy, py, data] = process.argv.slice(1);
+const [comfy, py, mine, shared] = process.argv.slice(1);
 cm.load();
 cm.update(c => {
     c.server = { ...c.server, port: 3000, host: "0.0.0.0" };
@@ -67,14 +66,14 @@ cm.update(c => {
         installation_type: "system",
         root_path: comfy,
         python_executable: py,
-        output_dir: `${data}/comfyui/output`,
+        output_dir: `${mine}/comfyui/output`,
     });
-    c.assets = { ...c.assets, dir: `${data}/assets` };
-    c.maintenance = { ...(c.maintenance || {}), quarantineDir: `${data}/_model_quarantine` };
+    c.assets = { ...c.assets, dir: `${shared}/assets` };
+    c.maintenance = { ...(c.maintenance || {}), quarantineDir: `${shared}/_model_quarantine` };
     return c;
 });
 console.log("[entrypoint] config.json points at", comfy);
-' "$COMFY" "$PY" "$DATA"
+' "$COMFY" "$PY" "$MINE" "$SHARED"
 
 # Settings passed as environment variables when the Pod was created
 # (COMFYQ_SERVE, the passwords, the HuggingFace token): see
