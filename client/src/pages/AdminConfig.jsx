@@ -53,6 +53,9 @@ const AdminConfig = ({ currentMode }) => {
     const [pickedWorkflow, setPickedWorkflow] = useState(null);
     const [activatingId, setActivatingId] = useState(null);
     const [deactivating, setDeactivating] = useState(false);
+    // Set when Stop serving was pressed with jobs on the machine: { running, queued }
+    // (null counts = the queue could not be read). Null = no window open.
+    const [stopConfirm, setStopConfirm] = useState(null);
     // Workflows being served in parallel, and whether each other workflow would
     // fit alongside them on this machine's card.
     const [lanes, setLanes] = useState([]);
@@ -673,7 +676,28 @@ const AdminConfig = ({ currentMode }) => {
         finally { setClosingLaneId(null); refreshLanes(); }
     };
 
+    // ★ Stop serving restarts ComfyQ into admin mode: EVERY lane stops, the job
+    // rendering fails (server-restart) and the queue waits until the machine
+    // serves again. On the Thunder test (2026-10-20) it was pressed on the
+    // primary lane mid-class and took the other workflow's render with it. So
+    // look at the queue first and ask when there is anything in it.
+    const requestStopServing = async () => {
+        let counts;
+        try {
+            const count = async (status) => {
+                const r = await fetch(`${SERVER_URL}/jobs?status=${status}`, { headers: adminHeaders() });
+                if (!r.ok) throw new Error(String(r.status));
+                return ((await r.json()).jobs || []).length;
+            };
+            const [running, queued] = await Promise.all([count('processing'), count('scheduled')]);
+            counts = { running, queued };
+        } catch { counts = { running: null, queued: null }; }
+        if (counts.running === 0 && counts.queued === 0) return resetToAdmin();
+        setStopConfirm(counts);
+    };
+
     const resetToAdmin = async () => {
+        setStopConfirm(null);
         setDeactivating(true);
         try {
             const res = await fetch(`${SERVER_URL}/admin/reset-to-admin`, {
@@ -794,7 +818,7 @@ const AdminConfig = ({ currentMode }) => {
                         <Button variant="ghost" onClick={() => window.location.assign('/user')} icon={ArrowLeft}>Back to user</Button>
                     )}
                     {config.mode === 'student' && (
-                        <Button variant="secondary" onClick={resetToAdmin} icon={Power}>Reset to admin</Button>
+                        <Button variant="secondary" onClick={requestStopServing} icon={Power}>Reset to admin</Button>
                     )}
                     {config.mode === 'student' && (
                         <Button variant="danger" onClick={() => setShowEmergencyConfirm(true)} icon={OctagonAlert}>
@@ -864,7 +888,7 @@ const AdminConfig = ({ currentMode }) => {
                         serving={config.mode === 'student'}
                         onCloseLane={closeLane}
                         closingLaneId={closingLaneId}
-                        onDeactivate={resetToAdmin}
+                        onDeactivate={requestStopServing}
                         deactivating={deactivating}
                     />
                 <Card>
@@ -890,7 +914,7 @@ const AdminConfig = ({ currentMode }) => {
                         onActivate={(id) => activate(id)}
                         activatingId={activatingId}
                         canActivate={pathsConfigured}
-                        onDeactivate={resetToAdmin}
+                        onDeactivate={requestStopServing}
                         deactivating={deactivating}
                         serving={config.mode === 'student'}
                         onValidate={(id) => setConfirmValidateId(id)}
@@ -1461,6 +1485,36 @@ const AdminConfig = ({ currentMode }) => {
                     showToast('Workflow metadata saved');
                 }}
             />
+
+            <Modal isOpen={!!stopConfirm} onClose={() => !deactivating && setStopConfirm(null)}
+                title="Stop serving while jobs are on this machine?" maxWidth="max-w-md">
+                {stopConfirm && (
+                    <div className="space-y-4">
+                        {stopConfirm.running === null ? (
+                            <p className="text-sm text-foreground">The queue could not be read, so jobs may be rendering or waiting.</p>
+                        ) : (
+                            <ul className="text-sm text-foreground space-y-1.5 list-disc pl-5">
+                                {stopConfirm.running > 0 && (
+                                    <li><b>{stopConfirm.running}</b> job{stopConfirm.running > 1 ? 's' : ''} rendering will <b>fail</b> (<code className="text-xs">server-restart</code>).</li>
+                                )}
+                                {stopConfirm.queued > 0 && (
+                                    <li><b>{stopConfirm.queued}</b> queued job{stopConfirm.queued > 1 ? 's' : ''} will wait until this machine serves again.</li>
+                                )}
+                            </ul>
+                        )}
+                        <p className="text-sm text-muted">
+                            Stopping does not stop just one model: ComfyQ restarts in admin mode and <b>every workflow on this machine stops</b>.
+                            Wait until the queue is empty — or, to drop a second workflow only, use <i>Close lane</i> on it.
+                        </p>
+                        <div className="flex justify-end gap-2 pt-2 border-t border-border">
+                            <Button variant="ghost" onClick={() => setStopConfirm(null)} disabled={deactivating}>Keep serving</Button>
+                            <Button variant="danger" icon={Power} onClick={resetToAdmin} isLoading={deactivating}>
+                                {deactivating ? 'Stopping…' : 'Stop serving anyway'}
+                            </Button>
+                        </div>
+                    </div>
+                )}
+            </Modal>
 
             <Modal isOpen={showEmergencyConfirm} onClose={() => !emergencyStopping && setShowEmergencyConfirm(false)}
                 title="Stop everything and kill ComfyUI?" maxWidth="max-w-md">
