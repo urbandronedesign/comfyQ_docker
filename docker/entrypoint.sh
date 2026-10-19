@@ -8,9 +8,9 @@
 # settings, job queue, workflows, uploads and results in pods/<pod id>/. A
 # volume in the previous single-machine layout is converted on first start.
 #
-# ⚠ Pods using one volume AT THE SAME TIME also need the volume-wide download
-#   lock and the live-Pod guards (Phase I, stages I3/I4), not built yet.
-#   Until then, run one Pod per volume at a time.
+# Several Pods may run on one volume at the same time: a model is downloaded
+# by one Pod while the others wait for it, and pruning is paused while other
+# Pods are up (server/cloud/sharedVolume.js).
 set -euo pipefail
 
 DATA="${COMFYQ_DATA:-/workspace}"

@@ -9,6 +9,7 @@ import ModelDownloads from '../components/admin/ModelDownloads';
 import MaintenanceScripts from '../components/admin/MaintenanceScripts';
 import LibrarySweep from '../components/admin/LibrarySweep';
 import ModelQuarantine from '../components/admin/ModelQuarantine';
+import VolumePods from '../components/admin/VolumePods';
 import NodePacks from '../components/admin/NodePacks';
 import InstallUpdates from '../components/admin/InstallUpdates';
 import Modal from '../components/ui/Modal';
@@ -1424,6 +1425,10 @@ const AdminConfig = ({ currentMode }) => {
 
             {tab === 'maintenance' && (
                 <>
+                    {/* Only on a network volume shared by several Pods: who else is
+                        on it, and why pruning is paused while they are. */}
+                    <VolumePods />
+
                     {/* First card in the tab. Updating the install was named as
                         belonging to Maintenance before this tab had anything in
                         it, and it is where the owner went looking for it — it

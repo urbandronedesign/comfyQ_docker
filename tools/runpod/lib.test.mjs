@@ -1,6 +1,7 @@
 // GPU choice and Pod body for the RunPod launcher. (node tools/runpod/lib.test.mjs)
 import assert from 'assert';
-import { vramNeeded, rankGpus, podBody, missingSecrets, listWorkflows, runningOnVolume, HEADROOM_GB } from './lib.mjs';
+import http from 'http';
+import { vramNeeded, rankGpus, podBody, missingSecrets, listWorkflows, runningOnVolume, shareBlockers, HEADROOM_GB } from './lib.mjs';
 
 const ok = [];
 const check = (label, cond) => { assert.ok(cond, label); ok.push(label); };
@@ -56,6 +57,27 @@ check('a running Pod on the volume blocks another', runningOnVolume(pods, 'v1').
 check('a stopped Pod does not', !runningOnVolume(pods, 'v1').some(p => p.id === 'p2'));
 check('a Pod on another volume does not', runningOnVolume(pods, 'v2').map(p => p.id).join() === 'p3');
 check('a Pod does not block itself (restarting it)', runningOnVolume(pods, 'v1', 'p1').length === 0);
+
+// ---- may another Pod join? ---------------------------------------------------------
+// Stand-in Pods behind a fake proxy: one on the new image (answers
+// /admin/volume-pods), one on an old image (404), one not up yet (no answer).
+const proxy = http.createServer((req, res) => {
+    if (req.url === '/new/admin/volume-pods') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end('{"sharedReady":true}'); }
+    if (req.url === '/old/federation/self') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end('{"mode":"student"}'); }
+    if (req.url.startsWith('/old/')) { res.writeHead(404); return res.end(); }
+    req.socket.destroy();
+});
+await new Promise(r => proxy.listen(0, '127.0.0.1', r));
+process.env.COMFYQ_POD_PROXY = `http://127.0.0.1:${proxy.address().port}/{id}`;
+const pod = (id) => ({ id, name: id, desiredStatus: 'RUNNING' });
+check('a Pod with the download lock lets another join', (await shareBlockers([pod('new')])).length === 0);
+const old = await shareBlockers([pod('new'), pod('old')]);
+check('a Pod on an older image blocks it, saying so', old.length === 1 && old[0].pod.id === 'old' && /too old/.test(old[0].why));
+const booting = await shareBlockers([pod('down')]);
+check('a Pod not answering yet blocks it until it is up', booting.length === 1 && /not answering/.test(booting[0].why));
+check('an empty volume blocks nothing', (await shareBlockers([])).length === 0);
+proxy.close();
+delete process.env.COMFYQ_POD_PROXY;
 
 // ---- the real library ---------------------------------------------------------
 const wfs = listWorkflows();

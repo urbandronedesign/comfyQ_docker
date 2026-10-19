@@ -15,7 +15,7 @@
 // dependency to install.
 
 import {
-    rest, findVolume, podBody, podGet, proxyUrl, missingSecrets, runningOnVolume, oneAtATime,
+    rest, findVolume, podBody, podGet, proxyUrl, missingSecrets, runningOnVolume, shareBlockers, cannotShare,
 } from './lib.mjs';
 
 function parseArgs(argv) {
@@ -64,8 +64,8 @@ async function launch(args) {
     }
 
     const volume = await findVolume(apiKey(), args.volume);
-    const busy = runningOnVolume(await api('GET', '/pods'), volume.id);
-    if (busy.length) die(oneAtATime(busy, volume.name));
+    const blockers = await shareBlockers(runningOnVolume(await api('GET', '/pods'), volume.id));
+    if (blockers.length) die(cannotShare(blockers, volume.name));
     const body = podBody({
         volume,
         gpuTypeIds: String(args.gpu).split(',').map(s => s.trim()).filter(Boolean),
@@ -183,8 +183,8 @@ async function simple(args, verb) {
     if (verb === 'start') {
         const p = await api('GET', `/pods/${id}`);
         const vid = p.networkVolumeId || p.networkVolume?.id;
-        const busy = vid ? runningOnVolume(await api('GET', '/pods'), vid, id) : [];
-        if (busy.length) die(oneAtATime(busy, vid));
+        const blockers = vid ? await shareBlockers(runningOnVolume(await api('GET', '/pods'), vid, id)) : [];
+        if (blockers.length) die(cannotShare(blockers, vid));
     }
     await api('POST', `/pods/${id}/${verb}`);
     console.log(`Pod ${id}: ${verb} requested`);

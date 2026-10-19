@@ -217,8 +217,13 @@ async function runPlan({ configManager, registry, downloader, exitForRestart, pl
             for (const row of files) {
                 const j = row.key && live.get(row.key);
                 if (!j) continue;
-                Object.assign(row, { status: j.status, received: j.received, total: j.total, error: j.error || null });
-                if (j.status === 'queued' || j.status === 'downloading') pending = true;
+                Object.assign(row, {
+                    status: j.status, received: j.received, total: j.total, error: j.error || null,
+                    // Another Pod on this volume is fetching the same file: wait for it.
+                    waitingFor: j.status === 'waiting' ? j.waitingFor || 'another Pod' : null,
+                    installedBy: j.installedBy || null,
+                });
+                if (['queued', 'downloading', 'waiting'].includes(j.status)) pending = true;
             }
             updatePlan({ files }, planFile);
             if (!pending) break;

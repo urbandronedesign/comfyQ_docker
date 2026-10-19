@@ -23,7 +23,7 @@ import path from 'path';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import {
-    rest, gpuTypes, podProbe, podBody, proxyUrl, missingSecrets, runningOnVolume, oneAtATime,
+    rest, gpuTypes, podProbe, podBody, proxyUrl, missingSecrets, runningOnVolume, shareBlockers, cannotShare,
     listWorkflows, vramNeeded, rankGpus, DEFAULT_IMAGE, RunPodError,
 } from '../lib.mjs';
 
@@ -153,8 +153,8 @@ route('POST', '/api/launch', async ({ body }) => {
     const vols = await rest(key, 'GET', '/networkvolumes');
     const volume = vols.find(v => v.id === body.volumeId);
     if (!volume) throw new RunPodError('pick a network volume', 400);
-    const busy = runningOnVolume(await rest(key, 'GET', '/pods'), volume.id);
-    if (busy.length) throw new RunPodError(oneAtATime(busy, volume.name), 409);
+    const blockers = await shareBlockers(runningOnVolume(await rest(key, 'GET', '/pods'), volume.id));
+    if (blockers.length) throw new RunPodError(cannotShare(blockers, volume.name), 409);
 
     const create = () => rest(key, 'POST', '/pods', podBody({
         volume, gpuTypeIds, serve, secrets: secretsOf(s),
@@ -215,10 +215,10 @@ route('POST', '/api/pods/([A-Za-z0-9]+)/(stop|start)', async ({ match }) => {
     if (match[2] === 'start') {
         const pod = await rest(key, 'GET', `/pods/${match[1]}`);
         const vid = pod.networkVolumeId || pod.networkVolume?.id;
-        const busy = vid ? runningOnVolume(await rest(key, 'GET', '/pods'), vid, pod.id) : [];
-        if (busy.length) {
+        const blockers = vid ? await shareBlockers(runningOnVolume(await rest(key, 'GET', '/pods'), vid, pod.id)) : [];
+        if (blockers.length) {
             const vols = await rest(key, 'GET', '/networkvolumes');
-            throw new RunPodError(oneAtATime(busy, vols.find(v => v.id === vid)?.name || vid), 409);
+            throw new RunPodError(cannotShare(blockers, vols.find(v => v.id === vid)?.name || vid), 409);
         }
     }
     await rest(key, 'POST', `/pods/${match[1]}/${match[2]}`);

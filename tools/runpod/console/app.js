@@ -421,7 +421,9 @@ async function loadDetail() {
     const plan = probe?.plan;
     const files = (plan?.files || []).map(f => {
         const pct = f.total ? Math.round(100 * f.received / f.total) : (f.status === 'done' ? 100 : 0);
-        return `<div class="file"><div>${esc(f.name)} <span class="muted small">— ${esc(f.status)}${f.total ? ` · ${gb(f.received)} / ${gb(f.total)} GB` : ''}</span></div>
+        const what = f.status === 'waiting' ? `waiting for Pod ${f.waitingFor || '?'} to finish downloading it`
+            : f.status === 'done' && f.installedBy ? 'done (downloaded by another Pod)' : f.status;
+        return `<div class="file"><div>${esc(f.name)} <span class="muted small">— ${esc(what)}${f.total && f.status !== 'waiting' ? ` · ${gb(f.received)} / ${gb(f.total)} GB` : ''}</span></div>
             ${f.error ? `<div class="small" style="color:var(--bad)">${esc(f.error)}</div>` : ''}
             ${f.status === 'downloading' ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ''}</div>`;
     }).join('');

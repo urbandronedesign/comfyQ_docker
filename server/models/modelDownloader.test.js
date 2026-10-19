@@ -51,6 +51,7 @@ check('...and a real one is honoured',
 
 // ---------------------------------------------------------------- transfer
 const BODY = Buffer.alloc(64 * 1024, 7);
+const stalledResponses = [];
 let mode = 'normal';
 const server = http.createServer((req, res) => {
     if (mode === 'gated') { res.writeHead(401); return res.end(); }
@@ -60,9 +61,16 @@ const server = http.createServer((req, res) => {
         res.writeHead(200, { 'content-length': String(BODY.length) });
         return res.end(BODY);
     }
-    if (mode === 'truncate') {                // promises more than it sends
+    if (mode === 'truncate') {                // promises more, sends some, hangs up
         res.writeHead(200, { 'content-length': String(BODY.length) });
-        return res.end(BODY.subarray(0, 1024));
+        res.write(BODY.subarray(0, 1024));
+        return setTimeout(() => res.destroy(), 20);
+    }
+    if (mode === 'stall') {                   // promises more, sends some, goes quiet
+        res.writeHead(200, { 'content-length': String(BODY.length) });
+        res.write(BODY.subarray(0, 1024));
+        stalledResponses.push(res);
+        return;
     }
     if (range) {
         const from = Number(/bytes=(\d+)-/.exec(range)?.[1] || 0);
@@ -88,7 +96,7 @@ const settle = async (dl, key, tries = 200) => {
     await new Promise(r => server.listen(0, '127.0.0.1', r));
     const base = `http://127.0.0.1:${server.address().port}`;
     const cfg = () => ({ comfy_ui: { root_path: comfy, hf_token: 'tok' } });
-    const dl = new ModelDownloader({ config: cfg });
+    const dl = new ModelDownloader({ config: cfg, stallMs: 400 });
 
     // https-only is checked before anything else, so point the test at the
     // local server through the internal API rather than the public guard.
@@ -152,6 +160,18 @@ const settle = async (dl, key, tries = 200) => {
     check('a truncated transfer fails rather than installing a stub', j.status === 'failed');
     check('...the model file is NOT created', !fs.existsSync(shortDest));
     check('...the .part is kept so it can be resumed', fs.existsSync(shortDest + '.part'));
+
+    // 6b. ★ a server that goes quiet mid-file. Under Node 24 the connection
+    // simply stays open, so without a stall timeout this download would read
+    // "downloading" for ever — and on a shared volume hold its lock for ever.
+    mode = 'stall';
+    fs.rmSync(shortDest + '.part', { force: true });
+    r = dl.enqueue({ name: 'short.safetensors', url: `${base}/short.safetensors`, type: 'lora' });
+    j = await settle(dl, r.key);
+    check('a stalled transfer fails instead of hanging', j.status === 'failed' && /stalled/.test(j.error || ''));
+    check('...without creating the model file', !fs.existsSync(shortDest));
+    check('...keeping the .part to resume', fs.existsSync(shortDest + '.part'));
+    for (const sr of stalledResponses.splice(0)) sr.destroy();
 
     // 7. a gated repo says what to do about it
     mode = 'gated';

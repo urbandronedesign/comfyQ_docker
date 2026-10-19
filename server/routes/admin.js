@@ -596,7 +596,41 @@ function makeRouter({ configManager, registry, adminGate, exitForRestart, runtim
         res.json(listQuarantine({ root: qRootNow() }));
     });
 
+    // ---- Several Pods on one volume (Phase I4) ----------------------------------
+    // The other Pods whose heartbeat says they are alive on this volume. Off a
+    // shared volume this is always empty and nothing below ever refuses.
+    const otherPods = () => runtime?.heartbeats?.others?.() || [];
+
+    // ★ Moving, restoring or deleting a SHARED model while another Pod is up can
+    //   pull a weight from under a job it is running: the usage scan only knows
+    //   this Pod's workflows. So those actions wait until this Pod is alone.
+    const refuseIfShared = (res, what) => {
+        const others = otherPods();
+        if (!others.length) return false;
+        res.status(409).json({
+            error: `${what} is refused while ${others.length} other Pod${others.length > 1 ? 's are' : ' is'} running on this volume `
+                + `(${others.map(o => o.id + (o.serving?.length ? ` serving ${o.serving.join(', ')}` : '')).join('; ')}). `
+                + 'The models are shared: stop the other Pods first.',
+            otherPods: others,
+        });
+        return true;
+    };
+
+    // Who else is on this volume — for the Maintenance tab, and for the RunPod
+    // console, which only lets Pods share a volume when each one answers here
+    // (an image older than this route has no download lock).
+    router.get('/volume-pods', (req, res) => {
+        const hb = runtime?.heartbeats;
+        res.json({
+            sharedReady: true,
+            shared: !!hb?.enabled,
+            me: hb ? hb.id : null,
+            others: otherPods(),
+        });
+    });
+
     router.post('/models/quarantine/restore', adminGate, express.json(), (req, res) => {
+        if (refuseIfShared(res, 'Restoring a model from quarantine')) return;
         const { config } = configManager.load();
         const out = restoreFile({
             root: qRootNow(),
@@ -613,6 +647,7 @@ function makeRouter({ configManager, registry, adminGate, exitForRestart, runtim
     // that needs no re-derivation — by this point the admin has had every
     // chance to look at what is held.
     router.post('/models/quarantine/empty', adminGate, express.json(), (req, res) => {
+        if (refuseIfShared(res, 'Emptying the quarantine')) return;
         const out = emptyBatch({ root: qRootNow(), batch: req.body?.batch });
         res.status(out.ok ? 200 : 400).json(out);
     });
@@ -630,6 +665,7 @@ function makeRouter({ configManager, registry, adminGate, exitForRestart, runtim
     // open while a workflow was added, and a stale "unused" is how you lose a
     // model that something now needs.
     router.post('/models/prune', adminGate, express.json(), (req, res) => {
+        if (refuseIfShared(res, 'Pruning models')) return;
         const wanted = Array.isArray(req.body?.files) ? req.body.files : [];
         if (!wanted.length) return res.status(400).json({ error: 'no files given' });
         // ★ A low-confidence row is one where we doubt WHICH file this is — a

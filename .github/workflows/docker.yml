@@ -80,6 +80,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             COMFYUI_VERSION=${{ inputs.comfyui_version || 'v0.39.2' }}
+            COMFYQ_IMAGE_SHA=${{ github.sha }}
           # Layer cache kept in the registry: a change to ComfyQ's own code
           # reuses the torch / ComfyUI / node-pack layers and builds in minutes.
           cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache

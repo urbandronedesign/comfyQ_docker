@@ -107,6 +107,7 @@ const {
     setServingIntent, isServingIntended, resolveBootMode,
 } = require('./config/servingFlags');
 const { runPlan } = require('./cloud/podPlan');
+const { Heartbeats, DownloadLocks } = require('./cloud/sharedVolume');
 
 // nextMode: 'student' = serve after the restart (and keep serving through
 // later ones); 'admin' = stop serving on purpose; omitted = a neutral restart
@@ -239,8 +240,25 @@ async function main() {
     // panel stays reachable while serving. Config is read fresh on every use
     // (the same reason AdminCalibrator does), so a path edited in the panel is
     // honoured without a restart.
+    // Several Pods on one volume (Phase I): each announces itself in
+    // shared/pods/ (the entrypoint exports SHARED; off the volume it is unset
+    // and this is a no-op), and a model is downloaded by one Pod while any
+    // other that needs it waits for the file.
+    runtime.heartbeats = new Heartbeats({
+        sharedDir: process.env.SHARED || null,
+        info: () => {
+            const c = configManager.load().config;
+            const lanes = runtime.lanes?.list?.() || [];
+            return {
+                mode: c.mode,
+                serving: lanes.length ? lanes.map(l => l.workflowId) : (c.mode === 'student' && c.workflows.activeWorkflowId ? [c.workflows.activeWorkflowId] : []),
+                image: process.env.COMFYQ_IMAGE_SHA || null,
+            };
+        },
+    }).start();
     runtime.downloader = new ModelDownloader({
         config: () => configManager.load().config,
+        locks: new DownloadLocks({ isAlive: (id) => runtime.heartbeats.isAlive(id) }),
     });
 
     // The maintenance scripts (tools/maintenance), runnable from the panel

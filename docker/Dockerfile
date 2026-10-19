@@ -74,4 +74,9 @@ RUN chmod +x docker/entrypoint.sh
 # used by the admin's "Open in ComfyUI".
 EXPOSE 3000 8188
 ENV COMFYQ_DATA=/workspace
+# Which build this is, published in each Pod's heartbeat so Pods sharing a
+# volume can tell when they run different builds. Set last, so a new commit
+# does not invalidate the cached layers above.
+ARG COMFYQ_IMAGE_SHA=unknown
+ENV COMFYQ_IMAGE_SHA=${COMFYQ_IMAGE_SHA}
 ENTRYPOINT ["/app/docker/entrypoint.sh"]

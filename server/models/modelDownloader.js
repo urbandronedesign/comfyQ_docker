@@ -3,6 +3,7 @@ const path = require('path');
 const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
 const { resolveDestination } = require('./modelDestination');
+const { DownloadLocks } = require('../cloud/sharedVolume');
 
 // Fetch a model onto THIS machine.
 //
@@ -26,6 +27,13 @@ const { resolveDestination } = require('./modelDestination');
 //     gated (FLUX.2, LTX-2.5) and answer 401 without one
 
 const PART_SUFFIX = '.part';
+// How often a download waiting on another Pod's lock looks again.
+const WAIT_POLL_MS = 15_000;
+// A transfer that delivers nothing for this long is abandoned (the .part is
+// kept, so a retry resumes). Without it a server that goes quiet mid-file
+// leaves the download "downloading" for ever — and, on a shared volume, its
+// lock refreshed for ever, so every other Pod would wait on it too.
+const STALL_MS = 2 * 60_000;
 const HEADROOM_BYTES = 2 * 1024 ** 3;   // never fill the disk to the last byte
 
 /**
@@ -48,8 +56,13 @@ class ModelDownloader {
      * @param {() => object} opts.config     reads config fresh, like AdminCalibrator
      * @param {(jobs:Array) => void} [opts.onChange]  called whenever state moves
      */
-    constructor({ config, onChange } = {}) {
+    constructor({ config, onChange, locks, waitPollMs = WAIT_POLL_MS, stallMs = STALL_MS } = {}) {
         this._config = config;
+        // One download per model file across every Pod on a shared volume
+        // (Phase I3). Harmless on a single machine.
+        this._locks = locks || new DownloadLocks();
+        this._waitPollMs = waitPollMs;
+        this._stallMs = stallMs;
         this._onChange = onChange || (() => {});
         this._jobs = new Map();      // key -> job
         this._running = null;        // key of the one in flight
@@ -90,7 +103,7 @@ class ModelDownloader {
 
         const key = target.abs.toLowerCase();
         const existing = this._jobs.get(key);
-        if (existing && ['queued', 'downloading'].includes(existing.status)) {
+        if (existing && ['queued', 'downloading', 'waiting'].includes(existing.status)) {
             return { ok: false, error: 'that download is already in progress' };
         }
         // ★ Never overwrite a model that is already there. A download is a
@@ -124,7 +137,7 @@ class ModelDownloader {
         if (!job) return { ok: false, error: 'no such download' };
         const ctl = this._aborts.get(k);
         if (ctl) ctl.abort();
-        if (job.status === 'queued') this._set(k, { status: 'cancelled' });
+        if (job.status === 'queued' || job.status === 'waiting') this._set(k, { status: 'cancelled' });
         return { ok: true };
     }
 
@@ -132,7 +145,7 @@ class ModelDownloader {
     forget(key) {
         const k = String(key || '').toLowerCase();
         const job = this._jobs.get(k);
-        if (job && ['queued', 'downloading'].includes(job.status)) {
+        if (job && ['queued', 'downloading', 'waiting'].includes(job.status)) {
             return { ok: false, error: 'that download is still running' };
         }
         this._jobs.delete(k);
@@ -153,8 +166,50 @@ class ModelDownloader {
     async _run(key) {
         const job = this._jobs.get(key);
         if (!job || job.status === 'cancelled') return;
-        const part = job.abs + PART_SUFFIX;
         fs.mkdirSync(path.dirname(job.abs), { recursive: true });
+
+        // ★ On a volume shared by several Pods, another one may be fetching the
+        //   very same file. Two writers on one .part corrupt it, so the second
+        //   Pod WAITS for the finished file rather than downloading it too.
+        const lock = this._locks.acquire(job.abs);
+        if (!lock.ok) {
+            if (fs.existsSync(job.abs)) return this._doneElsewhere(key, job);
+            this._set(key, { status: 'waiting', waitingFor: lock.owner, error: null });
+            this._recheck(key);
+            return;
+        }
+        try {
+            // Taking the lock is the moment to look again: the other Pod may
+            // have finished it just before releasing.
+            if (fs.existsSync(job.abs)) return this._doneElsewhere(key, job);
+            this._set(key, { waitingFor: null });
+            await this._download(key, job);
+        } finally {
+            lock.release();
+        }
+    }
+
+    _doneElsewhere(key, job) {
+        let size = null;
+        try { size = fs.statSync(job.abs).size; } catch { /* reported anyway */ }
+        this._set(key, { status: 'done', received: size, total: size, waitingFor: null, installedBy: 'another Pod' });
+    }
+
+    // A waiting download looks again later, and in the meantime the queue moves
+    // on to other files rather than sitting behind it.
+    _recheck(key) {
+        const t = setTimeout(() => {
+            const job = this._jobs.get(key);
+            if (!job || job.status !== 'waiting') return;
+            if (fs.existsSync(job.abs)) { this._doneElsewhere(key, job); return; }
+            this._set(key, { status: 'queued' });
+            this._pump();
+        }, this._waitPollMs);
+        t.unref?.();
+    }
+
+    async _download(key, job) {
+        const part = job.abs + PART_SUFFIX;
 
         // Resume whatever a previous attempt managed.
         let from = 0;
@@ -228,9 +283,14 @@ class ModelDownloader {
         }
 
         const out = fs.createWriteStream(part, { flags: resuming ? 'a' : 'w' });
-        let received = from, lastEmit = 0;
+        let received = from, lastEmit = 0, lastData = Date.now(), stalled = false;
+        const watchdog = setInterval(() => {
+            if (Date.now() - lastData > this._stallMs) { stalled = true; ctl.abort(); }
+        }, Math.min(5000, Math.max(50, this._stallMs / 4)));
+        watchdog.unref?.();
         const body = Readable.fromWeb(res.body);
         body.on('data', (chunk) => {
+            lastData = Date.now();
             received += chunk.length;
             // Four updates a second at most: the realtime bus coalesces, but
             // there is no sense generating work for it.
@@ -242,12 +302,21 @@ class ModelDownloader {
             await pipeline(body, out);
         } catch (e) {
             this._aborts.delete(key);
+            if (stalled) {
+                this._set(key, {
+                    status: 'failed', received,
+                    error: `the transfer stalled: no data for ${Math.round(this._stallMs / 1000)} s after ${gb(received)} GB — press retry to resume`,
+                });
+                return;
+            }
             if (ctl.signal.aborted) {
                 // The .part stays, so cancelling and resuming later is free.
                 this._set(key, { status: 'cancelled', received });
                 return;
             }
             throw new Error(`the transfer broke after ${gb(received)} GB: ${e.message}`);
+        } finally {
+            clearInterval(watchdog);
         }
         this._aborts.delete(key);
 

@@ -159,11 +159,16 @@ results again. A **terminated** Pod's folder stays on the volume (results
 included) until you delete it. Outside RunPod the folder is `pods/default`, or
 the name in `COMFYQ_POD_ID`.
 
-**One Pod per volume at a time, for now.** Two Pods running on one volume at
-the same time also need a volume-wide download lock and guards on pruning,
-which are not built yet (Phase I in the implementation plan). The console and
-the command line refuse to launch or start a second Pod on a volume that one
-is already using.
+**Several Pods can run on one volume at the same time.** Each Pod announces
+itself every 30 seconds in `shared/pods/`. When two Pods need the same missing
+model, one downloads it and the other waits for the file (its start-up shows
+*"waiting for Pod … to finish downloading it"*). While another Pod is up,
+**pruning models and restoring or emptying the quarantine are refused**: the
+models are shared, and a model unused by this Pod may be in use by the other.
+The Maintenance tab says which other Pods are on the volume. The console and
+the command line only let a Pod join a volume when every Pod already on it
+runs an image with these protections; an older one has to be stopped or
+restarted first.
 
 **A volume from an older image is converted on first start.** The models move
 to `shared/models` and the old settings, queue and results become the first
