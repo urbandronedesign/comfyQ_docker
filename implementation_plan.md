@@ -652,7 +652,9 @@ photo02.jpg,charcoal sketch,1
 
 **Relationship to federation:** instance mode and Phase F compose — each instance beacons separately, so the existing Discovery app shows them with no app change (once `uiPort` is per-instance). This also revives the deferred two-instance validation (the verification matrix below already anticipates "two instances on one host, different ports").
 
-### Phase I — One RunPod network volume shared by several Pods *(planned 2026-10-19, nothing built)*
+### Phase I — One RunPod network volume shared by several Pods *(planned and started 2026-10-19)*
+
+> **Status at the end of 2026-10-19:** I0–I4 ✅ built and verified on real Pods (image `sha-bca559f`). **Next: I5 (console for several Pods), I6 (orphan cleanup), then I7.** The resume notes, account state and open questions are at the top of [CLAUDE.md](CLAUDE.md), under "Resume here".
 
 **Goal:** several Pods run at the same time on **one network volume** — one per class, or one per heavy workflow — and **share the models**, so each weight is downloaded once. Each Pod keeps its own settings, job queue, students and results, exactly as if it were alone. Owner request: *"I would like to be able to create a shared storage to be able to use it with multiple instances"*.
 
