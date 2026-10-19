@@ -17,6 +17,7 @@
     <button role="tab" data-tab="creds">1 · Credentials</button>
     <button role="tab" data-tab="launch">2 · Launch</button>
     <button role="tab" data-tab="pods">3 · Pods <span id="podCount" class="count"></span></button>
+    <button role="tab" data-tab="thunder">Thunder <span id="thunderCount" class="count"></span></button>
     <button role="tab" data-tab="attempts">Attempts</button>
     <button role="tab" data-tab="stock">Stock</button>
   </nav>
@@ -164,6 +165,47 @@
       <button id="launchBtn" class="primary big">Launch Pod</button>
       <button id="addToBatch" class="secondary" title="Keep this Pod's workflows and GPU, and set up another Pod to launch with it">+ Add another Pod</button>
       <span id="launchSummary" class="muted"></span>
+    </div>
+  </section>
+
+  <!-- ───────────── Thunder Compute ───────────── -->
+  <section id="tab-thunder" class="tab" hidden>
+    <div class="card">
+      <h2>Launch on Thunder Compute <span class="tag">backup</span></h2>
+      <p class="muted">For when RunPod has no free card. Thunder's machines are in North America. The instance's own disk holds the models and the students' results, and <b>deleting the instance deletes them</b>: use <i>Download results</i> first. <b>Billing runs from Launch until Delete.</b></p>
+      <div class="row wrap">
+        <input id="tWfSearch" type="search" placeholder="Search workflows…">
+        <label class="check"><input id="tWfHideExp" type="checkbox"> hide experimental</label>
+      </div>
+      <div id="tWfChosen" class="chips"></div>
+      <div id="tWfList" class="list"></div>
+    </div>
+
+    <div class="card">
+      <h2>Card</h2>
+      <p id="tNeed" class="muted"></p>
+      <div class="row wrap"><button id="tRefreshOffers" class="ghost">Refresh prices</button></div>
+      <div class="tablewrap">
+      <table class="gpus">
+        <thead><tr><th></th><th>Card</th><th>VRAM</th><th>$/hour</th><th>Right now</th><th></th></tr></thead>
+        <tbody id="tGpuRows"></tbody>
+      </table>
+      </div>
+      <div class="grid3">
+        <label class="field"><span>vCPUs</span><select id="tVcpus"></select></label>
+        <label class="field"><span>Disk for models and results (GB)</span><input id="tDisk" type="number" min="100" max="500" value="200"></label>
+      </div>
+      <label class="check"><input id="tFetch" type="checkbox" checked> Download missing models before serving</label>
+    </div>
+
+    <div class="row sticky">
+      <button id="tLaunch" class="primary big">Launch on Thunder</button>
+      <span id="tSummary" class="muted"></span>
+    </div>
+
+    <div class="card">
+      <div class="row"><h2>Your Thunder instances</h2><button id="tRefresh" class="ghost">Refresh</button></div>
+      <div id="tList"><p class="muted">Loading…</p></div>
     </div>
   </section>
 

@@ -116,18 +116,21 @@ export const proxyUrl = (podId, port = PORT) => process.env.COMFYQ_POD_PROXY
     ? process.env.COMFYQ_POD_PROXY.replace('{id}', podId).replace('{port}', port)
     : `https://${podId}-${port}.proxy.runpod.net`;
 
-/** GET a JSON route on a Pod through RunPod's proxy; null while it is not answering. */
-export async function podGet(podId, route) {
+/** GET a JSON route on ComfyQ at `base` (a Pod's proxy or another host); null while it is not answering. */
+export async function urlGet(base, route) {
     try {
-        const res = await fetch(proxyUrl(podId) + route, { signal: AbortSignal.timeout(12000) });
+        const res = await fetch(base + route, { signal: AbortSignal.timeout(12000) });
         if (!res.ok) return null;
         return await res.json();
     } catch { return null; }
 }
 
-/** What ComfyQ on a Pod is doing: its snapshot and the boot plan, either may be null. */
-export async function podProbe(podId) {
-    const [self, planRes] = await Promise.all([podGet(podId, '/federation/self'), podGet(podId, '/admin/pod-plan')]);
+/** GET a JSON route on a Pod through RunPod's proxy; null while it is not answering. */
+export const podGet = (podId, route) => urlGet(proxyUrl(podId), route);
+
+/** What ComfyQ at `base` is doing: its snapshot and the boot plan, either may be null. */
+export async function probeUrl(base) {
+    const [self, planRes] = await Promise.all([urlGet(base, '/federation/self'), urlGet(base, '/admin/pod-plan')]);
     return {
         answering: !!self,
         mode: self?.mode || null,
@@ -138,6 +141,9 @@ export async function podProbe(podId) {
         plan: planRes?.plan || null,
     };
 }
+
+/** What ComfyQ on a Pod is doing. */
+export const podProbe = (podId) => probeUrl(proxyUrl(podId));
 
 export async function findVolume(apiKey, ref) {
     const vols = await rest(apiKey, 'GET', '/networkvolumes');

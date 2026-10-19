@@ -48,6 +48,7 @@ function showTab(name) {
     if (name === 'pods') loadPods();
     if (name === 'attempts') loadAttempts();
     if (name === 'stock') loadStock();
+    if (name === 'thunder') loadThunder();
 }
 for (const b of document.querySelectorAll('.tabs button')) b.onclick = () => showTab(b.dataset.tab);
 
@@ -130,6 +131,199 @@ $('testThunderKey').onclick = async () => {
         renderThunderOffers(r.offers);
     } catch (e) { out.textContent = e.message; out.className = 'muted'; }
 };
+
+// ---- Thunder Compute ------------------------------------------------------------
+// The backup provider: its own launch form and instance list, kept apart from
+// the RunPod ones (no volume, no data centre, one card per instance).
+
+let tWorkflows = null;
+let tChosen = [];
+let tPlan = null;
+let tPick = null;
+let tPickTouched = false;
+let tTimer = null;
+
+const T_STATE = {
+    created: 'Created', booting: 'Thunder is starting the instance', connecting: 'Logging in',
+    installing: 'Starting ComfyQ', ready: 'ComfyQ started', failed: 'Setup failed', interrupted: 'Setup interrupted',
+};
+
+async function loadThunder() {
+    if (!settings?.thunderApiKey?.set) {
+        $('tList').innerHTML = '<p class="muted">Save your Thunder Compute API key under Credentials first.</p>';
+    }
+    if (!tWorkflows) {
+        try { tWorkflows = (await api('GET', '/api/workflows')).workflows; } catch (e) { toast(e.message, true); tWorkflows = []; }
+        renderThunderWorkflows();
+    }
+    loadThunderPlan();
+    if (settings?.thunderApiKey?.set) loadThunderInstances();
+}
+
+function renderThunderWorkflows() {
+    const q = $('tWfSearch').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const hideExp = $('tWfHideExp').checked;
+    const rows = (tWorkflows || []).filter(w => {
+        if (hideExp && w.experimental && !tChosen.includes(w.id)) return false;
+        const hay = `${w.name} ${w.id} ${w.category} ${w.description}`.toLowerCase();
+        return q.every(t => hay.includes(t));
+    });
+    $('tWfList').innerHTML = rows.map(w => `
+        <label class="wf">
+          <input type="checkbox" data-twf="${esc(w.id)}" ${tChosen.includes(w.id) ? 'checked' : ''}>
+          <div>
+            <div class="name">${esc(w.name)}${w.experimental ? '<span class="badge exp">experimental</span>' : ''}${w.gated ? '<span class="badge">needs HF token</span>' : ''}</div>
+            <div class="desc">${esc(w.id)}${w.description ? ' — ' + esc(w.description) : ''}</div>
+          </div>
+          <div class="vram">${w.vramGb ? `${w.vramGb} GB` : '?'}<div class="muted small">${esc(w.vramSource)}</div></div>
+        </label>`).join('') || '<p class="muted" style="padding:12px">No workflow matches.</p>';
+    for (const cb of $('tWfList').querySelectorAll('input[data-twf]')) {
+        cb.onchange = () => {
+            const id = cb.dataset.twf;
+            tChosen = cb.checked ? [...tChosen, id] : tChosen.filter(x => x !== id);
+            renderThunderWorkflows();
+            loadThunderPlan();
+        };
+    }
+    $('tWfChosen').innerHTML = tChosen.map((id, i) => `<span class="chip">${i === 0 ? '<b>main</b> ' : ''}${esc(id)} <button data-trm="${esc(id)}" title="Remove">×</button></span>`).join('');
+    for (const b of $('tWfChosen').querySelectorAll('[data-trm]')) {
+        b.onclick = () => { tChosen = tChosen.filter(x => x !== b.dataset.trm); renderThunderWorkflows(); loadThunderPlan(); };
+    }
+}
+$('tWfSearch').oninput = renderThunderWorkflows;
+$('tWfHideExp').onchange = renderThunderWorkflows;
+
+async function loadThunderPlan() {
+    try { tPlan = await api('GET', `/api/thunder/plan?workflows=${encodeURIComponent(tChosen.join(','))}`); }
+    catch (e) { $('tNeed').textContent = e.message; return; }
+    if (!tPickTouched || !tPlan.offers.some(o => o.id === tPick)) tPick = tPlan.recommended || tPick;
+    renderThunderPlan();
+}
+$('tRefreshOffers').onclick = loadThunderPlan;
+
+function renderThunderPlan() {
+    const n = tPlan.need;
+    $('tNeed').textContent = !tChosen.length ? 'Tick the workflows to serve: the card is picked from what they need.'
+        : n.gb == null ? 'No VRAM figure for these workflows: pick a card with room to spare.'
+        : `These workflows need about ${n.gb} GB of VRAM together${n.unknown.length ? ` (no figure for ${n.unknown.join(', ')})` : ''}.`;
+    $('tGpuRows').innerHTML = tPlan.offers.map(o => `
+        <tr class="${o.fits === false ? 'off' : ''} ${o.id === tPick ? 'picked' : ''}" data-toffer="${esc(o.id)}">
+          <td><input type="radio" name="tgpu" ${o.id === tPick ? 'checked' : ''} ${o.fits === false ? 'disabled' : ''}></td>
+          <td>${esc(o.name)}</td><td>${o.vramGb ?? '?'} GB</td>
+          <td>${o.pricePerHr != null ? '$' + o.pricePerHr.toFixed(2) : '?'}</td>
+          <td class="${o.availability === 'available' ? 'stock-High' : o.availability === 'unavailable' ? 'stock-None' : 'muted'}">${esc(AVAIL_LABEL[o.availability] || o.availability)}</td>
+          <td class="muted small">${o.id === tPlan.recommended ? 'recommended' : o.fits === false ? 'too small' : ''}</td>
+        </tr>`).join('');
+    for (const tr of $('tGpuRows').querySelectorAll('tr[data-toffer]')) {
+        tr.onclick = () => {
+            const o = tPlan.offers.find(x => x.id === tr.dataset.toffer);
+            if (!o || o.fits === false) return;
+            tPick = o.id; tPickTouched = true; renderThunderPlan();
+        };
+    }
+    const o = tPlan.offers.find(x => x.id === tPick);
+    const prev = $('tVcpus').value;
+    $('tVcpus').innerHTML = (o?.vcpuOptions || []).map(v => `<option ${String(v) === prev ? 'selected' : ''}>${v}</option>`).join('');
+    if (o?.diskGb) { $('tDisk').min = o.diskGb.min; $('tDisk').max = o.diskGb.max; }
+    $('tSummary').textContent = o && tChosen.length
+        ? `${o.name} · $${(o.pricePerHr ?? 0).toFixed(2)}/hour (disk above 100 GB adds a little) · serves ${tChosen.length} workflow${tChosen.length > 1 ? 's' : ''}`
+        : '';
+}
+
+$('tLaunch').onclick = async () => {
+    const o = tPlan?.offers.find(x => x.id === tPick);
+    if (!tChosen.length) return toast('Tick at least one workflow', true);
+    if (!o) return toast('Pick a card', true);
+    const warn = o.availability === 'available' ? '' : `\n\nThunder does not clearly say this card is free right now (${AVAIL_LABEL[o.availability]}): the launch may be refused.`;
+    if (!confirm(`Launch a ${o.name} on Thunder Compute at $${(o.pricePerHr ?? 0).toFixed(2)}/hour?\n\nIt bills until you delete it. It will serve: ${tChosen.join(', ')}.${warn}`)) return;
+    $('tLaunch').disabled = true;
+    try {
+        await api('POST', '/api/thunder/launch', { workflows: tChosen, gpu: o.id, vcpus: Number($('tVcpus').value), diskGb: Number($('tDisk').value), fetchModels: $('tFetch').checked });
+        toast('Instance created: the setup is followed below');
+        loadThunderInstances();
+    } catch (e) { toast(e.message, true); }
+    finally { $('tLaunch').disabled = false; }
+};
+
+function thunderStage(i) {
+    const r = i.rec;
+    const plan = i.probe?.plan;
+    if (i.probe?.answering && i.probe.mode === 'student') return { cls: 'good', text: `Serving ${i.probe.served.map(w => w.id).join(', ')}` };
+    if (r?.state === 'failed') return { cls: 'bad', text: `${T_STATE.failed}: ${r.error || ''}` };
+    if (r?.state === 'interrupted') return { cls: 'bad', text: T_STATE.interrupted };
+    if (i.probe?.answering) {
+        if (plan?.status === 'failed' || plan?.status === 'refused') return { cls: 'bad', text: `ComfyQ could not prepare the workflows: ${plan.error || ''}` };
+        return { cls: '', text: plan?.status === 'fetching' ? 'Downloading models' : 'ComfyQ is up, switching to serving mode' };
+    }
+    if (r?.state === 'ready' && i.probe?.plan?.status === 'done') return { cls: '', text: 'Restarting into serving mode…' };
+    if (r?.state === 'ready') return { cls: '', text: 'ComfyQ is booting (first start takes a few minutes)' };
+    if (r) return { cls: '', text: T_STATE[r.state] || r.state };
+    return { cls: '', text: `Thunder: ${i.status} (not launched from this console)` };
+}
+
+async function loadThunderInstances() {
+    clearTimeout(tTimer);
+    let d;
+    try { d = await api('GET', '/api/thunder/instances'); }
+    catch (e) { $('tList').innerHTML = `<p class="muted">${esc(e.message)}</p>`; return; }
+    $('thunderCount').textContent = d.instances.length || '';
+    $('tList').innerHTML = d.instances.map(i => {
+        const r = i.rec;
+        const st = thunderStage(i);
+        const files = (i.probe?.plan?.files || []).filter(f => f.status !== 'done').map(f => {
+            const pct = f.total ? Math.round(100 * f.received / f.total) : 0;
+            return `<div class="file"><div>${esc(f.name)} <span class="muted small">— ${esc(f.status)}${f.total ? ` · ${gb(f.received)} / ${gb(f.total)} GB` : ''}</span></div>
+                ${f.error ? `<div class="small" style="color:var(--bad)">${esc(f.error)}</div>` : ''}
+                ${f.status === 'downloading' ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ''}</div>`;
+        }).join('');
+        const log = (r?.steps || []).slice(-12).map(s => `<div class="small"><span class="muted">${new Date(s.at).toLocaleTimeString()}</span> ${esc(s.msg)}</div>`).join('');
+        return `<div class="card inset">
+          <div class="row"><h2>${esc(r?.gpuName || i.gpuType || '')} <span class="muted small">${esc(i.uuid.slice(0, 8))}</span></h2>
+            ${r && !i.setupRunning && ['failed', 'interrupted'].includes(r.state) ? `<button class="secondary" data-tretry="${esc(i.uuid)}">Retry setup</button>` : ''}
+            ${r && i.links ? `<button class="secondary" data-tdl="${esc(i.uuid)}">Download results</button>` : ''}
+            <button class="danger" data-tdel="${esc(i.uuid)}">Delete…</button>
+          </div>
+          <div class="note ${st.cls}">${esc(st.text)}${st.cls === 'bad' ? '<br><b>The instance is still billing.</b> Retry the setup or delete it.' : ''}</div>
+          ${i.links ? `<div class="links">
+            <a href="${esc(i.links.students)}" target="_blank" rel="noreferrer">Student page ↗</a>
+            <a href="${esc(i.links.admin)}" target="_blank" rel="noreferrer">Admin panel ↗</a>
+            <button class="ghost small" data-tcopy="${esc(i.links.students)}">Copy student link</button>
+          </div>` : ''}
+          <dl class="kv">
+            <dt>Thunder status</dt><dd>${esc(i.status)}${i.ip ? ` <span class="muted">(${esc(i.ip)})</span>` : ''}</dd>
+            ${r ? `<dt>Cost</dt><dd>${r.pricePerHr != null ? `$${Number(r.pricePerHr).toFixed(2)} / hour` : '—'}, running for ${since(new Date(r.createdAt).toISOString())}</dd>
+            <dt>Asked to serve</dt><dd>${esc((r.serve || []).join(', '))}</dd>` : ''}
+            ${i.probe?.usage ? `<dt>Students</dt><dd>${esc(i.probe.usage.usersConnected ?? 0)} connected</dd>` : ''}
+            ${i.probe?.jobs ? `<dt>Queue</dt><dd>${i.probe.jobs.running ? '1 running' : 'nothing running'}, ${(i.probe.jobs.scheduled || []).length} waiting</dd>` : ''}
+          </dl>
+          ${files ? `<div class="files">${files}</div>` : ''}
+          ${log ? `<details ${i.setupRunning || r?.state === 'failed' ? 'open' : ''}><summary class="muted small">Setup log</summary>${log}</details>` : ''}
+        </div>`;
+    }).join('') || '<p class="muted">No instance on your Thunder account.</p>';
+
+    for (const b of $('tList').querySelectorAll('[data-tretry]')) b.onclick = async () => {
+        try { await api('POST', `/api/thunder/instances/${b.dataset.tretry}/setup`); toast('Setup restarted'); loadThunderInstances(); }
+        catch (e) { toast(e.message, true); }
+    };
+    for (const b of $('tList').querySelectorAll('[data-tdl]')) b.onclick = async () => {
+        try { const { url } = await api('POST', `/api/thunder/instances/${b.dataset.tdl}/download`); location.href = url; toast('The download starts once ComfyQ has begun zipping the results'); }
+        catch (e) { toast(e.message, true); }
+    };
+    for (const b of $('tList').querySelectorAll('[data-tcopy]')) b.onclick = () => {
+        navigator.clipboard.writeText(b.dataset.tcopy).then(() => toast('Student link copied'), () => toast(b.dataset.tcopy));
+    };
+    for (const b of $('tList').querySelectorAll('[data-tdel]')) b.onclick = async () => {
+        const code = b.dataset.tdel.slice(0, 8);
+        const typed = prompt(`Delete this Thunder instance? Its disk goes with it: the models AND every result students made on it. Download the results first.\n\nType ${code} to confirm:`);
+        if (typed === null) return;
+        try { await api('DELETE', `/api/thunder/instances/${b.dataset.tdel}`, { confirm: typed.trim() }); toast('Instance deleted: billing stops'); loadThunderInstances(); }
+        catch (e) { toast(e.message, true); }
+    };
+
+    // Follow while the tab is open.
+    if (!$('tab-thunder').hidden) tTimer = setTimeout(loadThunderInstances, d.instances.length ? 8000 : 30000);
+}
+$('tRefresh').onclick = loadThunderInstances;
 
 // ---- launch ---------------------------------------------------------------------
 
@@ -1007,6 +1201,6 @@ $('refreshPods').onclick = loadPods;
 
 (async () => {
     try { await loadSettings(); } catch (e) { toast(e.message, true); return; }
-    const first = !settings.runpodApiKey.set ? 'creds' : (store('rpc.tab') || 'launch');
+    const first = !settings.runpodApiKey.set && !settings.thunderApiKey.set ? 'creds' : (store('rpc.tab') || (settings.runpodApiKey.set ? 'launch' : 'thunder'));
     showTab(first);
 })();

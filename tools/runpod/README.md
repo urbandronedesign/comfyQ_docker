@@ -140,6 +140,42 @@ no activity for 60 days: re-enable it from the Actions tab. And a reading says
 what RunPod listed at that moment; a card listed as free can still be taken a
 second later.
 
+## Thunder Compute: the backup when RunPod has no card
+
+The console's **Thunder** tab launches ComfyQ on [Thunder Compute](https://www.thundercompute.com)
+instead: RTX A6000 / L40 (48 GB) or A100 (80 GB), billed per minute, in North America.
+Put the API token under *Credentials → Thunder Compute* (Thunder's console → *Settings → API Tokens*)
+and press *Test the key*: it lists your instances and shows live prices and stock.
+
+Then tick the workflows, pick a card (the cheapest that fits and is in stock is
+recommended) and press *Launch on Thunder*. The console:
+
+1. creates the instance (the `base` template) and saves the login key Thunder returns once,
+   in `~/.comfyq/thunder-keys/`;
+2. waits until Thunder says it is running, then logs in over SSH (as `ubuntu`, else `root`)
+   and starts our image with Docker, passing the passwords, the HF token and the workflows in an
+   env file (never on a command line);
+3. opens port 3000. Students use `https://<uuid>-3000.thundercompute.net`, the admin panel is at `/admin`.
+
+The setup log and the model downloads show in the tab until it serves. If a step fails,
+**the instance keeps billing**: press *Retry setup* (it is safe to run twice) or *Delete…*.
+
+- **No network volume.** The instance's own disk holds the models (downloaded at the first boot)
+  and the students' results. **Delete removes both**: press *Download results* first.
+- **No stop.** Thunder has no stop button that keeps the machine; it is running or deleted.
+  Launch early on the day and delete at the end.
+- **Docker on Thunder is "experimental":** the GPU goes in with `--device nvidia.com/gpu=all`
+  (`--gpus` is not supported), and a process can outlive its container, so the script stops a
+  leftover ComfyUI before starting again.
+- Thunder publishes stock twice and the two can disagree; the console then says *unclear*
+  rather than *in stock*.
+- Needs `ssh` on this machine (built into Windows 10/11, macOS and Linux).
+
+Tested against stand-ins (no account, nothing spent):
+`node tools/runpod/thunder.test.mjs` and `node tools/runpod/tests/thunder-console.mjs`
+(add `--browser "<path to chrome.exe>"` to also check the page in headless Chrome).
+Test hooks: `THUNDER_API_URL`, `COMFYQ_THUNDER_PROXY` (`{uuid}`, `{port}`), `COMFYQ_THUNDER_SSH`.
+
 ## The command line
 
 ### Once: what you need

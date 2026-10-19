@@ -26,9 +26,11 @@ import { Readable } from 'stream';
 import { fileURLToPath } from 'url';
 import {
     rest, gpuTypes, podProbe, podBody, proxyUrl, missingSecrets, runningOnVolume, shareBlockers, cannotShare,
-    listWorkflows, vramNeeded, rankGpus, volumeBuilds, volumeGroups, podImage, isNoMachine, DEFAULT_IMAGE, RunPodError,
+    listWorkflows, vramNeeded, rankGpus, volumeBuilds, volumeGroups, podImage, isNoMachine, DEFAULT_IMAGE, RunPodError, probeUrl, PORT as POD_PORT,
 } from '../lib.mjs';
-import { thunderOffers, thunderInstances } from '../thunder.mjs';
+import {
+    thunderOffers, thunderInstances, thunderCreate, thunderDelete, thunderAddKey, thunderUrl, thunderEnv, remoteScript, setupInstance,
+} from '../thunder.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.COMFYQ_CONSOLE_PORT || 4777);
@@ -314,8 +316,9 @@ route('GET', '/api/volumes/([A-Za-z0-9]+)/builds', async ({ match }) => {
 // settings and results. So a folder is offered for deletion only when no Pod
 // with its id exists, and that is checked again at the moment of deleting.
 
-async function podCall(podId, route, { method = 'GET', body, timeout = 120000 } = {}) {
-    const res = await fetch(proxyUrl(podId) + route, {
+const podCall = (podId, route, opts) => baseCall(proxyUrl(podId), route, opts);
+async function baseCall(base, route, { method = 'GET', body, timeout = 120000 } = {}) {
+    const res = await fetch(base + route, {
         method,
         headers: { 'X-Admin-Password': loadSettings().adminPassword || '', ...(body ? { 'Content-Type': 'application/json' } : {}) },
         body: body ? JSON.stringify(body) : undefined,
@@ -378,8 +381,13 @@ async function serveDownload(token, res) {
     downloads.delete(token);
     if (!d || d.until < Date.now()) { res.writeHead(410); return res.end('This download link has expired: ask for it again in the console.'); }
     try {
-        const { pod } = d.podId ? { pod: { id: d.podId } } : await folderPod(apiKey(), d.volumeId);
-        const r = await podCall(pod.id, `/admin/volume-folders/${encodeURIComponent(d.folderId)}/results.zip`, { timeout: 6 * 3600_000 });
+        const zip = `/admin/volume-folders/${encodeURIComponent(d.folderId)}/results.zip`;
+        let r;
+        if (d.base) r = await baseCall(d.base, zip, { timeout: 6 * 3600_000 });
+        else {
+            const { pod } = d.podId ? { pod: { id: d.podId } } : await folderPod(apiKey(), d.volumeId);
+            r = await podCall(pod.id, zip, { timeout: 6 * 3600_000 });
+        }
         if (!r.ok) { res.writeHead(r.status); return res.end(await r.text()); }
         res.writeHead(200, {
             'Content-Type': 'application/zip',
@@ -424,7 +432,7 @@ route('POST', '/api/pods/([A-Za-z0-9]+)/(stop|start)', async ({ match }) => {
     }
     try { await rest(key, 'POST', `/pods/${match[1]}/${match[2]}`); }
     catch (e) {
-        if (match[2] === 'start') recordAttempt({ action: 'start', podId: match[1], result: isNoMachine(e.message) ? 'no machine' : 'error', message: e.message.slice(0, 300) });
+        if (match[2] === 'start') recordAttempt({ action: 'start', podId: match[1], result: isNoMachine(e.message) || /unavailable|sold out|capacity/i.test(e.message) ? 'no machine' : 'error', message: e.message.slice(0, 300) });
         throw e;
     }
     if (match[2] === 'start') recordAttempt({ action: 'start', podId: match[1], result: 'started' });
@@ -484,6 +492,205 @@ route('DELETE', '/api/pods/([A-Za-z0-9]+)', async ({ match, body }) => {
 const ALLOWED_HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
 const STATIC = { '/': 'index.html', '/index.html': 'index.html', '/app.js': 'app.js', '/styles.css': 'styles.css' };
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
+
+// ---- Thunder Compute: launching and following instances ----------------------------
+//
+// Thunder's API creates an instance but cannot run anything in it, so the
+// console logs in over SSH (with the private key Thunder returns at creation)
+// and starts the image there; then it opens port 3000. What each instance is
+// for and how far its setup got is kept in thunder-instances.json beside the
+// settings; the keys in thunder-keys/. Billing runs from Create to Delete.
+
+const THUNDER_FILE = path.join(os.homedir(), '.comfyq', 'thunder-instances.json');
+const THUNDER_KEYS = path.join(os.homedir(), '.comfyq', 'thunder-keys');
+const KNOWN_HOSTS = path.join(os.homedir(), '.comfyq', 'thunder_known_hosts');
+const thunderTasks = new Map();   // uuid -> setup promise
+
+function loadThunder() {
+    try { return JSON.parse(fs.readFileSync(THUNDER_FILE, 'utf8')); } catch { return {}; }
+}
+function saveThunder(all) {
+    fs.mkdirSync(path.dirname(THUNDER_FILE), { recursive: true });
+    fs.writeFileSync(THUNDER_FILE + '.tmp', JSON.stringify(all, null, 2), { mode: 0o600 });
+    fs.renameSync(THUNDER_FILE + '.tmp', THUNDER_FILE);
+}
+function patchThunder(uuid, fn) {
+    const all = loadThunder();
+    if (!all[uuid]) return null;
+    fn(all[uuid]);
+    saveThunder(all);
+    return all[uuid];
+}
+function stepThunder(uuid, state, msg) {
+    patchThunder(uuid, r => {
+        r.state = state;
+        r.steps = [...(r.steps || []), { at: Date.now(), msg: String(msg).slice(0, 400) }].slice(-200);
+    });
+}
+const keyFileOf = (uuid) => path.join(THUNDER_KEYS, `${uuid.replace(/[^A-Za-z0-9-]/g, '')}.pem`);
+function writeKey(uuid, key) {
+    fs.mkdirSync(THUNDER_KEYS, { recursive: true });
+    fs.writeFileSync(keyFileOf(uuid), key.endsWith('\n') ? key : key + '\n', { mode: 0o600 });
+}
+function forgetThunder(uuid) {
+    const all = loadThunder();
+    delete all[uuid];
+    saveThunder(all);
+    try { fs.unlinkSync(keyFileOf(uuid)); } catch { /* already gone */ }
+}
+
+// A setup cut short by closing the console is not still running.
+{
+    const all = loadThunder();
+    let changed = false;
+    for (const r of Object.values(all)) {
+        if (!['ready', 'failed', 'interrupted'].includes(r.state)) {
+            r.state = 'interrupted';
+            r.steps = [...(r.steps || []), { at: Date.now(), msg: 'the console was closed during the setup: press Retry setup' }];
+            changed = true;
+        }
+    }
+    if (changed) saveThunder(all);
+}
+
+function startThunderSetup(uuid) {
+    if (thunderTasks.has(uuid)) return;
+    const task = (async () => {
+        const rec = loadThunder()[uuid];
+        const key = thunderKey();
+        if (!fs.existsSync(keyFileOf(uuid))) {
+            stepThunder(uuid, 'booting', 'no login key saved for this instance: asking Thunder for a new one');
+            const r = await thunderAddKey(key, rec.id);
+            if (!r?.key) throw new RunPodError('Thunder returned no login key for this instance', 502);
+            writeKey(uuid, r.key);
+        }
+        const script = remoteScript({
+            image: rec.image,
+            env: thunderEnv({ podId: rec.podId, serve: rec.serve, secrets: secretsOf(loadSettings()), fetchModels: rec.fetchModels }),
+        });
+        const r = await setupInstance({
+            apiKey: key, id: rec.id, uuid, keyFile: keyFileOf(uuid), knownHosts: KNOWN_HOSTS, script,
+            step: (state, msg) => stepThunder(uuid, state, msg),
+        });
+        patchThunder(uuid, x => { x.user = r.user; x.error = null; });
+    })().catch(e => {
+        stepThunder(uuid, 'failed', e.message);
+        patchThunder(uuid, x => { x.error = e.message; });
+    }).finally(() => thunderTasks.delete(uuid));
+    thunderTasks.set(uuid, task);
+}
+
+// Which card for these workflows: the cheapest one that fits and is in stock.
+async function thunderPlan(ids) {
+    const all = listWorkflows();
+    const picked = ids.map(id => all.find(w => w.id === id)).filter(Boolean);
+    const need = vramNeeded(picked);
+    const offers = (await thunderOffers()).map(o => ({ ...o, fits: need.gb == null || o.vramGb == null ? null : o.vramGb >= need.gb }));
+    const usable = (want) => offers.find(o => o.fits !== false && o.pricePerHr != null && o.availability === want);
+    return { need, picked, offers, recommended: (usable('available') || usable('unclear'))?.id || null };
+}
+
+route('GET', '/api/thunder/plan', async ({ query }) => {
+    const ids = String(query.get('workflows') || '').split(',').filter(Boolean);
+    const { need, offers, recommended } = await thunderPlan(ids);
+    return { need, offers, recommended };
+});
+
+route('POST', '/api/thunder/launch', async ({ body }) => {
+    const key = thunderKey();
+    const s = loadSettings();
+    const secrets = secretsOf(s);
+    const miss = missingSecrets(secrets);
+    if (miss.length) throw new RunPodError(`save the ${miss.join(' and ')} under Credentials first`, 400);
+    const ids = Array.isArray(body.workflows) ? body.workflows.map(String) : [];
+    const { need, picked, offers } = await thunderPlan(ids);
+    if (!picked.length) throw new RunPodError('tick at least one workflow to serve', 400);
+    if (picked.length !== ids.length) throw new RunPodError('a ticked workflow is not in this repo any more: reload the page', 400);
+    const offer = offers.find(o => o.id === body.gpu);
+    if (!offer) throw new RunPodError('pick a card', 400);
+    if (offer.fits === false) throw new RunPodError(`${offer.name} has ${offer.vramGb} GB; these workflows need about ${need.gb} GB together`, 400);
+    const vcpus = offer.vcpuOptions.includes(Number(body.vcpus)) ? Number(body.vcpus) : offer.vcpuOptions[0];
+    const lim = offer.diskGb || { min: 100, max: 500 };
+    const diskGb = Math.min(lim.max, Math.max(lim.min, Number(body.diskGb) || 200));
+    const image = s.image || DEFAULT_IMAGE;
+    const serve = picked.map(w => w.id);
+    const fetchModels = body.fetchModels !== false;
+    // Refuse a password that cannot go into the env file before paying for anything.
+    remoteScript({ image, env: thunderEnv({ podId: 'thunder-check', serve, secrets, fetchModels }) });
+
+    const gpuType = offer.id.replace(/_x\d+$/, '');
+    let created;
+    try {
+        created = await thunderCreate(key, { gpuType, vcpus, diskGb });
+    } catch (e) {
+        recordAttempt({ action: 'launch', provider: 'thunder', name: `thunder ${serve[0]}`, gpus: [offer.name], where: 'Thunder (N. America)', result: isNoMachine(e.message) ? 'no machine' : 'error', message: e.message.slice(0, 300) });
+        throw e;
+    }
+    const uuid = String(created?.uuid || '');
+    if (!uuid) throw new RunPodError('Thunder created something but returned no uuid: check its console and delete it there if it exists', 502);
+    recordAttempt({ action: 'launch', provider: 'thunder', name: `thunder ${serve[0]}`, gpus: [offer.name], where: 'Thunder (N. America)', result: 'created', podId: uuid.slice(0, 8), costPerHr: offer.pricePerHr });
+    if (created.key) writeKey(uuid, created.key);
+    const all = loadThunder();
+    all[uuid] = {
+        id: String(created.identifier ?? ''), uuid, podId: `thunder-${uuid.replace(/[^A-Za-z0-9]/g, '').slice(0, 12)}`,
+        gpu: offer.id, gpuName: offer.name, pricePerHr: offer.pricePerHr, vcpus, diskGb, serve, image, fetchModels,
+        createdAt: Date.now(), state: 'created', steps: [{ at: Date.now(), msg: `created: ${offer.name}, ${vcpus} vCPU, ${diskGb} GB` }], error: null,
+    };
+    saveThunder(all);
+    startThunderSetup(uuid);
+    return { instance: all[uuid] };
+});
+
+route('GET', '/api/thunder/instances', async () => {
+    const key = thunderKey();
+    const live = await thunderInstances(key);
+    const recs = loadThunder();
+    // A record whose instance is gone (deleted elsewhere) is forgotten, key included;
+    // a just-created one may not be listed yet.
+    for (const [uuid, r] of Object.entries(recs)) {
+        if (!live.some(i => i.uuid === uuid) && !thunderTasks.has(uuid) && Date.now() - (r.createdAt || 0) > 180_000) forgetThunder(uuid);
+    }
+    const instances = await Promise.all(live.map(async (i) => {
+        const r = recs[i.uuid] || null;
+        const forwarded = (i.httpPorts || []).map(Number).includes(POD_PORT);
+        const base = thunderUrl(i.uuid);
+        const probe = i.status === 'RUNNING' && forwarded ? await probeUrl(base) : null;
+        return {
+            id: i.id, uuid: i.uuid, name: i.name, status: i.status, gpuType: i.gpuType, ip: i.ip || null, createdAt: i.createdAt || null,
+            forwarded, links: forwarded ? { students: base, admin: `${base}/admin` } : null,
+            ours: !!r, setupRunning: thunderTasks.has(i.uuid), probe,
+            rec: r && { state: r.state, error: r.error, serve: r.serve, gpuName: r.gpuName, pricePerHr: r.pricePerHr, diskGb: r.diskGb, podId: r.podId, createdAt: r.createdAt, steps: (r.steps || []).slice(-60) },
+        };
+    }));
+    return { instances };
+});
+
+route('POST', '/api/thunder/instances/([A-Za-z0-9-]+)/setup', ({ match }) => {
+    const uuid = match[1];
+    if (!loadThunder()[uuid]) throw new RunPodError('this instance was not launched from this console, so it does not know what to start on it', 409);
+    if (thunderTasks.has(uuid)) throw new RunPodError('its setup is already running', 409);
+    patchThunder(uuid, r => { r.error = null; });
+    startThunderSetup(uuid);
+    return { ok: true };
+});
+
+route('POST', '/api/thunder/instances/([A-Za-z0-9-]+)/download', ({ match }) => {
+    const r = loadThunder()[match[1]];
+    if (!r) throw new RunPodError('this instance was not launched from this console', 409);
+    const token = crypto.randomBytes(18).toString('hex');
+    downloads.set(token, { base: thunderUrl(r.uuid), folderId: r.podId, until: Date.now() + 60000 });
+    return { url: `/download/${token}` };
+});
+
+route('DELETE', '/api/thunder/instances/([A-Za-z0-9-]+)', async ({ match, body }) => {
+    const uuid = match[1];
+    if (String(body.confirm || '').trim() !== uuid.slice(0, 8)) throw new RunPodError(`type ${uuid.slice(0, 8)} to confirm`, 400);
+    const key = thunderKey();
+    const inst = (await thunderInstances(key)).find(i => i.uuid === uuid);
+    if (inst) await thunderDelete(key, inst.id);
+    forgetThunder(uuid);
+    return { ok: true, deleted: !!inst };
+});
 
 function send(res, status, data) {
     res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
