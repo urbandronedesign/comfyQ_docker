@@ -28,6 +28,7 @@ import {
     rest, gpuTypes, podProbe, podBody, proxyUrl, missingSecrets, runningOnVolume, shareBlockers, cannotShare,
     listWorkflows, vramNeeded, rankGpus, volumeBuilds, volumeGroups, podImage, isNoMachine, DEFAULT_IMAGE, RunPodError,
 } from '../lib.mjs';
+import { thunderOffers, thunderInstances } from '../thunder.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.COMFYQ_CONSOLE_PORT || 4777);
@@ -66,7 +67,7 @@ const DATA_CENTERS = ['EU-RO-1', 'EU-SE-1', 'EU-CZ-1', 'EU-NL-1', 'EU-FR-1', 'EU
 
 // ---- settings -----------------------------------------------------------------
 
-const SECRET_KEYS = ['runpodApiKey', 'adminPassword', 'accessPassword', 'hfToken'];
+const SECRET_KEYS = ['runpodApiKey', 'thunderApiKey', 'adminPassword', 'accessPassword', 'hfToken'];
 const PLAIN_KEYS = ['image', 'volumeId', 'community', 'diskGb'];
 
 function loadSettings() {
@@ -84,7 +85,7 @@ function saveSettings(s) {
 // What the page may see: whether each secret is set, and for the two long
 // tokens their last 4 characters, so two keys can be told apart. Never for a
 // password: the last 4 characters of a short one are most of it.
-const HINTED = new Set(['runpodApiKey', 'hfToken']);
+const HINTED = new Set(['runpodApiKey', 'thunderApiKey', 'hfToken']);
 function publicSettings(s = loadSettings()) {
     const out = { file: SETTINGS_FILE, defaultImage: DEFAULT_IMAGE };
     for (const k of SECRET_KEYS) {
@@ -135,6 +136,23 @@ route('POST', '/api/test-key', async () => {
     try { gpus = (await gpuTypes(key)).gpus.length; } catch { /* prices are optional */ }
     return { ok: true, pods: pods.length, volumes: vols.length, gpuTypes: gpus };
 });
+
+// Thunder Compute, the backup provider. The key is checked by listing the
+// account's instances (read only); prices and stock need no key.
+function thunderKey() {
+    const k = loadSettings().thunderApiKey || process.env.THUNDER_API_KEY;
+    if (!k) throw new RunPodError('enter your Thunder Compute API key under Credentials first', 400);
+    return k;
+}
+
+route('POST', '/api/thunder/test-key', async () => {
+    const instances = await thunderInstances(thunderKey());
+    let offers = null;
+    try { offers = await thunderOffers(); } catch { /* prices are optional */ }
+    return { ok: true, instances: instances.length, offers };
+});
+
+route('GET', '/api/thunder/offers', async () => ({ offers: await thunderOffers() }));
 
 route('GET', '/api/workflows', () => ({ workflows: listWorkflows() }));
 

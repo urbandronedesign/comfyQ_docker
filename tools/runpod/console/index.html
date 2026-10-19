@@ -40,6 +40,20 @@
     </div>
 
     <div class="card">
+      <h2>Thunder Compute <span class="tag">backup</span></h2>
+      <p class="muted">For when RunPod has no free card. An API token from console.thundercompute.com → <i>Settings</i> → <i>API Tokens</i>. It can spend your credits, so it stays on this machine. Thunder's machines are in North America.</p>
+      <label class="field">
+        <span>API key <em id="thunderApiKeyState" class="state"></em></span>
+        <input id="thunderApiKey" type="password" autocomplete="off" placeholder="Thunder API token">
+      </label>
+      <div class="row">
+        <button id="testThunderKey" class="secondary">Test the key</button>
+        <span id="testThunderKeyOut" class="muted"></span>
+      </div>
+      <div class="tablewrap"><table id="thunderOffers" class="gpus" hidden></table></div>
+    </div>
+
+    <div class="card">
       <h2>ComfyQ passwords</h2>
       <p class="muted">Invent these. A Pod is reachable by anyone who has its URL, so it will not serve without an admin password. The student password is optional: leave it empty and anyone with the link can book jobs.</p>
       <label class="field">

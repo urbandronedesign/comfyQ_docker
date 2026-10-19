@@ -54,7 +54,7 @@ for (const b of document.querySelectorAll('.tabs button')) b.onclick = () => sho
 // ---- credentials ----------------------------------------------------------------
 
 let settings = null;
-const SECRETS = ['runpodApiKey', 'adminPassword', 'accessPassword', 'hfToken'];
+const SECRETS = ['runpodApiKey', 'thunderApiKey', 'adminPassword', 'accessPassword', 'hfToken'];
 
 // `cleared` names the inputs whose value was just saved; anything else typed
 // but not yet saved stays in its box.
@@ -101,6 +101,33 @@ $('testKey').onclick = async () => {
         const r = await api('POST', '/api/test-key');
         out.textContent = `works: ${r.pods} Pod(s), ${r.volumes} volume(s)` + (r.gpuTypes ? `, ${r.gpuTypes} GPU types priced` : ', but GPU prices are not readable');
         out.className = '';
+    } catch (e) { out.textContent = e.message; out.className = 'muted'; }
+};
+
+const AVAIL_LABEL = { available: 'in stock', unavailable: 'none free', unclear: 'unclear (Thunder disagrees with itself)', unknown: 'unknown' };
+function renderThunderOffers(offers) {
+    const t = $('thunderOffers');
+    if (!offers?.length) { t.hidden = true; return; }
+    t.innerHTML = '<thead><tr><th>Card</th><th>VRAM</th><th>$/hour</th><th>Right now</th></tr></thead><tbody>'
+        + offers.map(o => `<tr><td>${esc(o.name)}</td><td>${o.vramGb ?? '?'} GB</td>`
+            + `<td>${o.pricePerHr != null ? '$' + o.pricePerHr.toFixed(2) : '?'}</td>`
+            + `<td>${esc(AVAIL_LABEL[o.availability] || o.availability)}</td></tr>`).join('')
+        + '</tbody>';
+    t.hidden = false;
+}
+
+$('testThunderKey').onclick = async () => {
+    const out = $('testThunderKeyOut');
+    if ($('thunderApiKey').value.trim()) {
+        settings = await api('PUT', '/api/settings', { thunderApiKey: $('thunderApiKey').value.trim() });
+        renderSettings(['thunderApiKey']);
+    }
+    out.textContent = 'checking…';
+    try {
+        const r = await api('POST', '/api/thunder/test-key');
+        out.textContent = `works: ${r.instances} instance(s) on the account` + (r.offers ? '' : ', but prices are not readable');
+        out.className = '';
+        renderThunderOffers(r.offers);
     } catch (e) { out.textContent = e.message; out.className = 'muted'; }
 };
 
