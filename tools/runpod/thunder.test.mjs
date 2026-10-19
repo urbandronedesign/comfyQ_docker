@@ -39,6 +39,7 @@ check('the GPU goes in the only way Thunder supports', script.includes('--device
 check('the secrets go through a quoted heredoc into an env file, never a command line',
     script.includes("<<'COMFYQ_ENV_EOF'") && script.includes('COMFYQ_ADMIN_PASSWORD=p$w "x') && script.includes('--env-file "$ENVF"') && !/ -e COMFYQ_/.test(script));
 check('port 3000 is published and /workspace is the instance disk', script.includes('-p 3000:3000') && script.includes('-v "$WS:/workspace"'));
+check('a container that is not staying up fails the setup (exit 21) instead of reading as started', script.includes('case "$ST" in Up*)') && script.includes('exit 21'));
 check('a leftover ComfyUI is stopped before starting again', script.indexOf('pkill -f /opt/ComfyUI/main.py') < script.indexOf('start --shm-size'));
 let bad = null;
 try { remoteScript({ image: 'x:y', env: { COMFYQ_ADMIN_PASSWORD: 'a\nCOMFYQ_ENV_EOF\nrm -rf /' } }); } catch (e) { bad = e; }

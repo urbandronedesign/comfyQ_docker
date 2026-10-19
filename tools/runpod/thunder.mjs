@@ -153,8 +153,15 @@ export function remoteScript({ image, env }) {
         '    $D rm -f comfyq >/dev/null 2>&1 || true',
         '    start',
         'fi',
-        'sleep 5',
-        `say "container: $($D ps --filter name=comfyq --format '{{.Status}}')"`,
+        // A container that restarts in a loop still "started": wait, then look.
+        'sleep 20',
+        `ST="$($D ps -a --filter name=comfyq --format '{{.Status}}')"`,
+        'say "container: $ST"',
+        'case "$ST" in Up*) ;; *)',
+        '    say "the container is not staying up; its last lines:"',
+        '    $D logs --tail 40 comfyq 2>&1 | grep -v "failed to set permissions" | tail -8',
+        '    exit 21;;',
+        'esac',
         'say "started"',
         '',
     ].join('\n');
@@ -241,7 +248,9 @@ export async function setupInstance({ apiKey, id, uuid, keyFile, knownHosts, scr
     const code = await ssh({ ip: inst.ip, port: inst.port, user, keyFile, knownHosts, input: script, timeoutMs: scriptMs,
         onLine: l => { out.push(l); step('installing', l); } });
     if (code !== 0) {
-        const why = code === 20 ? 'Docker does not answer on the instance' : out.slice(-3).join(' / ') || `exit code ${code}`;
+        const why = code === 20 ? 'Docker does not answer on the instance'
+            : code === 21 ? `ComfyQ's container keeps stopping: ${out.slice(-4).join(' / ')}`
+            : out.slice(-3).join(' / ') || `exit code ${code}`;
         throw new RunPodError(`starting ComfyQ failed: ${why}`, 502);
     }
 
