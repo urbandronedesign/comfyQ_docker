@@ -14,6 +14,7 @@ import path from 'path';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { proxyUrl } from '../lib.mjs';
+import { loadTest } from './load.mjs';
 
 const arg = (k) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : null; };
 const VOLUME = arg('volume');
@@ -23,6 +24,10 @@ const WAIT_MIN = Number(arg('wait-min') || 60);
 const OUT = arg('out') || os.tmpdir();
 if (!VOLUME || !WFS.length || !GPUS.length) { console.log('usage: node lanes.mjs --volume <id> --workflows <id>,<id> --gpus "<type>,<type>"'); process.exit(1); }
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+// --students N: once every workflow has rendered once, N simulated students
+// book a job each within a minute, and every job is followed to the end
+// (load.mjs). Skipped if a first render failed: a broken Pod is not load-tested.
+const STUDENTS = Number(arg('students') || 0);
 const s = JSON.parse(fs.readFileSync(`${os.homedir()}/.comfyq/runpod-console.json`, 'utf8'));
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const t0 = Date.now();
@@ -81,15 +86,25 @@ try {
 
     // ---- render on every workflow at once ----------------------------------------------
     log('rendering on every workflow at the same time…');
+    const firstOk = {};
     const runs = await Promise.all(WFS.map(async (id) => {
         const t = Date.now();
         try {
             const r = await fetch(`${proxyUrl(pod.id)}/workflows/${id}/calibrate`, { method: 'POST', headers: { 'X-Admin-Password': s.adminPassword || '' }, signal: AbortSignal.timeout(900_000) });
             const j = await r.json().catch(() => ({}));
+            firstOk[id] = r.ok;
             return `${id}: ${r.status} in ${Math.round((Date.now() - t) / 1000)} s — cold ${j.runtime?.coldDurationSec} s, model load ${j.runtime?.modelLoadSec} s, generate ${j.runtime?.estimatedDurationSec} s, VRAM peak ${j.runtime?.vramPeakGb} GB${j.error ? ' — ' + j.error : ''}`;
         } catch (e) { return `${id}: ${e.message}`; }
     }));
     for (const l of runs) log(l);
+
+    // ---- a class at once -----------------------------------------------------------------
+    if (STUDENTS > 0) {
+        if (WFS.every(id => firstOk[id])) {
+            const summary = await loadTest({ podId: pod.id, workflows: WFS, students: STUDENTS, log });
+            fs.writeFileSync(path.join(OUT, `lanes-${pod.id}-load.json`), JSON.stringify(summary, null, 2));
+        } else log(`LOAD SKIPPED: a first render failed (${WFS.filter(id => !firstOk[id]).join(', ')})`);
+    }
 
     // ---- keep the results -------------------------------------------------------------
     const { url } = await api('POST', `/api/pods/${pod.id}/download`);
