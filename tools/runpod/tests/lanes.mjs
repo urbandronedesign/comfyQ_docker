@@ -65,6 +65,11 @@ try {
             pod = r.pod;
             log(`Pod ${pod.id} created on ${pod.gpu?.name || GPUS[0]} at $${pod.costPerHr}/h, serving ${WFS.join(' + ')}`);
         } catch (e) {
+            // A try we gave up on may still have created the Pod on RunPod's
+            // side: adopt it rather than create a second one billing too.
+            const late = (await api('GET', '/api/pods').catch(() => ({ pods: [] }))).pods
+                .find(p => p.name?.startsWith('comfyq-lanes') && p.desiredStatus === 'RUNNING' && p.networkVolume?.id === VOLUME);
+            if (late) { pod = late; log(`Pod ${pod.id} turned up after a try timed out — using it ($${pod.costPerHr}/h)`); break; }
             if (Date.now() > end || !(e.status === 409 || e.status >= 500 || e.name === 'TimeoutError')) throw e;
             tries = (tries || 0) + 1;
             if (tries === 1 || tries % Math.max(1, Math.round(60 / RETRY_SEC)) === 0) {
