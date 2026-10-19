@@ -181,6 +181,13 @@ export function missingSecrets(secrets) {
     return secrets.adminPassword ? [] : ['admin password'];
 }
 
+/**
+ * The image a Pod runs. ★ RunPod's REST API calls it `imageName` (as in the
+ * create body), not `image` — reading `image` found nothing on a real account,
+ * which a stand-in RunPod using `image` could not reveal.
+ */
+export const podImage = (p) => p?.imageName || p?.image || null;
+
 /** The Pods RUNNING on a network volume, other than `exceptId`. (RunPod reports a Pod's volume as `networkVolumeId`.) */
 export function runningOnVolume(pods, volumeId, exceptId = null) {
     return (pods || []).filter(p => p.desiredStatus === 'RUNNING'
@@ -210,7 +217,7 @@ export async function shareBlockers(busy, { image = null } = {}) {
         // a Pod still starting answers none. They need different advice —
         // waiting never fixes the first.
         const alive = r || await podGet(p.id, '/federation/self');
-        if (!alive && image && p.image === image) continue;
+        if (!alive && image && podImage(p) === image) continue;
         out.push({ pod: p, why: alive
             ? 'runs an image too old to share a volume — stop it, or restart it to get the new image'
             : 'is not answering yet (still starting?) — wait until it is up, or start it together with this one on the same image' });

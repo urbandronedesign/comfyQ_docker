@@ -26,7 +26,7 @@ import { Readable } from 'stream';
 import { fileURLToPath } from 'url';
 import {
     rest, gpuTypes, podProbe, podBody, proxyUrl, missingSecrets, runningOnVolume, shareBlockers, cannotShare,
-    listWorkflows, vramNeeded, rankGpus, volumeBuilds, volumeGroups, DEFAULT_IMAGE, RunPodError,
+    listWorkflows, vramNeeded, rankGpus, volumeBuilds, volumeGroups, podImage, DEFAULT_IMAGE, RunPodError,
 } from '../lib.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -219,7 +219,7 @@ route('POST', '/api/launch', async ({ body }) => {
 // The Pod object minus its environment, which holds the passwords. RunPod
 // gives only the volume's id, so its name comes from the volume list.
 const slimPod = (p, volumes = []) => p && ({
-    id: p.id, name: p.name, image: p.image, desiredStatus: p.desiredStatus,
+    id: p.id, name: p.name, image: podImage(p), desiredStatus: p.desiredStatus,
     gpu: p.gpu ? { id: p.gpu.id, name: p.gpu.displayName, count: p.gpu.count } : null,
     costPerHr: p.costPerHr ?? p.adjustedCostPerHr ?? null,
     lastStartedAt: p.lastStartedAt || null, lastStatusChange: p.lastStatusChange || null,
@@ -230,7 +230,7 @@ const slimPod = (p, volumes = []) => p && ({
         return { id, name: v.name || id, dataCenterId: v.dataCenterId || null };
     })(),
     serve: String(p.env?.COMFYQ_SERVE || '').split(',').filter(Boolean),
-    comfyq: /comfyq/i.test(p.image || ''),
+    comfyq: /comfyq/i.test(podImage(p) || ''),
     links: { students: proxyUrl(p.id), admin: `${proxyUrl(p.id)}/admin`, comfyui: proxyUrl(p.id, 8188) },
 });
 
@@ -357,7 +357,7 @@ route('POST', '/api/pods/([A-Za-z0-9]+)/(stop|start)', async ({ match }) => {
         const vid = pod.networkVolumeId || pod.networkVolume?.id;
         // Starting several stopped Pods on one volume together is fine when
         // they boot the same image, so a booting neighbour on it is no blocker.
-        const blockers = vid ? await shareBlockers(runningOnVolume(await rest(key, 'GET', '/pods'), vid, pod.id), { image: pod.image }) : [];
+        const blockers = vid ? await shareBlockers(runningOnVolume(await rest(key, 'GET', '/pods'), vid, pod.id), { image: podImage(pod) }) : [];
         if (blockers.length) {
             const vols = await rest(key, 'GET', '/networkvolumes');
             throw new RunPodError(cannotShare(blockers, vols.find(v => v.id === vid)?.name || vid), 409);

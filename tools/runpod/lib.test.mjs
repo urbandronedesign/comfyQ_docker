@@ -1,7 +1,7 @@
 // GPU choice and Pod body for the RunPod launcher. (node tools/runpod/lib.test.mjs)
 import assert from 'assert';
 import http from 'http';
-import { vramNeeded, rankGpus, podBody, missingSecrets, listWorkflows, runningOnVolume, shareBlockers, volumeGroups, buildsOf, HEADROOM_GB } from './lib.mjs';
+import { vramNeeded, rankGpus, podBody, missingSecrets, listWorkflows, runningOnVolume, shareBlockers, volumeGroups, buildsOf, podImage, HEADROOM_GB } from './lib.mjs';
 
 const ok = [];
 const check = (label, cond) => { assert.ok(cond, label); ok.push(label); };
@@ -77,12 +77,13 @@ const booting = await shareBlockers([pod('down')]);
 check('a Pod not answering yet blocks it until it is up', booting.length === 1 && /not answering/.test(booting[0].why));
 check('an empty volume blocks nothing', (await shareBlockers([])).length === 0);
 const img = 'ghcr.io/x/comfyq:latest';
+check('the Pod image is read from imageName, the field the real RunPod API returns', podImage({ imageName: img }) === img);
 check('a Pod still booting the SAME image is a partner launched together, not a blocker',
-    (await shareBlockers([{ ...pod('down'), image: img }], { image: img })).length === 0);
+    (await shareBlockers([{ ...pod('down'), imageName: img }], { image: img })).length === 0);
 check('one booting a different image still blocks',
-    (await shareBlockers([{ ...pod('down'), image: 'ghcr.io/x/comfyq:sha-old' }], { image: img })).length === 1);
+    (await shareBlockers([{ ...pod('down'), imageName: 'ghcr.io/x/comfyq:sha-old' }], { image: img })).length === 1);
 check('an answering Pod without the route blocks even on the same tag (latest may be weeks old)',
-    (await shareBlockers([{ ...pod('old'), image: img }], { image: img })).length === 1);
+    (await shareBlockers([{ ...pod('old'), imageName: img }], { image: img })).length === 1);
 proxy.close();
 delete process.env.COMFYQ_POD_PROXY;
 

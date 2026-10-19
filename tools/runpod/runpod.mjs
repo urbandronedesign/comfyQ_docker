@@ -15,7 +15,7 @@
 // dependency to install.
 
 import {
-    rest, findVolume, podBody, podGet, proxyUrl, missingSecrets, runningOnVolume, shareBlockers, cannotShare, DEFAULT_IMAGE,
+    rest, findVolume, podBody, podGet, proxyUrl, missingSecrets, runningOnVolume, shareBlockers, cannotShare, DEFAULT_IMAGE, podImage,
 } from './lib.mjs';
 
 function parseArgs(argv) {
@@ -183,7 +183,7 @@ async function simple(args, verb) {
     if (verb === 'start') {
         const p = await api('GET', `/pods/${id}`);
         const vid = p.networkVolumeId || p.networkVolume?.id;
-        const blockers = vid ? await shareBlockers(runningOnVolume(await api('GET', '/pods'), vid, id), { image: p.image }) : [];
+        const blockers = vid ? await shareBlockers(runningOnVolume(await api('GET', '/pods'), vid, id), { image: podImage(p) }) : [];
         if (blockers.length) die(cannotShare(blockers, vid));
     }
     await api('POST', `/pods/${id}/${verb}`);
