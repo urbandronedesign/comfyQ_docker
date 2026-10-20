@@ -207,7 +207,7 @@ table.gpus { width: 100%; min-width: 560px; border-collapse: collapse; margin-to
 
 /* ---- spending bar (every tab) ---- */
 .spend { border-bottom: 1px solid var(--border); background: var(--surface); padding: 10px 20px 8px; }
-.spend-kpis { display: flex; flex-wrap: wrap; gap: 8px 28px; align-items: flex-end; }
+.spend-kpis { display: flex; flex-wrap: wrap; gap: 8px 28px; align-items: flex-start; }
 .spend .kpi { display: flex; flex-direction: column; min-width: 110px; }
 .spend .kpi .label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 .spend .kpi b { font-size: 20px; font-variant-numeric: tabular-nums; line-height: 1.25; }
@@ -224,6 +224,9 @@ table.gpus { width: 100%; min-width: 560px; border-collapse: collapse; margin-to
 .spend-machines .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); display: inline-block; align-self: center; }
 .spend-machines .cost { font-weight: 600; }
 .spend-machines .long { color: var(--bad); }
+.spend .tbal-set { display: flex; gap: 4px; margin-top: 3px; }
+.spend .tbal-set input { width: 120px; }
+.spend .kpi.low b { color: var(--bad); }
 #spNote { margin: 6px 0 0; }
 #spNote:empty { display: none; }
 @media (max-width: 600px) { .spend { padding: 10px 16px 8px; } .spend .kpi { min-width: 42%; } }

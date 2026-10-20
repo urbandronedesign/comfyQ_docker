@@ -277,7 +277,9 @@ $('tLaunch').onclick = async () => {
     if (!tChosen.length) return toast('Tick at least one workflow', true);
     if (!o) return toast('Pick a card', true);
     const warn = o.availability === 'available' ? '' : `\n\nThunder does not clearly say this card is free right now (${AVAIL_LABEL[o.availability]}): the launch may be refused.`;
-    if (!confirm(`Launch a ${o.name} on Thunder Compute at $${(thunderHourly(o, $('tVcpus').value, $('tDisk').value) ?? 0).toFixed(2)}/hour (${$('tVcpus').value} vCPU, ${$('tDisk').value} GB)?\n\nIt bills until you delete it. It will serve: ${tChosen.join(', ')}.${warn}`)) return;
+    const perHr = thunderHourly(o, $('tVcpus').value, $('tDisk').value) ?? 0;
+    await loadSpend();
+    if (!confirm(`Launch a ${o.name} on Thunder Compute at $${perHr.toFixed(2)}/hour (${$('tVcpus').value} vCPU, ${$('tDisk').value} GB)?\n\nIt bills until you delete it. It will serve: ${tChosen.join(', ')}.${warn}${coverage(spend?.thunder?.balance ?? null, perHr, 'Thunder')}`)) return;
     $('tLaunch').disabled = true;
     try {
         await api('POST', '/api/thunder/launch', { workflows: tChosen, gpu: o.id, vcpus: Number($('tVcpus').value), diskGb: Number($('tDisk').value), fetchModels: $('tFetch').checked });
@@ -704,12 +706,17 @@ $('launchBtn').onclick = async () => {
         allowOpen = confirm("No admin password is saved. Anyone with the Pod's URL could use its admin panel: switch workflows, delete jobs, empty the model quarantine.\n\nLaunch it open anyway?");
         if (!allowOpen) { showTab('creds'); return; }
     }
+    // The cost, and what the balance covers, before RunPod is asked for anything.
+    const perHr = plans.reduce((a, p) => a + (Number(p.price) || 0), 0);
+    await loadSpend();
+    if (!confirm(`Launch ${plans.length > 1 ? `${plans.length} Pods` : 'a Pod'} on RunPod at about $${perHr.toFixed(2)}/hour${plans.length > 1 ? ' together' : ''}?\n\nA running Pod bills until you stop it (a stopped one still pays for its disk).${coverage(spend?.runpod?.balance ?? null, perHr, 'RunPod')}`)) return;
     const b = $('launchBtn');
     b.disabled = true;
     b.textContent = plans.length > 1 ? `Launching ${plans.length} Pods…` : 'Launching…';
     try {
         const r = await api('POST', '/api/launch', {
             volumeId: vol.id,
+            expectedPerHr: perHr,
             pods: plans.map(p => ({ serve: p.serve, gpuTypeIds: p.gpuTypeIds, name: p.name || undefined })),
             diskGb: Number($('diskGb').value) || 30,
             podVolumeGb: Number($('podVolumeGb').value) || 80,
@@ -1249,7 +1256,7 @@ $('refreshPods').onclick = loadPods;
 // ---- spending (every tab) ---------------------------------------------------------
 
 let spend = null, spendAt = 0;
-const money = (v) => v == null ? '—' : `$${v < 10 ? v.toFixed(2) : v.toFixed(1)}`;
+const money = (v) => v == null ? "—" : `$${v < 1000 ? v.toFixed(2) : Math.round(v)}`;
 function dur(ms) {
     const m = Math.max(0, Math.round(ms / 60000));
     return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`;
@@ -1282,6 +1289,12 @@ function renderSpend() {
     $('spBal').textContent = money(spend.runpod.balance);
     $('spLeft').textContent = spend.runpod.hoursLeft != null
         ? (spend.runpod.hoursLeft > 72 ? `≈ ${Math.round(spend.runpod.hoursLeft / 24)} days at this rate` : `≈ ${spend.runpod.hoursLeft} h at this rate`) : '';
+    const tb = spend.thunder;
+    $('spTBal').textContent = tb.balance != null ? `≈ ${money(tb.balance)}` : 'not set';
+    $('spTLeft').textContent = tb.balance == null ? 'type it from Thunder\'s billing page'
+        : `${tb.hoursLeft != null ? `≈ ${tb.hoursLeft} h at this rate · ` : ''}set ${new Date(tb.balanceEnteredAt).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}, ${money(tb.spentSinceEntered)} used since`;
+    $('spTBal').parentElement.classList.toggle('low', tb.balance != null && tb.balance < 2);
+    $('spBal').parentElement.classList.toggle('low', spend.runpod.balance != null && spend.runpod.balance < 2);
     const b = spend.budgetPerDay;
     if (document.activeElement !== $('spBudget')) $('spBudget').value = b ?? '';
     const ratio = b ? today / b : 0;
@@ -1303,6 +1316,16 @@ function renderSpend() {
     if (spend.machines.some(m => Date.now() - (m.since || Date.now()) > 3 * 3600000)) notes.push('A machine has been on for more than 3 hours: delete or stop it if the class is over.');
     notes.push('RunPod figures come from its balance; Thunder ones are computed from each instance\'s price and running time (its API has no balance).');
     $('spNote').textContent = notes.join(' ');
+}
+$('spTBalBtn').onclick = async () => {
+    try { await api('PUT', '/api/spend/thunder-balance', { amount: $('spTBalIn').value }); $('spTBalIn').value = ''; toast('Thunder balance saved'); loadSpend(); }
+    catch (e) { toast(e.message, true); }
+};
+// What a balance covers at a given hourly cost, for the launch confirmations.
+function coverage(balance, perHr, name) {
+    if (balance == null) return `\n\n${name} balance unknown${name === 'Thunder' ? ' — type it in the spending bar to have it checked' : ''}.`;
+    const h = perHr > 0 ? balance / perHr : Infinity;
+    return `\n\n${name} balance ≈ $${balance.toFixed(2)}: covers about ${h === Infinity ? 'any time' : `${h.toFixed(1)} hours`} at this price.${h < 4 ? ' ⚠ Less than 4 hours — top it up before a class.' : ''}`;
 }
 $('spBudget').onchange = async () => {
     try { await api('PUT', '/api/spend/budget', { dailyBudget: $('spBudget').value }); toast('Daily budget saved'); loadSpend(); }

@@ -113,6 +113,8 @@ The bar under the tabs shows what you are spending. It refreshes every 15 second
 - **Spending now**: dollars per hour across RunPod and Thunder together. "storage only" means no GPU is running (the RunPod volume costs about $0.01/h).
 - **Today** and **This month**, plus what today reaches by midnight if everything is left on.
 - **RunPod balance**, and how long it lasts at the current rate.
+- **Thunder balance**: Thunder shows it only on its website (console.thundercompute.com → Settings → Billing); an API key gets 403 on every billing call. Type it into the box once; the console subtracts what runs on Thunder from then on. Type it again after a top-up.
+- **Before every launch** the confirmation says what the balance covers at that price (⚠ under 4 hours), and a launch the balance cannot pay for one hour is refused. On RunPod that matters most: a Pod is stopped when the balance reaches zero, and every render running is lost.
 - **Daily budget** (optional): the meter turns amber at 80 % and red above it, and the bar warns when leaving machines on would go over.
 - One line per running machine: how long it has been on and what it has cost so far. A machine on for more than 3 hours shows in red.
 

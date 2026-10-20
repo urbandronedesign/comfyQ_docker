@@ -74,5 +74,12 @@ check('the rate adds both providers', near(s.ratePerHr, 1.25));
 check('projected to midnight = today + rate × hours left', near(s.projectedToday, 1.25 * 16));
 check('the budget is passed through', s.budgetPerDay === 10);
 
+// ---- Thunder balance, entered by hand -----------------------------------------
+let tb = updateLedger(emptyLedger(), { now: day, thunderLive: [{ uuid: 'ee', ratePerHr: 0.9, start: day - 2 * HOUR }], runpodBalance: null });
+s = summarize(tb, { now: day + HOUR, thunderBalance: { amount: 10, at: day } });
+check('Thunder balance = entered minus what ran since the entry (not before it)', near(s.thunder.balance, 10 - 0.9));
+check('Thunder hours left at the running rate', near(s.thunder.hoursLeft, +((10 - 0.9) / 0.9).toFixed(1)));
+check('no entry, no Thunder balance', summarize(tb, { now: day }).thunder.balance === null);
+
 console.log(`spend: ${n - bad}/${n} checks passed`);
 process.exit(bad ? 1 : 0);

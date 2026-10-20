@@ -32,7 +32,7 @@ import {
     thunderOffers, thunderInstances, thunderCreate, thunderDelete, thunderAddKey, thunderUrl, thunderEnv, remoteScript, setupInstance, thunderHourly,
 } from '../thunder.mjs';
 import { graphql, downloadNeed, diskNeeded, RESULTS_DISK_GB } from '../lib.mjs';
-import { updateLedger, summarize, emptyLedger } from '../spend.mjs';
+import { updateLedger, summarize, emptyLedger, thunderBalanceNow } from '../spend.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.COMFYQ_CONSOLE_PORT || 4777);
@@ -250,6 +250,8 @@ route('POST', '/api/launch', async ({ body }) => {
         names.add(n);
         p.name = n;
     }
+
+    await balanceCheck('runpod', Number(body.expectedPerHr) || 0);
 
     const created = [];
     const failed = [];
@@ -651,6 +653,7 @@ route('POST', '/api/thunder/launch', async ({ body }) => {
     const gpuType = offer.id.replace(/_x\d+$/, '');
     // The whole bill, not the GPU alone: extra vCPUs and disk above 100 GB cost too.
     const hourly = thunderHourly(offer, vcpus, diskGb) ?? offer.pricePerHr;
+    await balanceCheck('thunder', hourly);
     let created;
     try {
         created = await thunderCreate(key, { gpuType, vcpus, diskGb });
@@ -780,8 +783,40 @@ route('GET', '/api/spend', async () => {
     const ledger = updateLedger(loadLedger(), { now, thunderLive, runpodBalance: Number.isFinite(runpodBalance) ? runpodBalance : null });
     saveLedger(ledger);
     const budget = Number(s.dailyBudget) > 0 ? Number(s.dailyBudget) : null;
-    return { ...summarize(ledger, { now, runpodRatePerHr: Number.isFinite(runpodRate) ? runpodRate : null, runpodBalance: Number.isFinite(runpodBalance) ? runpodBalance : null, runpodMachines, budgetPerDay: budget }), errors };
+    return { ...summarize(ledger, { now, runpodRatePerHr: Number.isFinite(runpodRate) ? runpodRate : null, runpodBalance: Number.isFinite(runpodBalance) ? runpodBalance : null, runpodMachines, budgetPerDay: budget, thunderBalance: s.thunderBalance || null }), errors };
 });
+
+// Thunder serves its balance only to its website (the billing calls answer 403
+// to an API key), so the owner types in what its billing page shows; the console
+// subtracts what ran on Thunder since. Empty clears it.
+route('PUT', '/api/spend/thunder-balance', ({ body }) => {
+    const v = body.amount === '' || body.amount == null ? null : Number(body.amount);
+    if (v != null && !(v >= 0 && v < 1e6)) throw new RunPodError('enter the balance in dollars, as Thunder\'s billing page shows it', 400);
+    const all = loadSettings();
+    all.thunderBalance = v == null ? null : { amount: v, at: Date.now() };
+    saveSettings(all);
+    return { ok: true, thunderBalance: all.thunderBalance };
+});
+
+// ★ Checked before anything is created: a launch the balance cannot pay for one
+// hour is refused. RunPod stops a Pod when its balance reaches zero, which in a
+// class means every render running is lost.
+async function balanceCheck(provider, perHr) {
+    if (!(perHr > 0)) return null;
+    const s = loadSettings();
+    let balance = null;
+    if (provider === 'runpod' && s.runpodApiKey) {
+        try { balance = Number((await graphql(s.runpodApiKey, 'query { myself { clientBalance } }'))?.myself?.clientBalance); } catch { balance = null; }
+    }
+    if (provider === 'thunder') balance = thunderBalanceNow(loadLedger(), s.thunderBalance, Date.now())?.balance ?? null;
+    if (balance == null || !Number.isFinite(balance)) return null;
+    const hours = balance / perHr;
+    const name = provider === 'runpod' ? 'RunPod' : 'Thunder';
+    if (hours < 1) {
+        throw new RunPodError(`your ${name} balance is about $${balance.toFixed(2)}: not even one hour at $${perHr.toFixed(2)}/h. Top it up first${provider === 'thunder' ? ', then type the new balance in the spending bar' : ''}.`, 402);
+    }
+    return { balance, hours };
+}
 
 route('PUT', '/api/spend/budget', ({ body }) => {
     const v = body.dailyBudget === '' || body.dailyBudget == null ? null : Number(body.dailyBudget);

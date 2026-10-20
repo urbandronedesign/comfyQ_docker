@@ -71,7 +71,19 @@ export function updateLedger(ledger, { now, thunderLive, runpodBalance }) {
 }
 
 /** The totals the console shows. */
-export function summarize(ledger, { now, runpodRatePerHr = null, runpodBalance = null, runpodMachines = [], budgetPerDay = null }) {
+/**
+ * Thunder's balance now, from the one the owner typed in (Thunder serves it only
+ * to its website: /v1/invoices/* and /v1/credit-alert answer 403 to an API key)
+ * minus what the ledger says was spent on Thunder since then.
+ */
+export function thunderBalanceNow(ledger, entry, now) {
+    if (!entry || typeof entry.amount !== 'number' || !entry.at) return null;
+    const spent = Object.values(ledger?.thunder || {})
+        .reduce((a, s) => a + (s.ratePerHr || 0) * overlapHours(s.start, s.end ?? now, entry.at, now), 0);
+    return { balance: +(entry.amount - spent).toFixed(4), entered: entry.amount, enteredAt: entry.at, spentSince: +spent.toFixed(4) };
+}
+
+export function summarize(ledger, { now, runpodRatePerHr = null, runpodBalance = null, runpodMachines = [], budgetPerDay = null, thunderBalance = null }) {
     const l = ledger || emptyLedger();
     const dayFrom = startOfDay(now), monthFrom = startOfMonth(now);
     const sessions = Object.values(l.thunder);
@@ -113,6 +125,13 @@ export function summarize(ledger, { now, runpodRatePerHr = null, runpodBalance =
             countingSince: { today: l.runpod.day?.since ?? null, month: l.runpod.month?.since ?? null },
             hoursLeft: typeof runpodBalance === 'number' && rpRate > 0 ? +(runpodBalance / rpRate).toFixed(1) : null,
         },
-        thunder: { ratePerHr: +thunderRate.toFixed(4), today: +thunderToday.toFixed(4), month: +thunderMonth.toFixed(4) },
+        thunder: (() => {
+            const b = thunderBalanceNow(l, thunderBalance, now);
+            return {
+                ratePerHr: +thunderRate.toFixed(4), today: +thunderToday.toFixed(4), month: +thunderMonth.toFixed(4),
+                balance: b?.balance ?? null, balanceEntered: b?.entered ?? null, balanceEnteredAt: b?.enteredAt ?? null, spentSinceEntered: b?.spentSince ?? null,
+                hoursLeft: b && thunderRate > 0 ? +(Math.max(0, b.balance) / thunderRate).toFixed(1) : null,
+            };
+        })(),
     };
 }

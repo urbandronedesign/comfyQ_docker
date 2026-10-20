@@ -153,6 +153,13 @@ try {
     const refused = await api('POST', '/api/thunder/launch', { workflows: [], gpu: 'l40_x1' });
     check('launch with no workflow is refused before anything is created', refused.status === 400 && !seen.includes('POST /v1/instances/create'));
 
+    // A balance that cannot pay one hour stops the launch before Thunder is asked.
+    await api('PUT', '/api/spend/thunder-balance', { amount: 0.5 });
+    const broke = await api('POST', '/api/thunder/launch', { workflows: ['image_sdxl_smoke_test'], gpu: 'l40_x1', vcpus: 8, diskGb: 9999 });
+    check(`a launch the Thunder balance cannot pay for an hour is refused, nothing created (${broke.status})`,
+        broke.status === 402 && /balance/.test(broke.data.error || '') && !seen.includes('POST /v1/instances/create'));
+    await api('PUT', '/api/spend/thunder-balance', { amount: 100 });
+
     const launched = await api('POST', '/api/thunder/launch', { workflows: ['image_sdxl_smoke_test'], gpu: 'l40_x1', vcpus: 8, diskGb: 9999 });
     check('launch creates the instance', launched.status === 200 && launched.data.instance.uuid === 'aaaabbbb-cccc');
     const body = instances['0'].body;
@@ -193,6 +200,8 @@ try {
     const spendOn = (await api('GET', '/api/spend')).data;
     check(`spend: the instance bills at the GPU + vCPU + disk price (${spendOn.ratePerHr})`,
         Math.abs(spendOn.ratePerHr - 0.99) < 1e-9 && spendOn.machines.length === 1 && spendOn.machines[0].provider === 'thunder');
+    check(`spend: the Thunder balance typed in goes down as the instance runs (${spendOn.thunder.balance})`,
+        spendOn.thunder.balance < 100 && spendOn.thunder.balance > 99 && spendOn.thunder.hoursLeft > 99);
 
     const dl = await api('POST', '/api/thunder/instances/aaaabbbb-cccc/download');
     const zip = await fetch(`http://127.0.0.1:${PORT}${dl.data.url}`);
