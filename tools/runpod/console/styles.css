@@ -205,6 +205,15 @@ table.gpus { width: 100%; min-width: 540px; border-collapse: collapse; margin-to
 .files .file:last-child { border-bottom: 0; }
 .links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 8px 0; }
 
+/* typed confirmation */
+.ask-scrim { z-index: 40; }
+.ask { position: fixed; z-index: 41; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(520px, calc(100vw - 32px));
+  background: var(--surface); border: 1px solid var(--border-2); border-radius: var(--radius); padding: 18px; box-shadow: 0 20px 60px rgba(0,0,0,.45); }
+.ask-text { white-space: pre-line; color: var(--muted); }
+.ask .field input { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; }
+.ask-buttons { justify-content: flex-end; margin-top: 6px; }
+button.danger-solid { background: var(--bad); color: #fff; border: 0; }
+button.danger-solid:hover:not(:disabled) { background: var(--bad); filter: brightness(1.08); }
 .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--surface-3); border: 1px solid var(--border-2); border-radius: var(--radius); padding: 10px 16px; max-width: min(90vw, 640px); box-shadow: 0 8px 24px rgba(0,0,0,.35); z-index: 60; }
 .toast.bad { border-color: var(--bad); }
 

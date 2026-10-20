@@ -132,6 +132,24 @@ async function browserCheck(chrome, shot) {
         await sleep(4000);
         await evalJs("document.querySelector('#tList [data-tsel]')?.click(); 1");
         await sleep(500);
+        // Delete asks for the code in a window of the page (not window.prompt,
+        // which the desktop app does not support): wrong code stays disabled.
+        const ask = await evalJs(`(async () => {
+            // The details may have opened by themselves (setup running): open them if not.
+            if (!document.querySelector('#tDetail [data-tdel]')) { document.querySelector('#tList [data-tsel]').click(); await new Promise(r => setTimeout(r, 300)); }
+            document.querySelector('#tDetail [data-tdel]').click();
+            await new Promise(r => setTimeout(r, 200));
+            const shown = !document.getElementById('ask').hidden;
+            const code = document.getElementById('askCodeShow').textContent;
+            const input = document.getElementById('askInput');
+            input.value = 'nope'; input.dispatchEvent(new Event('input'));
+            const wrongDisabled = document.getElementById('askOk').disabled;
+            input.value = code; input.dispatchEvent(new Event('input'));
+            const rightEnabled = !document.getElementById('askOk').disabled;
+            document.getElementById('askCancel').click();
+            return { shown, code, wrongDisabled, rightEnabled, closed: document.getElementById('ask').hidden };
+        })().catch(e => ({ error: String(e) }))`);
+        if (ask?.error) console.log('  ask step:', ask.error, '| detail:', (await evalJs("document.getElementById('tDetail').hidden + ' ' + document.getElementById('tList').innerText.slice(0, 200)")));
         await evalJs("document.getElementById('openCreateThunder').click(); 1");
         await sleep(3000);
         await evalJs("document.querySelector('[data-twf=\"image_sdxl_smoke_test\"]').click(); 1");
@@ -142,6 +160,7 @@ async function browserCheck(chrome, shot) {
             list: document.getElementById('tList').innerText, detail: document.getElementById('tDetail').innerText, gpus: document.getElementById('tGpuRows').innerText,
             need: document.getElementById('tNeed').innerText, summary: document.getElementById('tSummary').innerText,
             spendRate: document.getElementById('spRate').innerText, spendMachines: document.getElementById('spMachines').innerText })`);
+        view.ask = ask;
         if (shot) {
             const png = await cdp('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
             fs.writeFileSync(shot, Buffer.from(png.data, 'base64'));
@@ -200,6 +219,9 @@ try {
         check(`the Thunder page lists the serving instance in its table, tiles counted (${view.tiles})`, !view.hidden && /Serving/.test(view.list) && /image_sdxl_smoke_test/.test(view.list) && view.tiles === '1/1');
         check('clicking its row opens its details with the student links', /Student page/.test(view.detail) && /Download results/.test(view.detail));
         check('+ Create opens the launch panel', view.drawer);
+        check(`Delete asks for the code in the page (${view.ask?.code}): a wrong code keeps the button disabled, the right one enables it, Cancel closes`,
+            view.ask?.shown && view.ask.code === 'aaaabbbb' && view.ask.wrongDisabled && view.ask.rightEnabled && view.ask.closed);
+        check('cancelling deleted nothing', !!instances['0']);
         check('the card table and summary follow the ticked workflow', /NVIDIA L40/.test(view.gpus) && /recommended/.test(view.gpus) && /L40/.test(view.summary));
         check(`the spending bar shows the running instance at its full price (${view.spendRate} | ${view.spendMachines})`,
             view.spendRate === '$0.99/h' && /Thunder/.test(view.spendMachines) && /so far/.test(view.spendMachines));

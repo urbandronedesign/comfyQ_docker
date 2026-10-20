@@ -19,6 +19,35 @@ async function api(method, route, body) {
     return data;
 }
 
+// Ask for a code to be typed back before something is deleted. Resolves to
+// the code when it was typed exactly, or null. Replaces window.prompt(), which
+// Electron does not support (the desktop app's Delete did nothing).
+function askCode({ title, text, code, button = 'Delete' }) {
+    return new Promise((resolve) => {
+        $('askTitle').textContent = title;
+        $('askText').textContent = text;
+        $('askCodeShow').textContent = code;
+        $('askOk').textContent = button;
+        $('askInput').value = '';
+        $('askOk').disabled = true;
+        $('ask').hidden = false; $('askScrim').hidden = false;
+        setTimeout(() => $('askInput').focus(), 0);
+        const done = (v) => {
+            $('ask').hidden = true; $('askScrim').hidden = true;
+            $('askInput').oninput = $('askInput').onkeydown = $('askOk').onclick = $('askCancel').onclick = $('askScrim').onclick = null;
+            resolve(v);
+        };
+        $('askInput').oninput = () => { $('askOk').disabled = $('askInput').value.trim() !== code; };
+        $('askInput').onkeydown = (e) => {
+            if (e.key === 'Enter' && $('askInput').value.trim() === code) done(code);
+            if (e.key === 'Escape') { e.stopPropagation(); done(null); }
+        };
+        $('askOk').onclick = () => done(code);
+        $('askCancel').onclick = () => done(null);
+        $('askScrim').onclick = () => done(null);
+    });
+}
+
 let toastTimer;
 function toast(msg, bad = false) {
     const t = $('toast');
@@ -447,7 +476,8 @@ function renderThunderInstances() {
     };
     for (const b of box.querySelectorAll('[data-tdel]')) b.onclick = async () => {
         const code = b.dataset.tdel.slice(0, 8);
-        const typed = prompt(`Delete this Thunder instance? Its disk goes with it: the models AND every result students made on it. Download the results first.\n\nType ${code} to confirm:`);
+        const typed = await askCode({ title: 'Delete this Thunder instance?', code, button: 'Delete instance',
+            text: 'Its disk goes with it: the models AND every result students made on it. Download the results first.\n\nBilling stops once it is deleted.' });
         if (typed === null) return;
         try { await api('DELETE', `/api/thunder/instances/${b.dataset.tdel}`, { confirm: typed.trim() }); toast('Instance deleted: billing stops'); tSelected = null; loadThunderInstances(); loadSpend(); }
         catch (e) { toast(e.message, true); }
@@ -1091,9 +1121,10 @@ async function loadDetail() {
     if ($('stopPod')) $('stopPod').onclick = () => podAction('stop');
     if ($('startPod')) $('startPod').onclick = () => podAction('start');
     $('termPod').onclick = async () => {
-        const typed = prompt(pod.networkVolume
-            ? `Terminate deletes the Pod (the network volume and its models stay).\n\nType the Pod id to confirm:\n${pod.id}`
-            : `This Pod has NO network volume: terminating it deletes its models AND every result students made on it. Download its results first (Download results, while it runs).\n\nType the Pod id to confirm:\n${pod.id}`);
+        const typed = await askCode({ title: `Terminate ${pod.name}?`, code: pod.id, button: 'Terminate Pod',
+            text: pod.networkVolume
+                ? 'Terminate deletes the Pod. The network volume and its models stay.'
+                : 'This Pod has NO network volume: terminating it deletes its models AND every result students made on it. Download its results first (Download results, while it runs).' });
         if (typed === null) return;
         try { await api('DELETE', `/api/pods/${pod.id}`, { confirm: typed.trim() }); toast('Pod terminated'); selectedPod = null; loadPods(); }
         catch (e) { toast(e.message, true); }
@@ -1163,8 +1194,8 @@ async function loadFolders() {
     for (const b of box.querySelectorAll('[data-del]')) {
         b.onclick = async () => {
             const f = d.folders.find(x => x.id === b.dataset.del);
-            const typed = prompt(`Delete the folder ${f.id} from the volume?\n\n${size(f.bytes)}, ${f.outputs} result file(s) and the job queue of a Pod that no longer exists. `
-                + `This cannot be undone${f.outputs ? ' — download the results first if anyone needs them' : ''}.\n\nType the folder name to confirm:\n${f.id}`);
+            const typed = await askCode({ title: `Delete the folder ${f.id} from the volume?`, code: f.id, button: 'Delete folder',
+                text: `${size(f.bytes)}, ${f.outputs} result file(s) and the job queue of a Pod that no longer exists. This cannot be undone${f.outputs ? ' — download the results first if anyone needs them' : ''}.` });
             if (typed === null) return;
             b.disabled = true;
             try {

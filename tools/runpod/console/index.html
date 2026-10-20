@@ -311,6 +311,16 @@
   </div>
 </aside>
 
+<!-- Typed confirmation before deleting anything. Not window.prompt():
+     Electron (the desktop app) does not support it, so it returned nothing. -->
+<div id="askScrim" class="scrim ask-scrim" hidden></div>
+<div id="ask" class="ask" role="dialog" aria-modal="true" aria-labelledby="askTitle" hidden>
+  <h2 id="askTitle"></h2>
+  <p id="askText" class="ask-text"></p>
+  <label class="field"><span>Type <code id="askCodeShow"></code> to confirm</span><input id="askInput" autocomplete="off" spellcheck="false"></label>
+  <div class="row ask-buttons"><button id="askCancel" class="secondary">Cancel</button><button id="askOk" class="danger-solid" disabled></button></div>
+</div>
+
 <div id="toast" class="toast" hidden></div>
 <div id="chartTip" class="chart-tip" role="tooltip" hidden></div>
 <script src="/app.js"></script>

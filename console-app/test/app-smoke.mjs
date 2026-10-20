@@ -94,6 +94,15 @@ try {
     check('the page has no Node or Electron access', page.node === false);
     check('first run (no API key): Settings opens by itself', page.settingsOpen);
     check(`the spending tiles load (${page.spend})`, /\$/.test(page.spend || ''));
+    // Delete's typed confirmation inside the app, where window.prompt() is not supported.
+    const typed = await a.evalJs(`(async () => {
+        const p = askCode({ title: 't', text: 'x', code: 'abc12345' });
+        const input = document.getElementById('askInput');
+        input.value = 'abc12345'; input.dispatchEvent(new Event('input'));
+        document.getElementById('askOk').click();
+        return await p;
+    })()`);
+    check(`the typed confirmation for Delete works in the app (${typed})`, typed === 'abc12345');
 
     const outside = async (header) => (await fetch(`${a.origin}/api/settings`, { headers: header ? { 'X-ComfyQ-Console': header } : {} })).status;
     check('another program with the old fixed header is refused', await outside('1') === 403);
