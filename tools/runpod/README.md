@@ -191,7 +191,21 @@ Put the API token in *Settings → Thunder Compute* (Thunder's console → *Sett
 and press *Test the key*: it lists your instances and shows live prices and stock.
 
 Then tick the workflows, pick a card (the cheapest that fits and is in stock is
-recommended) and press *Launch on Thunder*. The console:
+recommended) and press *Launch on Thunder*. Or **tick none**, which is the usual way to run a class:
+
+1. launch with no workflow: the instance starts in **admin mode** and downloads nothing;
+2. open its admin panel (the link in its details), enter the admin password;
+3. on the workflow you want, press **Activate & serve**. If its models are missing, a window shows each
+   file downloading, then the machine switches to serving it by itself (FLUX.3 Klein's 17.7 GB took
+   about 2.5 minutes on an L40). Nothing is downloaded that does not fit: the disk is checked first;
+4. to serve a **second workflow beside it** on the same card, press **Serve alongside** on that one. It
+   downloads its models the same way, then opens it, and the first keeps serving: no restart. Each served
+   workflow gets its own student link in the console.
+
+Pick the disk for the workflow you will serve: it cannot grow later. With no workflow ticked the panel
+says which workflows the chosen disk holds; **120 GB (the default) holds any one of them**, and each
+GB above 100 costs $0.0003/h. To go back to a single workflow, close the extra lane (*Close lane*) first,
+then *Activate & serve* the one you keep. When launching it, the console:
 
 1. creates the instance (the `base` template) and saves the login key Thunder returns once,
    in `~/.comfyq/thunder-keys/`;
@@ -204,7 +218,11 @@ The setup log and the model downloads show in the instance's details (they open 
 **the instance keeps billing**: press *Retry setup* (it is safe to run twice) or *Delete…*.
 
 - **No network volume.** The instance's own disk holds the models (downloaded at the first boot)
-  and the students' results. **Delete removes both**: press *Download results* first.
+  and the students' results. **Delete removes both**: press *Download results* first. On Thunder it
+  saves every picture **into a folder on this PC**, `Desktop\ComfyQ results\thunder-<instance>-<date>\`,
+  with a `jobs.json` (each job's prompt, settings, seed and times), and opens it when done. It fetches
+  the pictures one by one: Thunder's web proxy cuts a long single download (a 269 MB zip came through as
+  496 bytes on 2026-10-20).
 - **No stop.** Thunder has no stop button that keeps the machine; it is running or deleted.
   Launch early on the day and delete at the end.
 - **Docker on Thunder is "experimental":** the GPU goes in with `--device nvidia.com/gpu=all`
