@@ -58,7 +58,17 @@ const thunderSrv = http.createServer(async (req, res) => {
 
 // ---- fake ComfyQ on the instance ---------------------------------------------
 const comfySrv = http.createServer((req, res) => {
-    if (req.url === '/federation/self') return json(res, 200, { mode: 'student', servedWorkflows: [{ id: 'image_sdxl_smoke_test', name: 'SDXL' }], jobs: { running: null, scheduled: [] }, usage: { usersConnected: 2 } });
+    // Two workflows served: the second opened later by Serve alongside, so the console must list both links.
+    if (req.url === '/federation/self') return json(res, 200, { mode: 'student', servedWorkflows: [{ id: 'image_sdxl_smoke_test', name: 'SDXL' }, { id: 'image_flux3_klein_t2i', name: 'FLUX.3' }], jobs: { running: null, scheduled: [] }, usage: { usersConnected: 2 } });
+    if (req.url.startsWith('/jobs')) return json(res, 200, { jobs: [
+        { id: 'j1', user_id: 'zaki', workflow_id: 'image_sdxl_smoke_test', status: 'completed', prompt: 'a lighthouse', params: { seed: 1 }, outputs: [{ filename: 'zaki_1.png' }] },
+        { id: 'j2', user_id: 'sara', workflow_id: 'image_flux3_klein_t2i', status: 'completed', prompt: 'a fox', params: { seed: 2 }, outputs: [{ filename: 'sub/sara_2.png' }] },
+    ] });
+    if (req.url.startsWith('/images/')) {
+        const body = Buffer.from('PNG-bytes-of ' + decodeURIComponent(req.url.slice(8)));
+        res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': body.length });
+        return res.end(body);
+    }
     if (req.url === '/admin/pod-plan') return json(res, 200, { plan: { status: 'done' } });
     if (req.url.startsWith('/admin/volume-folders/') && req.url.endsWith('/results.zip')) {
         res.writeHead(req.headers['x-admin-password'] === 'admin-pw' ? 200 : 401, { 'Content-Type': 'application/zip' });
@@ -89,7 +99,7 @@ await new Promise(r => comfySrv.listen(0, '127.0.0.1', r));
 const PORT = 4791;
 const consoleProc = spawn(process.execPath, [path.join(HERE, '..', 'console', 'server.mjs'), '--no-open'], {
     env: {
-        ...process.env, USERPROFILE: tmp, HOME: tmp, COMFYQ_CONSOLE_PORT: String(PORT), COMFYQ_CONSOLE_TOKEN: '1',
+        ...process.env, USERPROFILE: tmp, HOME: tmp, COMFYQ_NO_EXPLORER: '1', COMFYQ_CONSOLE_PORT: String(PORT), COMFYQ_CONSOLE_TOKEN: '1',
         THUNDER_API_URL: `http://127.0.0.1:${thunderSrv.address().port}`,
         COMFYQ_THUNDER_PROXY: `http://127.0.0.1:${comfySrv.address().port}`,
         COMFYQ_THUNDER_SSH: fakeSsh, COMFYQ_CONSOLE_SOURCE: 'thunder-test',
@@ -235,10 +245,21 @@ try {
     check(`spend: the Thunder balance typed in goes down as the instance runs (${spendOn.thunder.balance})`,
         spendOn.thunder.balance < 100 && spendOn.thunder.balance > 99 && spendOn.thunder.hoursLeft > 99);
 
-    const dl = await api('POST', '/api/thunder/instances/aaaabbbb-cccc/download');
-    const zip = await fetch(`http://127.0.0.1:${PORT}${dl.data.url}`);
-    const zipText = await zip.text();
-    check('download results asks the instance for its own folder, with the admin password', zip.status === 200 && zipText.includes('/admin/volume-folders/thunder-aaaabbbbcccc/results.zip'));
+    const itNow = (await api('GET', '/api/thunder/instances')).data.instances[0];
+    check(`one student link per workflow the instance SAYS it serves (${(itNow.links?.byWorkflow || []).map(l => l.id).join(', ')})`,
+        (itNow.links?.byWorkflow || []).length === 2 && itNow.links.byWorkflow.some(l => /workflow=image_flux3_klein_t2i/.test(l.url)));
+
+    // Download results: every output fetched file by file into a folder on this PC.
+    let dl = (await api('POST', '/api/thunder/instances/aaaabbbb-cccc/download')).data;
+    for (let i = 0; i < 40 && !['done', 'failed'].includes(dl.state); i++) {
+        await new Promise(r => setTimeout(r, 150));
+        dl = (await api('GET', '/api/thunder/instances/aaaabbbb-cccc/download')).data;
+    }
+    const saved = dl.folder && fs.existsSync(dl.folder) ? fs.readdirSync(dl.folder).sort() : [];
+    check(`download results saves every output and jobs.json into a folder (${dl.state}: ${saved.join(', ')})`,
+        dl.state === 'done' && dl.saved === 2 && dl.total === 2 && saved.join(',') === 'jobs.json,sara_2.png,zaki_1.png'
+        && dl.folder.startsWith(tmp) && JSON.parse(fs.readFileSync(path.join(dl.folder, 'jobs.json'), 'utf8')).length === 2
+        && fs.readFileSync(path.join(dl.folder, 'sara_2.png'), 'utf8') === 'PNG-bytes-of sub/sara_2.png');
 
     const wrong = await api('DELETE', '/api/thunder/instances/aaaabbbb-cccc', { confirm: 'nope' });
     check('delete needs the code typed back', wrong.status === 400 && instances['0']);

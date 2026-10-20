@@ -404,7 +404,13 @@ route('GET', '/api/pods/([A-Za-z0-9]+)', async ({ match }) => {
     const key = apiKey();
     const [pod, volumes] = await Promise.all([rest(key, 'GET', `/pods/${match[1]}`), rest(key, 'GET', '/networkvolumes')]);
     const probe = pod.desiredStatus === 'RUNNING' ? await podProbe(pod.id) : null;
-    return { pod: slimPod(pod, volumes), probe };
+    const slim = slimPod(pod, volumes);
+    // What the Pod says it serves wins over what it was launched with: a Pod
+    // started in admin mode, or given a second workflow by Serve alongside,
+    // otherwise listed no link (or only the first) — 2026-10-20.
+    const served = (probe?.served || []).map(w => w.id);
+    if (served.length) slim.links.byWorkflow = studentLinks(proxyUrl(pod.id), served);
+    return { pod: slim, probe };
 });
 
 // Which build each running Pod on a volume serves. Pods that pulled `latest`
@@ -791,7 +797,9 @@ route('GET', '/api/thunder/instances', async () => {
         const probe = i.status === 'RUNNING' && forwarded ? await probeUrl(base) : null;
         return {
             id: i.id, uuid: i.uuid, name: i.name, status: i.status, gpuType: i.gpuType, ip: i.ip || null, createdAt: i.createdAt || null,
-            forwarded, links: forwarded ? { students: base, admin: `${base}/admin`, byWorkflow: studentLinks(base, r?.serve || probe?.served?.map(w => w.id) || []) } : null,
+            // What the instance says it serves, else what it was launched with: an
+            // empty launch list (admin mode) used to hide every link but the main one.
+            forwarded, links: forwarded ? { students: base, admin: `${base}/admin`, byWorkflow: studentLinks(base, probe?.served?.length ? probe.served.map(w => w.id) : (r?.serve || [])) } : null,
             ours: !!r, setupRunning: thunderTasks.has(i.uuid), probe,
             rec: r && { state: r.state, error: r.error, serve: r.serve, gpuName: r.gpuName, pricePerHr: r.pricePerHr, diskGb: r.diskGb, podId: r.podId, createdAt: r.createdAt, steps: (r.steps || []).slice(-60) },
         };
@@ -808,13 +816,65 @@ route('POST', '/api/thunder/instances/([A-Za-z0-9-]+)/setup', ({ match }) => {
     return { ok: true };
 });
 
+// ★ Thunder's results are fetched FILE BY FILE onto this PC, not relayed as one
+//   zip (2026-10-20): Thunder's HTTPS proxy let through only the first 496 bytes
+//   of a 269 MB streamed zip the instance had sent in full, while the same 124
+//   pictures came through one request each. The console runs on the owner's PC,
+//   so it writes them straight into a folder and opens it.
+const resultSaves = new Map();   // uuid -> progress
+function resultsFolder(name) {
+    const desk = path.join(os.homedir(), 'Desktop');
+    const day = new Date().toISOString().slice(0, 10);
+    return path.join(fs.existsSync(desk) ? desk : os.homedir(), 'ComfyQ results', `${name}-${day}`);
+}
+async function saveThunderResults(uuid, st) {
+    const base = thunderUrl(uuid);
+    const jr = await fetch(`${base}/jobs?limit=100000`, { signal: AbortSignal.timeout(60000) });
+    if (!jr.ok) throw new RunPodError(`the instance answered HTTP ${jr.status} for its job list`, 502);
+    const jobs = (await jr.json()).jobs || [];
+    const files = [...new Set(jobs.flatMap(j => (j.outputs || []).map(o => o.filename).filter(Boolean)))];
+    Object.assign(st, { state: 'downloading', total: files.length, jobs: jobs.length });
+    fs.mkdirSync(st.folder, { recursive: true });
+    fs.writeFileSync(path.join(st.folder, 'jobs.json'), JSON.stringify(jobs.map(j => ({
+        id: j.id, user: j.user_id, workflow: j.workflow_id, status: j.status, prompt: j.prompt, params: j.params,
+        started: j.started_at ? new Date(j.started_at).toISOString() : null, finished: j.finished_at ? new Date(j.finished_at).toISOString() : null,
+        error: j.error_reason || null, outputs: (j.outputs || []).map(o => path.basename(o.filename || '')),
+    })), null, 2));
+    let next = 0;
+    const worker = async () => {
+        while (next < files.length) {
+            const name = files[next++];
+            const dest = path.join(st.folder, path.basename(name));
+            try {
+                const r = await fetch(`${base}/images/${encodeURI(name)}`, { signal: AbortSignal.timeout(15 * 60000) });
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                const len = Number(r.headers.get('content-length')) || null;
+                const buf = Buffer.from(await r.arrayBuffer());
+                if (len && buf.length !== len) throw new Error(`cut short: ${buf.length} of ${len} bytes`);
+                fs.writeFileSync(dest, buf);
+                st.saved++; st.bytes += buf.length;
+            } catch (e) { st.failed.push(`${path.basename(name)}: ${e.message}`); }
+        }
+    };
+    await Promise.all(Array.from({ length: 4 }, worker));
+    st.state = 'done';
+    console.log(`[results] ${uuid}: ${st.saved}/${st.total} files, ${Math.round(st.bytes / 1e6)} MB → ${st.folder}${st.failed.length ? ` (${st.failed.length} failed)` : ''}`);
+    // Open it for the owner (not in the tests: COMFYQ_NO_EXPLORER).
+    if (process.platform === 'win32' && !process.env.COMFYQ_NO_EXPLORER) spawn('explorer', [st.folder], { detached: true, stdio: 'ignore' }).unref();
+}
+
 route('POST', '/api/thunder/instances/([A-Za-z0-9-]+)/download', ({ match }) => {
     const r = loadThunder()[match[1]];
     if (!r) throw new RunPodError('this instance was not launched from this console', 409);
-    const token = crypto.randomBytes(18).toString('hex');
-    downloads.set(token, { base: thunderUrl(r.uuid), folderId: r.podId, until: Date.now() + 60000 });
-    return { url: `/download/${token}` };
+    const running = resultSaves.get(r.uuid);
+    if (running && !['done', 'failed'].includes(running.state)) return running;
+    const st = { state: 'listing', jobs: 0, total: 0, saved: 0, bytes: 0, failed: [], error: null, folder: resultsFolder(`thunder-${r.uuid}`), startedAt: Date.now() };
+    resultSaves.set(r.uuid, st);
+    saveThunderResults(r.uuid, st).catch(e => { st.state = 'failed'; st.error = redact(e.message); });
+    return st;
 });
+
+route('GET', '/api/thunder/instances/([A-Za-z0-9-]+)/download', ({ match }) => resultSaves.get(match[1]) || { state: 'none' });
 
 route('DELETE', '/api/thunder/instances/([A-Za-z0-9-]+)', async ({ match, body }) => {
     const uuid = match[1];

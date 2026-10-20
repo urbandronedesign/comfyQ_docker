@@ -49,7 +49,9 @@ async function launch(extraEnv = {}) {
     // (npm run dist → dist/win-unpacked) instead of the repo's copy.
     const child = process.env.COMFYQ_APP_EXE
         ? spawn(process.env.COMFYQ_APP_EXE, [`--remote-debugging-port=${port}`], { env, stdio: ['ignore', 'pipe', 'pipe'] })
-        : spawn(ELECTRON, [APP, `--remote-debugging-port=${port}`], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+        // Its own data folder: the installed app holds the single-instance lock of
+        // the real one, and the test copy would just exit while it runs.
+        : spawn(ELECTRON, [APP, `--remote-debugging-port=${port}`, `--user-data-dir=${path.join(home, 'electron-data')}`], { env, stdio: ['ignore', 'pipe', 'pipe'] });
     const log = [];
     child.stdout.on('data', d => log.push(String(d)));
     child.stderr.on('data', d => log.push(String(d)));

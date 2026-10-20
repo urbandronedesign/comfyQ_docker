@@ -76,7 +76,7 @@ const secs = (ms) => ms == null ? '—' : `${Math.round(ms / 1000)} s`;
  */
 export { testPicture, fieldsOf };
 
-export async function loadTest({ targets, podId, workflows, students = 20, log = console.log, timeoutMin = 45 }) {
+export async function loadTest({ targets, podId, workflows, students = 20, prompts = null, log = console.log, timeoutMin = 45 }) {
     targets = targets || workflows.map(workflow => ({ podId, workflow }));
     workflows = [...new Set(targets.map(t => t.workflow))];
     const podIds = [...new Set(targets.map(t => t.podId))];
@@ -97,7 +97,7 @@ export async function loadTest({ targets, podId, workflows, students = 20, log =
 
     // 2. connect, upload, book — each student at a random moment in the first minute
     const sockets = [];
-    let disconnects = 0;
+    let disconnects = 0, closing = false;
     let broadcasts = 0;
     const bookings = await Promise.all(Array.from({ length: students }, async (_, i) => {
         const { podId: pid, workflow: wf } = targets[i % targets.length];
@@ -109,7 +109,8 @@ export async function loadTest({ targets, podId, workflows, students = 20, log =
         try {
             const socket = io(base, { transports: ['websocket', 'polling'], reconnection: true, timeout: 30000 });
             sockets.push(socket);
-            socket.on('disconnect', () => { disconnects++; });
+            // Closing them at the end is not a drop.
+            socket.on('disconnect', () => { if (!closing) disconnects++; });
             socket.on('state_patch', () => { broadcasts++; });
             socket.on('state_update', () => { broadcasts++; });
             const tc = Date.now();
@@ -118,7 +119,9 @@ export async function loadTest({ targets, podId, workflows, students = 20, log =
             socket.emit('register_user', user);
 
             const params = {};
-            const prompt = PROMPTS[i % PROMPTS.length];
+            // `prompts`: one list for a themed run; student i gets prompt i.
+            const list = prompts?.length ? prompts : PROMPTS;
+            const prompt = list[i % list.length];
             if (f.promptKey) params[f.promptKey] = prompt;
             if (f.imageKey) {
                 const tu = Date.now();
@@ -166,6 +169,7 @@ export async function loadTest({ targets, podId, workflows, students = 20, log =
         if (done.length === ids.size) break;
         await sleep(5000);
     }
+    closing = true;
     for (const s of sockets) s.close();
 
     // 4. the summary

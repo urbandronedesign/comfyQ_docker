@@ -503,8 +503,20 @@ function renderThunderInstances() {
         catch (e) { toast(e.message, true); }
     };
     for (const b of box.querySelectorAll('[data-tdl]')) b.onclick = async () => {
-        try { const { url } = await api('POST', `/api/thunder/instances/${b.dataset.tdl}/download`); location.href = url; toast('The download starts once ComfyQ has begun zipping the results'); }
-        catch (e) { toast(e.message, true); }
+        // Saved file by file into a folder on this PC (Thunder's proxy cuts a long zip), shown as it goes.
+        const uuid = b.dataset.tdl;
+        try {
+            let st = await api('POST', `/api/thunder/instances/${uuid}/download`);
+            b.disabled = true;
+            while (!['done', 'failed'].includes(st.state)) {
+                b.textContent = st.total ? `Saving ${st.saved}/${st.total}…` : 'Listing the results…';
+                await new Promise(r => setTimeout(r, 1500));
+                st = await api('GET', `/api/thunder/instances/${uuid}/download`);
+            }
+            if (st.state === 'failed') throw new Error(st.error || 'the download failed');
+            toast(`Saved ${st.saved} of ${st.total} results (${(st.bytes / 1e6).toFixed(0)} MB) to ${st.folder}${st.failed.length ? ` — ${st.failed.length} could not be fetched` : ''}`, !!st.failed.length);
+        } catch (e) { toast(e.message, true); }
+        finally { b.disabled = false; b.textContent = 'Download results'; }
     };
     wireCopyLinks(box);
     for (const b of box.querySelectorAll('[data-tcopy]')) b.onclick = () => {
