@@ -198,6 +198,34 @@ async function main() {
     registry.discover();
     console.log(`[ComfyQ] registry: ${registry.summaries({ includeUnavailable: false }).length} usable workflow(s)`);
 
+    // ★ A cloud machine (RunPod Pod or Thunder instance) about to serve
+    //   workflows whose models are not on its disk fetches them first, then
+    //   serves: the same plan as a launch with COMFYQ_SERVE. Found 2026-10-20:
+    //   a machine whose workflow was activated by an older image (no download
+    //   then) kept serving it without its model, every job failing. Not on a
+    //   workshop rig: a model with no link would hold it out of serving.
+    if (config.mode === 'student' && (process.env.COMFYQ_POD_ID || process.env.RUNPOD_POD_ID)) {
+        try {
+            const podPlan = require('./cloud/podPlan');
+            const serve = [config.workflows.activeWorkflowId, ...(config.workflows.extraLaneWorkflowIds || [])]
+                .filter((id, i, all) => id && all.indexOf(id) === i);
+            const short = serve.filter(id => {
+                const e = registry.get(id);
+                return e && !e.unavailable && podPlan.missingModels(e, config.comfy_ui.root_path).some(m => !m.auto);
+            });
+            if (short.length) {
+                const now = new Date().toISOString();
+                podPlan.writePlan({ serve, fetchModels: true, createdAt: now, updatedAt: now, files: [], error: null, status: 'pending', from: 'start: models missing' });
+                configManager.setMode('admin');
+                rawConfig.mode = 'admin';
+                config.mode = 'admin';
+                console.log(`[ComfyQ] ${short.join(', ')} ${short.length > 1 ? 'are' : 'is'} missing model files on this machine: downloading them before serving`);
+            }
+        } catch (e) {
+            console.warn('[ComfyQ] could not check the models before serving:', e.message);
+        }
+    }
+
     const app = express();
     app.use(cors());
     app.use(express.json({ limit: '20mb' }));
