@@ -171,18 +171,22 @@
     "image_edit_krea2_dynamic_character_sheet": {
       "files": [
         "qwen_image_vae.safetensors",
-        "qwen3vl_4b_fp8_scaled.safetensors"
+        "qwen3vl_4b_fp8_scaled.safetensors",
+        "DynamicCharacterSheet_krea2_v1.safetensors",
+        "Krea2_Turbo_convrot_int8mixed.safetensors"
       ],
       "byNodePack": [],
-      "problems": 2
+      "problems": 0
     },
     "image_edit_krea2_quadview": {
       "files": [
         "qwen_image_vae.safetensors",
-        "qwen3vl_4b_fp8_scaled.safetensors"
+        "qwen3vl_4b_fp8_scaled.safetensors",
+        "QuadView_krea2_v1.safetensors",
+        "Krea2_Turbo_convrot_int8mixed.safetensors"
       ],
       "byNodePack": [],
-      "problems": 2
+      "problems": 0
     },
     "image_edit_qwen_2511_multiple_angles": {
       "files": [
@@ -810,6 +814,9 @@
     "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors": 1226977424,
     "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors": 14294742832,
     "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors": 1226977424,
-    "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors": 14294742832
+    "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors": 14294742832,
+    "DynamicCharacterSheet_krea2_v1.safetensors": 914160184,
+    "Krea2_Turbo_convrot_int8mixed.safetensors": 12907738804,
+    "QuadView_krea2_v1.safetensors": 914160176
   }
 }

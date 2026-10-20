@@ -133,13 +133,9 @@ test('every api.json node class appears in its template', () => {
 // genuinely is not recorded anywhere, and a guessed URL would be worse than the
 // gap (it would download the wrong weights). Shrink this list, never grow it
 // without knowing why.
-const UNSOURCED_OK = new Set([
-    '3DREAL-strong.safetensors',                            // community LTX IC-LoRA
-    'DynamicCharacterSheet_krea2_v1.safetensors',           // community Krea 2 LoRA
-    'QuadView_krea2_v1.safetensors',                        // community Krea 2 LoRA
-    'qwen-image-edit-2511-multiple-angles-lora.safetensors',
-    'wan_2.1_idv2v_int8_convrot.safetensors',               // int8_convrot line
-]);
+// Empty since 2026-10-20: the last two (the Krea 2 character-sheet LoRAs) were
+// found online and SHA-256-checked against the rig's own copies.
+const UNSOURCED_OK = new Set([]);
 
 test('every declared model says where it comes from', () => {
     const base = (v) => String(v || '').split('\\').join('/').split('/').pop();

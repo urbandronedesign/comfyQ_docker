@@ -191,5 +191,23 @@
     "source": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy",
     "note": "GATED: accept the FLUX.3 Klein licence on this repo with the account whose HuggingFace token is set. BFL renamed the files on 2026-10-17 (underscores to hyphens); verified 2026-10-20 against the repo listing.",
     "override": true
+  },
+  "Krea2_Turbo_convrot_int8mixed.safetensors": {
+    "url": "https://huggingface.co/Winnougan/Krea-2-Base-Turbo-NVFP4-FP8-INT8/resolve/main/Krea2_Turbo_convrot_int8mixed.safetensors",
+    "source": "https://huggingface.co/Winnougan/Krea-2-Base-Turbo-NVFP4-FP8-INT8",
+    "note": "Winnougan's int8-mixed build of Krea 2 Turbo, not Comfy-Org's (krea2_turbo_int8_convrot is 13.49 GB, this 12.91 GB). SHA-256 checked against the rig's own copy on 2026-10-20 (byte-identical: c5e6d712…f3751f). Saved under the name the workflows load (the downloader renames it).",
+    "override": true
+  },
+  "DynamicCharacterSheet_krea2_v1.safetensors": {
+    "url": "https://huggingface.co/k2loras/krea2-lora-archive/resolve/main/2026-08-06/Krea-2/2764727_TripleView/3203877/krea2_charactersheet_full_v1.safetensors",
+    "source": "https://huggingface.co/k2loras/krea2-lora-archive",
+    "note": "Civitai model 2764727 \"TripleView\", version charactersheet_full_v1, from an archive of Civitai Krea 2 LoRAs. SHA-256 checked against the rig's own copy on 2026-10-20 (byte-identical: bff2dd80…646990). Saved under the name the workflows load (the downloader renames it).",
+    "override": true
+  },
+  "QuadView_krea2_v1.safetensors": {
+    "url": "https://huggingface.co/k2loras/krea2-lora-archive/resolve/main/2026-07-31/Krea-2/2764727_TripleView/3184635/krea2_4panel.safetensors",
+    "source": "https://huggingface.co/k2loras/krea2-lora-archive",
+    "note": "Civitai model 2764727 \"TripleView\", version krea2_4panel. ★ Size alone did not prove it: an unrelated face-swap LoRA has the same 914,160,176 bytes; the hash did. SHA-256 checked against the rig's own copy on 2026-10-20 (byte-identical: 9435005a…480fbc). Saved under the name the workflows load (the downloader renames it).",
+    "override": true
   }
 }
