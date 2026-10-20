@@ -133,10 +133,14 @@ Good to know: GitHub's schedule is best-effort — a new one starts late, and
 triggers are delayed or dropped at busy hours (the first three 15-minute slots
 never fired here). So the workflow does not rely on it every 15 minutes: one
 run stays up for ~5h45m and takes its own readings at :07, :22, :37 and :52,
-and the hourly trigger only has to land once in that time to keep it going (a
-newer run takes over; a reading under 10 minutes old is not repeated). In the
-Actions tab you will therefore see one long run, not one per reading. It pauses scheduled jobs in a repository with
-no activity for 60 days: re-enable it from the Actions tab. And a reading says
+and when it ends it starts the next run itself, so readings continue even if
+the hourly trigger never fires (it did not, for hours, on 2026-10-19). A newer
+run waits for the current one, and a reading under 10 minutes old is not
+repeated. In the Actions tab you will therefore see one long run at a time,
+not one per reading. **To stop the readings: Actions → RunPod stock → ⋯ →
+Disable workflow** (cancelling a run also stops the chain). GitHub also pauses
+scheduled jobs in a repository with no activity for 60 days: re-enable it from
+the Actions tab. And a reading says
 what RunPod listed at that moment; a card listed as free can still be taken a
 second later.
 

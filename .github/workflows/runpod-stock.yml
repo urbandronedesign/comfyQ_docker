@@ -7,8 +7,9 @@
 #   triggers are delayed or dropped (on 2026-10-19 the first three 15-minute
 #   slots never fired). So a run does not take one reading and exit: it stays
 #   up for ~5h45m and reads at :07/:22/:37/:52 itself. The hourly trigger only
-#   has to land once every ~6 hours to keep readings flowing; a newer run
-#   replaces the older one, and a reading under 10 min old is not repeated.
+#   has to land once every ~6 hours, and as a backstop each run that read for
+#   its full stretch starts the next one itself (last step). A newer run waits
+#   for the current one, and a reading under 10 min old is not repeated.
 # ⚠ GitHub pauses scheduled workflows in a repository with no activity for
 #   60 days; re-enable it from the Actions tab if that happens.
 name: RunPod stock
@@ -20,10 +21,13 @@ on:
 
 concurrency:
   group: runpod-stock
-  cancel-in-progress: true   # the newest run takes over the reading loop
+  # A new run waits for the current one to finish rather than cutting it off;
+  # it then skips any slot the old run already read.
+  cancel-in-progress: false
 
 permissions:
   contents: write
+  actions: write   # lets a finishing run start its successor (see the last step)
 
 jobs:
   record:
@@ -60,6 +64,8 @@ jobs:
             echo "::warning::Secret RUNPOD_API_KEY_READONLY is not set — no reading taken. See tools/runpod/README.md, 'Stock history'."
             exit 0
           fi
+          echo "LOOPED=1" >> "$GITHUB_ENV"
+          echo "STARTED=$(date +%s)" >> "$GITHUB_ENV"
           cd data
           git config user.name "runpod-stock-bot"
           git config user.email "runpod-stock-bot@users.noreply.github.com"
@@ -89,3 +95,21 @@ jobs:
             [ $(( $(date +%s) + wait )) -ge $end ] && break
             sleep "$wait"
           done
+
+      # GitHub's schedule is best-effort and can go hours without firing, so a
+      # run that read for its full stretch starts the next one itself. Not after
+      # a short run (a crash must not become an endless chain of quick runs),
+      # not without the key, not when cancelled. To stop the chain: Actions →
+      # RunPod stock → ⋯ → Disable workflow.
+      - name: Hand over to the next run
+        if: (success() || failure()) && env.LOOPED == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ran=$(( $(date +%s) - $STARTED ))
+          if [ "$ran" -lt 3600 ]; then
+            echo "::warning::This run only read for $(( ran / 60 )) min — not starting another; the hourly schedule will."
+            exit 0
+          fi
+          gh workflow run runpod-stock.yml --repo "${{ github.repository }}" --ref "${{ github.ref_name }}"
+          echo "Next run requested; it starts as soon as this one ends."
