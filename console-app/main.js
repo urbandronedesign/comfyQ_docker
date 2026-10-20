@@ -7,8 +7,10 @@
 // the console (and spend with its keys) by sending the browser's fixed header.
 'use strict';
 
-const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
-const { fork } = require('child_process');
+const { app, BrowserWindow, ipcMain, shell, dialog, safeStorage } = require('electron');
+const { fork, spawnSync } = require('child_process');
+const secretsStore = require('./secrets');
+const workflowsCache = require('./workflows');
 const crypto = require('crypto');
 const net = require('net');
 const path = require('path');
@@ -18,6 +20,11 @@ const path = require('path');
 const CONSOLE_DIR = app.isPackaged
     ? path.join(process.resourcesPath, 'comfyq', 'tools', 'runpod', 'console')
     : path.join(__dirname, '..', 'tools', 'runpod', 'console');
+
+// Run from the repo, the console reads the repo's own workflows; installed, a
+// copy kept up to date from GitHub (or forced with COMFYQ_APP_GITHUB_WORKFLOWS=1).
+const REPO_ROOT = app.isPackaged ? path.join(process.resourcesPath, 'comfyq') : path.join(__dirname, '..');
+const USE_WORKFLOW_CACHE = app.isPackaged || process.env.COMFYQ_APP_GITHUB_WORKFLOWS === '1';
 
 const TOKEN = crypto.randomBytes(24).toString('hex');
 let server = null;       // the console server child process
@@ -39,14 +46,50 @@ function freePort() {
 
 // Start server.mjs with this app's Node (Electron run as Node), and wait for it
 // to say it is listening.
+// Thunder's setup runs over ssh: without OpenSSH an instance would be created,
+// and bill, and never start ComfyQ. The page warns before a launch.
+function sshMissing() {
+    const r = spawnSync('ssh', ['-V'], { windowsHide: true, timeout: 5000 });
+    return !!r.error;
+}
+
 async function startServer() {
     port = await freePort();
+
+    // Keys: Windows protection when it is available, the plain file otherwise.
+    let secrets = null, store = null;
+    const extraEnv = {};
+    try {
+        store = secretsStore.create(safeStorage);
+        if (store.available) {
+            const r = store.load();
+            secrets = r.secrets;
+            extraEnv.COMFYQ_SECRETS = 'parent';
+            if (r.migrated.length) console.log(`[console-app] moved ${r.migrated.join(', ')} into Windows protected storage`);
+        }
+    } catch (e) {
+        dialog.showErrorBox('ComfyQ Console', `Your keys could not be read from Windows protected storage, so this start keeps them in the plain settings file.\n\n${e.message}`);
+        store = null;
+    }
+
+    if (USE_WORKFLOW_CACHE) {
+        const where = workflowsCache.prepare({
+            workflows: path.join(REPO_ROOT, 'workflows'),
+            downloads: path.join(REPO_ROOT, 'tools', 'model-provenance', 'workflow-downloads.json'),
+        });
+        extraEnv.COMFYQ_WORKFLOWS_DIR = where.workflowsDir;
+        extraEnv.COMFYQ_DOWNLOADS_FILE = where.downloadsFile;
+        // In the background: the server reads these files on each request.
+        workflowsCache.refresh().then(r => console.log('[console-app] workflows from GitHub:', JSON.stringify(r)));
+    }
+    if (sshMissing()) extraEnv.COMFYQ_SSH_MISSING = '1';
     server = fork(path.join(CONSOLE_DIR, 'server.mjs'), ['--no-open'], {
         env: {
             ...process.env,
             // Test hook: the console's data folder (~/.comfyq) for the server
             // alone. Electron itself crashes on a made-up Windows profile.
             ...(process.env.COMFYQ_APP_SERVER_HOME ? { USERPROFILE: process.env.COMFYQ_APP_SERVER_HOME, HOME: process.env.COMFYQ_APP_SERVER_HOME } : {}),
+            ...extraEnv,
             ELECTRON_RUN_AS_NODE: '1',
             COMFYQ_CONSOLE_PORT: String(port),
             COMFYQ_CONSOLE_TOKEN: TOKEN,
@@ -57,6 +100,14 @@ async function startServer() {
     });
     const log = [];
     const keep = (chunk) => { log.push(String(chunk)); if (log.length > 50) log.shift(); };
+    // The server asks for the keys once, and sends any change to keep.
+    server.on('message', (m) => {
+        if (m?.type === 'want-secrets') server.send({ type: 'secrets-init', secrets: secrets || {} });
+        if (m?.type === 'secrets' && store?.available) {
+            try { secrets = store.save(m.secrets); }
+            catch (e) { dialog.showErrorBox('ComfyQ Console', `The new keys could not be saved in Windows protected storage: ${e.message}`); }
+        }
+    });
     server.stdout.on('data', keep);
     server.stderr.on('data', keep);
     await new Promise((resolve, reject) => {

@@ -238,6 +238,7 @@
 <aside id="drawer-createThunder" class="drawer" hidden aria-label="Create a Thunder instance">
   <div class="drawer-head"><h2>Create an instance <span class="muted">Thunder Compute</span></h2><button class="ghost icon" data-close>✕</button></div>
   <div class="drawer-body">
+    <div id="sshNote" class="note bad small" hidden><b>OpenSSH is not installed on this PC</b>, and the setup of a Thunder instance runs over ssh: the instance would be created (and bill) but never start ComfyQ. Install it first: Windows Settings → System → Optional features → <i>OpenSSH Client</i>.</div>
     <div class="note small">Machines in North America. The instance's own disk holds the models and the students' results, and <b>deleting the instance deletes them</b>: use <i>Download results</i> first. <b>Billing runs from Create until Delete.</b></div>
     <div class="section">
       <h3>Workflows to serve</h3>

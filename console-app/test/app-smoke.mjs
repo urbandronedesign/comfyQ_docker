@@ -1,11 +1,14 @@
 // node console-app/test/app-smoke.mjs — starts the real app and checks it.
 //
-//  - the window loads the console page, with no script error;
-//  - the page's own calls work (it got the token through the preload);
-//  - another program calling the same port is refused, with the browser's old
-//    fixed header and with a wrong token;
-//  - quitting the app stops the console server.
-// Runs with a throwaway home folder, so no saved key is read or written.
+// Phase 1: the window loads the console page with no script error, the page's
+// own calls work (token through the preload), another program calling the same
+// port is refused, and quitting stops the console server.
+// Phase 2: keys in a plain settings file move into Windows protected storage and
+// leave the file; a key saved from the page lands only in protected storage and
+// is still there after a restart; the workflow list is refreshed from GitHub.
+//
+// Runs with a throwaway data folder for the console (COMFYQ_APP_SERVER_HOME),
+// so no real key is read or written. The GitHub part needs the internet.
 import { spawn } from 'child_process';
 import fs from 'fs';
 import os from 'os';
@@ -20,27 +23,29 @@ let n = 0, bad = 0;
 const check = (name, ok) => { n++; if (!ok) { bad++; console.log(`  FAIL ${name}`); } else console.log(`  ok   ${name}`); };
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'comfyq-app-'));
-const env = { ...process.env, COMFYQ_APP_SERVER_HOME: home };
-delete env.ELECTRON_RUN_AS_NODE;   // set in some shells: it would run Electron as plain Node
-const DEBUG = 9345;
-const child = spawn(ELECTRON, [APP, `--remote-debugging-port=${DEBUG}`], { env, stdio: ['ignore', 'pipe', 'pipe'] });
-const appLog = [];
-child.stdout.on('data', d => appLog.push(String(d)));
-child.stderr.on('data', d => appLog.push(String(d)));
+const dataDir = path.join(home, '.comfyq');
+const settingsFile = path.join(dataDir, 'runpod-console.json');
+const secretsFile = path.join(dataDir, 'console-secrets.bin');
+// A plain settings file as the browser version leaves it. No API key: those
+// would make the console call RunPod and Thunder.
+fs.mkdirSync(dataDir, { recursive: true });
+fs.writeFileSync(settingsFile, JSON.stringify({ adminPassword: 'admin-pw-plain-1234', hfToken: 'hf_testtoken_abcdefghijklmnop', diskGb: 30 }));
 
-try {
-    // Find the console window.
+let debugPort = 9345;
+async function launch() {
+    const env = { ...process.env, COMFYQ_APP_SERVER_HOME: home, COMFYQ_APP_GITHUB_WORKFLOWS: '1' };
+    delete env.ELECTRON_RUN_AS_NODE;   // set in some shells: it would run Electron as plain Node
+    const port = debugPort++;
+    const child = spawn(ELECTRON, [APP, `--remote-debugging-port=${port}`], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const log = [];
+    child.stdout.on('data', d => log.push(String(d)));
+    child.stderr.on('data', d => log.push(String(d)));
     let target;
     for (let i = 0; i < 100 && !target; i++) {
-        try { target = (await (await fetch(`http://127.0.0.1:${DEBUG}/json/list`)).json()).find(t => t.type === 'page' && /^http:\/\/127\.0\.0\.1:\d+\//.test(t.url)); } catch { /* not up yet */ }
+        try { target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find(t => t.type === 'page' && /^http:\/\/127\.0\.0\.1:\d+\//.test(t.url)); } catch { /* not up yet */ }
         if (!target) await sleep(300);
     }
-    check('the app opens a window on the local console server', !!target);
-    if (!target) throw new Error('no window');
-    const origin = new URL(target.url).origin;
-    const port = Number(new URL(target.url).port);
-    check(`the server is on a random port, not 4777 (${port})`, port !== 4777);
-
+    if (!target) { child.kill(); throw new Error(`no window\n${log.join('').slice(-1500)}`); }
     const ws = new WebSocket(target.webSocketDebuggerUrl);
     await new Promise(r => { ws.onopen = r; });
     let id = 0; const pending = new Map(); const errors = [];
@@ -54,41 +59,88 @@ try {
     await cdp('Runtime.enable');
     await cdp('Page.reload');
     await sleep(4000);
+    const call = (method, route, body) => evalJs(`(async () => { const r = await fetch(${JSON.stringify(route)}, { method: ${JSON.stringify(method)},
+        headers: { 'X-ComfyQ-Console': window.comfyqConsole.token, 'Content-Type': 'application/json' }${body ? `, body: ${JSON.stringify(JSON.stringify(body))}` : ''} });
+        return { status: r.status, data: await r.json().catch(() => null) }; })()`);
+    const quit = async () => {
+        ws.close(); child.kill();
+        for (let i = 0; i < 30; i++) { await sleep(300); try { await fetch(`${new URL(target.url).origin}/`); } catch { return true; } }
+        return false;
+    };
+    return { origin: new URL(target.url).origin, port: Number(new URL(target.url).port), evalJs, call, errors, quit, log };
+}
 
-    const preload = await evalJs('typeof window.comfyqConsole');
+let a;
+try {
+    // ---- first start ----
+    a = await launch();
+    check('the app opens a window on the local console server', true);
+    check(`the server is on a random port, not 4777 (${a.port})`, a.port !== 4777);
+    const preload = await a.evalJs('typeof window.comfyqConsole');
     check(`the preload ran (window.comfyqConsole is ${preload})`, preload === 'object');
-    const page = await evalJs(`(async () => ({
+    const page = await a.evalJs(`({
         token: typeof window.comfyqConsole?.token === 'string' && window.comfyqConsole.token.length >= 32,
         node: typeof require !== 'undefined' || typeof process !== 'undefined',
         settingsOpen: !document.getElementById('drawer-settings').hidden,
-        call: await fetch('/api/settings', { headers: { 'X-ComfyQ-Console': window.comfyqConsole.token } }).then(r => r.status),
         spend: document.getElementById('spRate').innerText,
-    }))()`) || {};
+    })`) || {};
     check('the page was given a long random token', page.token);
     check('the page has no Node or Electron access', page.node === false);
-    check(`the page's own calls work (${page.call})`, page.call === 200);
-    check('first run (no key): Settings opens by itself', page.settingsOpen);
-    check(`the spending tiles load (${page.spend})`, /\$/.test(page.spend));
-    check(`no script error (${errors.join(' | ')})`, errors.length === 0);
+    check('first run (no API key): Settings opens by itself', page.settingsOpen);
+    check(`the spending tiles load (${page.spend})`, /\$/.test(page.spend || ''));
 
-    const outside = async (header) => (await fetch(`${origin}/api/settings`, { headers: header ? { 'X-ComfyQ-Console': header } : {} })).status;
+    const outside = async (header) => (await fetch(`${a.origin}/api/settings`, { headers: header ? { 'X-ComfyQ-Console': header } : {} })).status;
     check('another program with the old fixed header is refused', await outside('1') === 403);
     check('a wrong token is refused', await outside('0'.repeat(48)) === 403);
     check('no header is refused', await outside(null) === 403);
-    ws.close();
 
-    // Quit: the server must go with the app.
-    child.kill();
-    let down = false;
-    for (let i = 0; i < 30 && !down; i++) { await sleep(300); try { await fetch(`${origin}/`); } catch { down = true; } }
-    check('quitting the app stops the console server', down);
-} catch (e) {
-    console.log(`  BROKEN ${e.message}
-${appLog.join('').slice(-1500)}`); bad++;
-} finally {
-    try { child.kill(); } catch { /* gone */ }
+    // Phase 2: the keys moved.
+    const s1 = await a.call('GET', '/api/settings');
+    check(`the page's own calls work (${s1.status})`, s1.status === 200);
+    check('the keys from the plain file are still known to the console', s1.data?.adminPassword?.set && s1.data?.hfToken?.set && s1.data.hfToken.hint === '…mnop');
+    check('the console says the keys are in protected storage', s1.data?.secretsProtected === true);
+    const plainAfter = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+    check('they are gone from the plain settings file', !plainAfter.adminPassword && !plainAfter.hfToken && plainAfter.diskGb === 30);
+    const bin = fs.existsSync(secretsFile) ? fs.readFileSync(secretsFile) : Buffer.alloc(0);
+    check('they are in the encrypted file, and not readable there', bin.length > 0 && !bin.includes('admin-pw-plain') && !bin.includes('hf_testtoken'));
+
+    // A key saved from the page lands only in protected storage.
+    const before = bin.toString('base64');
+    const put = await a.call('PUT', '/api/settings', { accessPassword: 'student-pw-5678' });
+    check(`saving a password from the page works (${put.status})`, put.status === 200 && put.data?.accessPassword?.set);
     await sleep(500);
-    try { fs.rmSync(home, { recursive: true, force: true }); } catch { /* Chrome may still hold a file */ }
+    const plain2 = fs.readFileSync(settingsFile, 'utf8');
+    const bin2 = fs.readFileSync(secretsFile);
+    check('it is not written to the plain file', !plain2.includes('student-pw'));
+    check('the encrypted file was rewritten, still unreadable', bin2.toString('base64') !== before && !bin2.includes('student-pw'));
+
+    // Workflows: refreshed from GitHub into the app's own copy.
+    let idx = null;
+    for (let i = 0; i < 60; i++) {
+        try { idx = JSON.parse(fs.readFileSync(path.join(dataDir, 'app-cache', 'index.json'), 'utf8')); } catch { idx = null; }
+        if (idx?.source === 'github') break;
+        await sleep(1000);
+    }
+    check(`the workflow list was refreshed from GitHub (${idx?.source}, commit ${String(idx?.commit || '').slice(0, 7)})`, idx?.source === 'github');
+    const wfs = await a.call('GET', '/api/workflows');
+    check(`the console lists the workflows from that copy (${wfs.data?.workflows?.length})`, (wfs.data?.workflows?.length || 0) >= 50);
+    check(`no script error (${a.errors.join(' | ')})`, a.errors.length === 0);
+    check('quitting the app stops the console server', await a.quit());
+    a = null;
+
+    // ---- second start: the keys come back from protected storage ----
+    a = await launch();
+    const s2 = await a.call('GET', '/api/settings');
+    check('after a restart all three keys are still known', s2.data?.adminPassword?.set && s2.data?.hfToken?.set && s2.data?.accessPassword?.set);
+    check('and still not in the plain file', !fs.readFileSync(settingsFile, 'utf8').match(/admin-pw|hf_testtoken|student-pw/));
+    check('quitting stops it again', await a.quit());
+    a = null;
+} catch (e) {
+    console.log(`  BROKEN ${e.message}`); bad++;
+} finally {
+    if (a) await a.quit().catch(() => {});
+    await sleep(500);
+    try { fs.rmSync(home, { recursive: true, force: true }); } catch { /* a file may still be held */ }
 }
 console.log(`app smoke: ${n - bad}/${n} checks passed`);
 process.exit(bad ? 1 : 0);

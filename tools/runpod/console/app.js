@@ -105,7 +105,8 @@ function renderSettings(cleared = SECRETS) {
     }
     $('image').placeholder = settings.defaultImage;
     $('image').value = settings.image || '';
-    $('settingsFile').textContent = settings.file;
+    $('settingsFile').textContent = settings.secretsProtected ? `${settings.file} (keys: Windows protected storage)` : settings.file;
+    $('sshNote').hidden = !settings.sshMissing;
 }
 
 async function loadSettings() {

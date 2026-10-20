@@ -79,15 +79,38 @@ const DATA_CENTERS = ['EU-RO-1', 'EU-SE-1', 'EU-CZ-1', 'EU-NL-1', 'EU-FR-1', 'EU
 const SECRET_KEYS = ['runpodApiKey', 'thunderApiKey', 'adminPassword', 'accessPassword', 'hfToken'];
 const PLAIN_KEYS = ['image', 'volumeId', 'community', 'diskGb'];
 
-function loadSettings() {
+// In the desktop app (COMFYQ_SECRETS=parent) the keys and passwords never touch
+// the settings file: the app keeps them encrypted with Windows' protection
+// (DPAPI, via Electron's safeStorage), hands them to this process at start, and
+// is sent any change to store. Here they live in memory only. Started any
+// other way (RunPod-Console.bat), everything is in the file, as before.
+const SECRETS_FROM_PARENT = process.env.COMFYQ_SECRETS === 'parent' && typeof process.send === 'function';
+let secretCache = {};
+
+function readSettingsFile() {
     try { return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')); }
     catch { return {}; }
 }
 
+function loadSettings() {
+    const file = readSettingsFile();
+    if (!SECRETS_FROM_PARENT) return file;
+    for (const k of SECRET_KEYS) delete file[k];
+    return { ...file, ...secretCache };
+}
+
 function saveSettings(s) {
+    const out = { ...s };
+    if (SECRETS_FROM_PARENT) {
+        const secrets = {};
+        for (const k of SECRET_KEYS) { if (out[k]) secrets[k] = out[k]; delete out[k]; }
+        const changed = SECRET_KEYS.some(k => (secrets[k] || '') !== (secretCache[k] || ''));
+        secretCache = secrets;
+        if (changed) process.send({ type: 'secrets', secrets });
+    }
     fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
     const tmp = SETTINGS_FILE + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(s, null, 2), { mode: 0o600 });
+    fs.writeFileSync(tmp, JSON.stringify(out, null, 2), { mode: 0o600 });
     fs.renameSync(tmp, SETTINGS_FILE);
 }
 
@@ -96,7 +119,7 @@ function saveSettings(s) {
 // password: the last 4 characters of a short one are most of it.
 const HINTED = new Set(['runpodApiKey', 'thunderApiKey', 'hfToken']);
 function publicSettings(s = loadSettings()) {
-    const out = { file: SETTINGS_FILE, defaultImage: DEFAULT_IMAGE };
+    const out = { file: SETTINGS_FILE, defaultImage: DEFAULT_IMAGE, secretsProtected: SECRETS_FROM_PARENT, sshMissing: process.env.COMFYQ_SSH_MISSING === '1' };
     for (const k of SECRET_KEYS) {
         const v = String(s[k] || '');
         out[k] = !v ? { set: false }
@@ -893,6 +916,20 @@ function openBrowser(url) {
         : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
     try { spawn(cmd[0], cmd[1], { stdio: 'ignore', detached: true }).unref(); } catch { /* print the URL instead */ }
 }
+
+async function waitForSecrets() {
+    if (!SECRETS_FROM_PARENT) return;
+    await new Promise((resolve) => {
+        const t = setTimeout(resolve, 10000);   // start without keys rather than never
+        process.on('message', function onMsg(m) {
+            if (m?.type !== 'secrets-init') return;
+            secretCache = m.secrets || {};
+            clearTimeout(t); process.off('message', onMsg); resolve();
+        });
+        process.send({ type: 'want-secrets' });
+    });
+}
+await waitForSecrets();
 
 server.listen(PORT, HOST, () => {
     const url = `http://localhost:${PORT}`;

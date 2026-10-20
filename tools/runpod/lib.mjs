@@ -319,7 +319,12 @@ export const cannotShare = (blockers, volumeName) =>
  * without `npm install`. The image serves the bundles it was built from, so a
  * bundle added here after the last image build will not be on the Pod.
  */
-export function listWorkflows(dir = path.join(REPO, 'workflows')) {
+// The desktop app points these at its copy (fetched from GitHub, or the one it
+// ships with); run from the repo they are the repo's own files.
+const WORKFLOWS_DIR = process.env.COMFYQ_WORKFLOWS_DIR || path.join(REPO, 'workflows');
+const DOWNLOADS_FILE = process.env.COMFYQ_DOWNLOADS_FILE || path.join(REPO, 'tools', 'model-provenance', 'workflow-downloads.json');
+
+export function listWorkflows(dir = WORKFLOWS_DIR) {
     const out = [];
     let names = [];
     try { names = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
@@ -400,7 +405,7 @@ export function rankGpus(gpus, needGb, { community = false } = {}) {
 export const IMAGE_DISK_GB = 40;
 export const RESULTS_DISK_GB = 15;
 
-export function downloadNeed(ids, file = path.join(REPO, 'tools', 'model-provenance', 'workflow-downloads.json')) {
+export function downloadNeed(ids, file = DOWNLOADS_FILE) {
     let data;
     try { data = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return { gb: null, files: 0, unknown: [...ids], failing: [], byNodePack: [], generatedAt: null }; }
     const names = new Set(), unknown = [], failing = [], byNodePack = new Set();
