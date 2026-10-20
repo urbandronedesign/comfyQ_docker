@@ -134,6 +134,10 @@ const WorkflowMeta = z.object({
             // entry is not a file to look for under models/, so it must never
             // be reported missing and nothing should offer to download it.
             auto: z.boolean().optional(),
+            // The models/ subfolder, when neither the link nor `type` says it
+            // (a file at a repo's root with type 'other'). Without it a fresh
+            // Pod cannot place the file and the whole plan fails.
+            dir: z.string().optional(),
             note: z.string().optional()
         })).default([]),
         // Global ComfyUI performance flags this workflow cannot run with (it

@@ -388,3 +388,35 @@ export function rankGpus(gpus, needGb, { community = false } = {}) {
     const rec = rows.find(g => g.fits !== false && g.available !== false && g.pricePerHr != null);
     return { rows, recommended: rec ? rec.id : null };
 }
+
+// ---- disk for a fresh machine ---------------------------------------------------
+// What the chosen workflows download on a machine that has nothing yet, from
+// tools/model-provenance/workflow-downloads.json (written by fresh-machine.cjs
+// --online --write-sizes, from real HEAD requests). A file two workflows share
+// is counted once.
+//
+// The disk also holds the Docker image: 10 GB compressed, so about 35 GB while it
+// is pulled and unpacked. Plus room for results and the downloader's 2 GB margin.
+export const IMAGE_DISK_GB = 40;
+export const RESULTS_DISK_GB = 15;
+
+export function downloadNeed(ids, file = path.join(REPO, 'tools', 'model-provenance', 'workflow-downloads.json')) {
+    let data;
+    try { data = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return { gb: null, files: 0, unknown: [...ids], failing: [], byNodePack: [], generatedAt: null }; }
+    const names = new Set(), unknown = [], failing = [], byNodePack = new Set();
+    for (const id of ids) {
+        const w = data.workflows?.[id];
+        if (!w) { unknown.push(id); continue; }
+        if (w.problems) failing.push(id);
+        for (const f of w.files || []) names.add(f);
+        for (const f of w.byNodePack || []) byNodePack.add(f);
+    }
+    let bytes = 0, unsized = 0;
+    for (const n of names) { const b = data.sizes?.[n]; if (b) bytes += b; else unsized++; }
+    return { gb: +(bytes / 1e9).toFixed(1), files: names.size, unsized, unknown, failing, byNodePack: [...byNodePack], generatedAt: data.generatedAt || null };
+}
+
+/** The smallest disk (GB) that holds the image, these downloads and some results. */
+export function diskNeeded(downloadGb) {
+    return Math.ceil(IMAGE_DISK_GB + (downloadGb || 0) * 1.05 + RESULTS_DISK_GB);
+}

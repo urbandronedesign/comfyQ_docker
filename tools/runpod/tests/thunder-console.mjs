@@ -34,7 +34,7 @@ const thunderSrv = http.createServer(async (req, res) => {
     const url = req.url.split('?')[0];
     seen.push(`${req.method} ${url}`);
     if (url === '/v2/specs') return json(res, 200, { specs: { l40_x1: { displayName: 'NVIDIA L40', vramGB: 48, gpuCount: 1, vcpuOptions: [6, 8, 12], storageGB: { min: 100, max: 500 } } } });
-    if (url === '/v2/pricing') return json(res, 200, { pricing: { l40_x1: 0.79 } });
+    if (url === '/v2/pricing') return json(res, 200, { pricing: { l40_x1: 0.79, additional_vcpus: 0.04, disk_gb: 0.0003 } });
     if (url === '/v2/status') return json(res, 200, { gpu_type: { l40: { 1: 'available' } }, specs: { l40_x1: 'available' } });
     if (req.headers.authorization !== 'Bearer tk_test') return json(res, 401, { message: 'bad token' });
     if (url === '/v1/instances/list') {
@@ -133,7 +133,8 @@ async function browserCheck(chrome, shot) {
         await sleep(2500);
         const view = await evalJs(`({ hidden: document.getElementById('tab-thunder').hidden,
             list: document.getElementById('tList').innerText, gpus: document.getElementById('tGpuRows').innerText,
-            need: document.getElementById('tNeed').innerText, summary: document.getElementById('tSummary').innerText })`);
+            need: document.getElementById('tNeed').innerText, summary: document.getElementById('tSummary').innerText,
+            spendRate: document.getElementById('spRate').innerText, spendMachines: document.getElementById('spMachines').innerText })`);
         if (shot) {
             const png = await cdp('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
             fs.writeFileSync(shot, Buffer.from(png.data, 'base64'));
@@ -184,7 +185,14 @@ try {
         check(`the page shows no error (${errors.join(' | ')})`, errors.length === 0);
         check('the Thunder tab shows the serving instance with its links', !view.hidden && /Serving image_sdxl_smoke_test/.test(view.list) && /Student page/.test(view.list));
         check('the card table and summary follow the ticked workflow', /NVIDIA L40/.test(view.gpus) && /recommended/.test(view.gpus) && /L40/.test(view.summary));
+        check(`the spending bar shows the running instance at its full price (${view.spendRate} | ${view.spendMachines})`,
+            view.spendRate === '$0.99/h' && /Thunder/.test(view.spendMachines) && /so far/.test(view.spendMachines));
     }
+
+    // 8 vCPU (6 included) and 500 GB (100 included): 0.79 + 2×0.04 + 400×0.0003.
+    const spendOn = (await api('GET', '/api/spend')).data;
+    check(`spend: the instance bills at the GPU + vCPU + disk price (${spendOn.ratePerHr})`,
+        Math.abs(spendOn.ratePerHr - 0.99) < 1e-9 && spendOn.machines.length === 1 && spendOn.machines[0].provider === 'thunder');
 
     const dl = await api('POST', '/api/thunder/instances/aaaabbbb-cccc/download');
     const zip = await fetch(`http://127.0.0.1:${PORT}${dl.data.url}`);
@@ -195,6 +203,9 @@ try {
     check('delete needs the code typed back', wrong.status === 400 && instances['0']);
     const del = await api('DELETE', '/api/thunder/instances/aaaabbbb-cccc', { confirm: 'aaaabbbb' });
     check('delete removes the instance and forgets its key', del.status === 200 && !instances['0'] && !fs.existsSync(keyFile));
+    const spendOff = (await api('GET', '/api/spend')).data;
+    check('spend: once deleted it stops billing but today keeps what it cost',
+        spendOff.ratePerHr === 0 && spendOff.machines.length === 0 && spendOff.today > 0 && spendOff.thunder.today > 0);
 
     const attempts = await api('GET', '/api/attempts');
     check('the launch is in the Attempts log', JSON.stringify(attempts.data).includes('thunder'));

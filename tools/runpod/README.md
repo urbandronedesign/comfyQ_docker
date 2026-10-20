@@ -106,6 +106,31 @@ The workflow list comes from this checkout's `workflows/` folder. The Pod
 serves the workflows its image was built with, so a workflow added here after
 the last image build is not on the Pod yet.
 
+## Spending, on every tab
+
+The bar under the tabs shows what you are spending. It refreshes every 15 seconds and ticks every second in between:
+
+- **Spending now**: dollars per hour across RunPod and Thunder together. "storage only" means no GPU is running (the RunPod volume costs about $0.01/h).
+- **Today** and **This month**, plus what today reaches by midnight if everything is left on.
+- **RunPod balance**, and how long it lasts at the current rate.
+- **Daily budget** (optional): the meter turns amber at 80 % and red above it, and the bar warns when leaving machines on would go over.
+- One line per running machine: how long it has been on and what it has cost so far. A machine on for more than 3 hours shows in red.
+
+Where the figures come from:
+- **RunPod reports money.** Today is the balance at the first reading of the day minus the balance now. A top-up does not count as spending.
+- **Thunder has no balance or usage API**, so its figures are computed: each instance's hourly price times how long it has existed. The ledger in `~/.comfyq/spend-ledger.json` keeps them after the instance is deleted. If an instance is deleted while the console is closed, the next reading records it as closed, so the figure can read slightly high, never low.
+- **Thunder charges more than the card price.** It adds $0.04/h for each vCPU above the smallest option and $0.0003/h for each GB of disk above 100 GB (its own formula, from its CLI). An L40 with 8 vCPU and 200 GB costs **$0.90/h**, not $0.79. The Thunder tab and the launch confirmation show the full price.
+- The ledger starts the first time the console runs with this feature. Until a full day or month has passed, "counted from …" shows when counting started.
+
+## Disk and models: refused before anything bills
+
+A new machine downloads every model its workflows need. The console reads how much from `tools/model-provenance/workflow-downloads.json` (one entry per workflow, with sizes read from HuggingFace). It then:
+- on **Thunder**, raises the disk field to what the image (about 40 GB once pulled), the models and room for results need, and refuses a launch with less;
+- on **RunPod**, refuses a launch whose models are bigger than the whole volume, or bigger than the Pod's own disk in Plan B;
+- refuses any workflow that **cannot fetch all its models on a new machine**. Today that means the two Krea 2 character-sheet workflows, whose files have no known source.
+
+Regenerate the sizes after adding a workflow: `node tools/model-provenance/fresh-machine.cjs --online --write-sizes`.
+
 ## Stock history: when are cards free?
 
 RunPod only says what is in stock **now** and keeps no history. A GitHub

@@ -160,6 +160,7 @@ function missingModels(entry, comfyRoot) {
             url: m?.url || null,
             source: m?.source || null,
             type: m?.type || null,
+            dir: m?.dir || null,
             auto: m?.auto === true,
         };
     });
@@ -200,7 +201,7 @@ async function runPlan({ configManager, registry, downloader, exitForRestart, pl
                 row.status = 'failed';
                 row.error = m.source ? `no direct link — get it from ${m.source}` : 'no known source';
             } else {
-                const r = downloader.enqueue({ name: m.file, url: m.url, type: m.type });
+                const r = downloader.enqueue({ name: m.file, url: m.url, type: m.type, dir: m.dir || undefined });
                 if (r.ok) { row.key = r.key; row.dest = r.dest; }
                 else if (/already installed/.test(r.error || '')) row.status = 'done';
                 else { row.status = 'failed'; row.error = r.error; }

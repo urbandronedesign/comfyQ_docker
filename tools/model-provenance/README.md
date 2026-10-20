@@ -72,6 +72,24 @@ does not hold it — and because that repo is gated the bad link answers 401 and
 reads as healthy. That is what `override` in `known-sources.json` is for;
 verification alone cannot catch it.
 
+## fresh-machine.cjs: would every workflow download its models on a new Pod?
+
+It runs the server's own code (the Pod plan's `missingModels()` and the downloader's `resolveDestination()`) against an **empty** ComfyUI folder, so it cannot disagree with what a Pod or Thunder instance will do. For every workflow it checks that each model the graph loads:
+1. has a direct `url`, or is fetched by its node pack (`auto`);
+2. has a folder the downloader can decide, from the link, the `type` or an explicit `dir`;
+3. is **found** by the graph check once a file sits in that folder, which proves the name and folder are the ones the loader reads;
+4. answers on HuggingFace with the console's token (with `--online`). A gated repo whose licence was not accepted fails here instead of on a paid machine.
+
+A workflow the registry cannot load (a broken meta) also fails, instead of reading as "0 models, ok".
+
+```bash
+node tools/model-provenance/fresh-machine.cjs                         # offline; runs in npm run test:storyboard
+node tools/model-provenance/fresh-machine.cjs --online                # also HEAD-checks every link with the token
+node tools/model-provenance/fresh-machine.cjs --online --write-sizes  # also writes workflow-downloads.json for the console
+```
+
+`--allow a,b` lists workflows known to fail, so that a NEW failure stands out. The test suite allows only the two Krea 2 character-sheet workflows: the owner does not use Krea, and their files have no known source. A meta entry can carry `"dir": "<models subfolder>"` when neither its link nor its `type` says where the file goes, for example a file at a repo's root with type `other`.
+
 ## known-sources.json
 
 Hand-curated gap-filling, read after the notes and the audit. `_`-prefixed keys

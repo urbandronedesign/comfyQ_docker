@@ -217,11 +217,26 @@ async function loadThunderPlan() {
 }
 $('tRefreshOffers').onclick = loadThunderPlan;
 
+// Thunder's own formula (thunder-cli utils/pricing.go): the GPU, plus each vCPU
+// above the smallest option, plus each GB of disk above the 100 included.
+function thunderHourly(o, vcpus, diskGb) {
+    if (!o || o.pricePerHr == null) return null;
+    return o.pricePerHr + Math.max(0, (Number(vcpus) || 0) - (o.includedVcpus || 4)) * (o.extraVcpuPerHr || 0)
+        + Math.max(0, (Number(diskGb) || 0) - 100) * (o.diskGbPerHr || 0);
+}
+
 function renderThunderPlan() {
     const n = tPlan.need;
     $('tNeed').textContent = !tChosen.length ? 'Tick the workflows to serve: the card is picked from what they need.'
         : n.gb == null ? 'No VRAM figure for these workflows: pick a card with room to spare.'
         : `These workflows need about ${n.gb} GB of VRAM together${n.unknown.length ? ` (no figure for ${n.unknown.join(', ')})` : ''}.`;
+    const dl = tPlan.downloads;
+    if (tChosen.length && dl) {
+        $('tNeed').textContent += dl.gb != null
+            ? ` A new instance downloads ${dl.gb} GB of models (${dl.files} files)${dl.byNodePack.length ? `, plus ${dl.byNodePack.length} its node packs fetch on first use` : ''}: the disk needs at least ${dl.minDiskGb} GB with the image.`
+            : ' No download size is known for these workflows: keep the disk generous.';
+        if (dl.failing.length) $('tNeed').textContent += ` ✗ ${dl.failing.join(', ')} cannot fetch all its models on a new machine — untick it.`;
+    }
     $('tGpuRows').innerHTML = tPlan.offers.map(o => `
         <tr class="${o.fits === false ? 'off' : ''} ${o.id === tPick ? 'picked' : ''}" data-toffer="${esc(o.id)}">
           <td><input type="radio" name="tgpu" ${o.id === tPick ? 'checked' : ''} ${o.fits === false ? 'disabled' : ''}></td>
@@ -240,18 +255,29 @@ function renderThunderPlan() {
     const o = tPlan.offers.find(x => x.id === tPick);
     const prev = $('tVcpus').value;
     $('tVcpus').innerHTML = (o?.vcpuOptions || []).map(v => `<option ${String(v) === prev ? 'selected' : ''}>${v}</option>`).join('');
-    if (o?.diskGb) { $('tDisk').min = o.diskGb.min; $('tDisk').max = o.diskGb.max; }
+    if (o?.diskGb) {
+        // Never smaller than what the image and the downloads need: running out of
+        // disk mid-download fails the setup on a machine that is already billing.
+        const floor = Math.max(o.diskGb.min, dl?.minDiskGb || 0);
+        $('tDisk').min = floor; $('tDisk').max = o.diskGb.max;
+        if (Number($('tDisk').value) < floor) $('tDisk').value = Math.min(floor, o.diskGb.max);
+    }
+    $('tLaunch').disabled = !!dl?.failing?.length;
     $('tSummary').textContent = o && tChosen.length
-        ? `${o.name} · $${(o.pricePerHr ?? 0).toFixed(2)}/hour (disk above 100 GB adds a little) · serves ${tChosen.length} workflow${tChosen.length > 1 ? 's' : ''}`
+        ? `${o.name} · $${(thunderHourly(o, $('tVcpus').value, $('tDisk').value) ?? 0).toFixed(2)}/hour with ${$('tVcpus').value} vCPU and ${$('tDisk').value} GB (the card alone is $${(o.pricePerHr ?? 0).toFixed(2)}) · serves ${tChosen.length} workflow${tChosen.length > 1 ? 's' : ''}`
         : '';
 }
+
+// The price line follows the vCPU and disk fields: both change the hourly bill.
+$('tVcpus').onchange = () => tPlan && renderThunderPlan();
+$('tDisk').oninput = () => tPlan && renderThunderPlan();
 
 $('tLaunch').onclick = async () => {
     const o = tPlan?.offers.find(x => x.id === tPick);
     if (!tChosen.length) return toast('Tick at least one workflow', true);
     if (!o) return toast('Pick a card', true);
     const warn = o.availability === 'available' ? '' : `\n\nThunder does not clearly say this card is free right now (${AVAIL_LABEL[o.availability]}): the launch may be refused.`;
-    if (!confirm(`Launch a ${o.name} on Thunder Compute at $${(o.pricePerHr ?? 0).toFixed(2)}/hour?\n\nIt bills until you delete it. It will serve: ${tChosen.join(', ')}.${warn}`)) return;
+    if (!confirm(`Launch a ${o.name} on Thunder Compute at $${(thunderHourly(o, $('tVcpus').value, $('tDisk').value) ?? 0).toFixed(2)}/hour (${$('tVcpus').value} vCPU, ${$('tDisk').value} GB)?\n\nIt bills until you delete it. It will serve: ${tChosen.join(', ')}.${warn}`)) return;
     $('tLaunch').disabled = true;
     try {
         await api('POST', '/api/thunder/launch', { workflows: tChosen, gpu: o.id, vcpus: Number($('tVcpus').value), diskGb: Number($('tDisk').value), fetchModels: $('tFetch').checked });
@@ -658,6 +684,11 @@ function updateSummary() {
         if (gpuFallback.size) parts.push(`or ${gpuFallback.size} fallback(s)`);
         if (vol) parts.push(`in ${vol.dataCenterId}`);
         parts.push(chosen.length ? `serving ${chosen.length} workflow(s)` : 'in admin mode');
+        const ws = chosen.map(id => workflows.find(w => w.id === id)).filter(Boolean);
+        const dl = ws.reduce((a, w) => a + (w.downloadGb || 0), 0);
+        if (dl) parts.push(`downloads up to ${dl.toFixed(0)} GB of models the ${vol ? 'volume' : 'Pod disk'} does not have yet`);
+        const bad = ws.filter(w => w.cannotFetch);
+        if (bad.length) { parts.push(`✗ ${bad.map(w => w.id).join(', ')} cannot fetch all its models on a new machine — untick it`); b.disabled = true; }
     }
     $('launchSummary').textContent = parts.join(', ');
 }
@@ -1214,6 +1245,73 @@ async function podAction(verb) {
     catch (e) { toast(e.message, true); }
 }
 $('refreshPods').onclick = loadPods;
+
+// ---- spending (every tab) ---------------------------------------------------------
+
+let spend = null, spendAt = 0;
+const money = (v) => v == null ? '—' : `$${v < 10 ? v.toFixed(2) : v.toFixed(1)}`;
+function dur(ms) {
+    const m = Math.max(0, Math.round(ms / 60000));
+    return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`;
+}
+async function loadSpend() {
+    try { spend = await api('GET', '/api/spend'); spendAt = Date.now(); renderSpend(); }
+    catch (e) { $('spNote').textContent = `Spending could not be read: ${e.message}`; }
+}
+function renderSpend() {
+    if (!spend) return;
+    // Between two readings, everything running keeps adding up at its rate.
+    const extra = spend.ratePerHr * (Date.now() - spendAt) / 3600000;
+    const today = spend.today + extra;
+    $('spRate').textContent = `${money(spend.ratePerHr)}/h`;
+    $('spRate').parentElement.classList.toggle('billing', spend.ratePerHr >= 0.05);
+    const nGpu = spend.machines.length;
+    $('spRateSub').textContent = nGpu ? `${nGpu} machine${nGpu > 1 ? 's' : ''} running` : spend.ratePerHr > 0 ? 'storage only' : 'nothing running';
+    $('spToday').textContent = money(today);
+    // The ledger only knows what it has seen: say so the first day it runs.
+    const startedLate = (since, from) => since && since - from > 5 * 60000 ? new Date(since).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
+    const dayFrom = new Date(); dayFrom.setHours(0, 0, 0, 0);
+    const lateToday = startedLate(spend.runpod.countingSince?.today, dayFrom.getTime());
+    $('spProj').textContent = spend.ratePerHr >= 0.05 ? `≈ ${money(spend.projectedToday)} by midnight if left on`
+        : lateToday ? `counted from ${lateToday}` : '';
+    $('spMonth').textContent = money(spend.month + extra);
+    const monthFrom = new Date(dayFrom); monthFrom.setDate(1);
+    const lateMonth = spend.runpod.countingSince?.month && spend.runpod.countingSince.month - monthFrom.getTime() > 5 * 60000
+        ? new Date(spend.runpod.countingSince.month).toLocaleDateString([], { day: 'numeric', month: 'short' }) : null;
+    $('spMonthSub').textContent = `Thunder ${money(spend.thunder.month)} · RunPod ${money(spend.runpod.month)}${lateMonth ? ` · counted from ${lateMonth}` : ''}`;
+    $('spBal').textContent = money(spend.runpod.balance);
+    $('spLeft').textContent = spend.runpod.hoursLeft != null
+        ? (spend.runpod.hoursLeft > 72 ? `≈ ${Math.round(spend.runpod.hoursLeft / 24)} days at this rate` : `≈ ${spend.runpod.hoursLeft} h at this rate`) : '';
+    const b = spend.budgetPerDay;
+    if (document.activeElement !== $('spBudget')) $('spBudget').value = b ?? '';
+    const ratio = b ? today / b : 0;
+    $('spMeter').style.width = `${Math.min(100, Math.round(ratio * 100))}%`;
+    $('spMeter').className = ratio >= 1 ? 'bad' : ratio >= 0.8 ? 'warn' : '';
+    $('spToday').parentElement.classList.toggle('over', !!b && ratio >= 1);
+    $('spMachines').innerHTML = spend.machines.map(m => {
+        const ms = Date.now() - (m.since || Date.now());
+        const cost = m.ratePerHr != null && m.since ? m.ratePerHr * ms / 3600000 : m.costSoFar;
+        return `<li><span class="dot"></span><b>${m.provider === 'thunder' ? 'Thunder' : 'RunPod'}</b>
+            <span>${esc(m.gpu || '')}</span><span class="muted">${esc(m.name || m.id)}</span>
+            <span class="${ms > 3 * 3600000 ? 'long' : ''}">on for ${dur(ms)}</span>
+            <span class="cost">${money(cost)} so far</span><span class="muted">${money(m.ratePerHr)}/h</span></li>`;
+    }).join('');
+    const notes = [];
+    if (spend.errors?.length) notes.push(spend.errors.join(' · '));
+    if (b && ratio >= 1) notes.push(`Today is over the ${money(b)} budget.`);
+    else if (b && spend.projectedToday > b && spend.ratePerHr >= 0.05) notes.push(`Left running, today reaches ${money(spend.projectedToday)} — over the ${money(b)} budget.`);
+    if (spend.machines.some(m => Date.now() - (m.since || Date.now()) > 3 * 3600000)) notes.push('A machine has been on for more than 3 hours: delete or stop it if the class is over.');
+    notes.push('RunPod figures come from its balance; Thunder ones are computed from each instance\'s price and running time (its API has no balance).');
+    $('spNote').textContent = notes.join(' ');
+}
+$('spBudget').onchange = async () => {
+    try { await api('PUT', '/api/spend/budget', { dailyBudget: $('spBudget').value }); toast('Daily budget saved'); loadSpend(); }
+    catch (e) { toast(e.message, true); }
+};
+loadSpend();
+setInterval(() => { if (!document.hidden) loadSpend(); }, 15000);
+setInterval(() => { if (!document.hidden) renderSpend(); }, 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) loadSpend(); });
 
 // ---- boot -----------------------------------------------------------------------
 

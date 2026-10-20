@@ -24,6 +24,23 @@
   <button id="themeBtn" class="ghost icon" title="Light / dark">◐</button>
 </header>
 
+<!-- What is being spent, on every tab. Figures: tools/runpod/spend.mjs -->
+<section id="spend" class="spend" aria-live="polite">
+  <div class="spend-kpis">
+    <div class="kpi"><span class="label">Spending now</span><b id="spRate">…</b><span id="spRateSub" class="sub"></span></div>
+    <div class="kpi"><span class="label">Today</span><b id="spToday">…</b><span id="spProj" class="sub"></span></div>
+    <div class="kpi"><span class="label">This month</span><b id="spMonth">…</b><span id="spMonthSub" class="sub"></span></div>
+    <div class="kpi"><span class="label">RunPod balance</span><b id="spBal">…</b><span id="spLeft" class="sub"></span></div>
+    <div class="kpi budget">
+      <label class="label" for="spBudget">Daily budget ($)</label>
+      <input id="spBudget" type="number" min="0" step="1" placeholder="none">
+      <div class="meter" title="Today against the daily budget"><i id="spMeter"></i></div>
+    </div>
+  </div>
+  <ul id="spMachines" class="spend-machines"></ul>
+  <p id="spNote" class="sub"></p>
+</section>
+
 <main>
   <!-- ───────────── Credentials ───────────── -->
   <section id="tab-creds" class="tab" hidden>

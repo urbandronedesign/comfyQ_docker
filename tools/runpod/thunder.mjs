@@ -53,13 +53,31 @@ export function normalizeOffers({ specs = {}, pricing = {}, status = {} }) {
             id: key,
             name: s.displayName || type,
             vramGb: s.vramGB ?? null,
+            // The GPU alone. What an instance really costs adds vCPUs above the
+            // included ones and disk above 100 GB: thunderHourly() below.
             pricePerHr: typeof price === 'number' ? price : null,
             availability,
             vcpuOptions: s.vcpuOptions || [],
+            includedVcpus: (s.vcpuOptions || [])[0] || 4,
+            extraVcpuPerHr: typeof pricing.additional_vcpus === 'number' ? pricing.additional_vcpus : null,
+            diskGbPerHr: typeof pricing.disk_gb === 'number' ? pricing.disk_gb : null,
             diskGb: s.storageGB || null,
         });
     }
     return rows.sort((a, b) => (a.pricePerHr ?? Infinity) - (b.pricePerHr ?? Infinity));
+}
+
+/**
+ * What an instance of this offer costs per hour, by Thunder's own formula
+ * (thunder-cli utils/pricing.go CalculateHourlyPrice): the GPU, plus each vCPU
+ * above the smallest option, plus each GB of disk above the 100 included.
+ * An L40 with 8 vCPU and 200 GB is $0.90/h, not the $0.79 of the GPU alone.
+ */
+export function thunderHourly(offer, vcpus, diskGb) {
+    if (!offer || offer.pricePerHr == null) return null;
+    const extraV = Math.max(0, (Number(vcpus) || 0) - (offer.includedVcpus || 4));
+    const extraD = Math.max(0, (Number(diskGb) || 0) - 100);
+    return +(offer.pricePerHr + extraV * (offer.extraVcpuPerHr || 0) + extraD * (offer.diskGbPerHr || 0)).toFixed(4);
 }
 
 export async function thunderOffers() {

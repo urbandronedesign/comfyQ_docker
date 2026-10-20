@@ -29,8 +29,10 @@ import {
     listWorkflows, vramNeeded, rankGpus, volumeBuilds, volumeGroups, podImage, isNoMachine, DEFAULT_IMAGE, RunPodError, probeUrl, studentLinks, PORT as POD_PORT,
 } from '../lib.mjs';
 import {
-    thunderOffers, thunderInstances, thunderCreate, thunderDelete, thunderAddKey, thunderUrl, thunderEnv, remoteScript, setupInstance,
+    thunderOffers, thunderInstances, thunderCreate, thunderDelete, thunderAddKey, thunderUrl, thunderEnv, remoteScript, setupInstance, thunderHourly,
 } from '../thunder.mjs';
+import { graphql, downloadNeed, diskNeeded, RESULTS_DISK_GB } from '../lib.mjs';
+import { updateLedger, summarize, emptyLedger } from '../spend.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.COMFYQ_CONSOLE_PORT || 4777);
@@ -156,7 +158,10 @@ route('POST', '/api/thunder/test-key', async () => {
 
 route('GET', '/api/thunder/offers', async () => ({ offers: await thunderOffers() }));
 
-route('GET', '/api/workflows', () => ({ workflows: listWorkflows() }));
+route('GET', '/api/workflows', () => ({
+    // Each with what a new machine downloads for it, so the page can say so.
+    workflows: listWorkflows().map(w => { const d = downloadNeed([w.id]); return { ...w, downloadGb: d.gb, cannotFetch: d.failing.length > 0 }; }),
+}));
 
 route('GET', '/api/volumes', async () => ({ volumes: await rest(apiKey(), 'GET', '/networkvolumes') }));
 
@@ -215,6 +220,20 @@ route('POST', '/api/launch', async ({ body }) => {
     const volume = noVolume ? null : vols.find(v => v.id === body.volumeId);
     if (!noVolume && !volume) throw new RunPodError('pick a network volume', 400);
     const where = volume ? volume.dataCenterId : 'any data centre';
+    // Refuse what certainly cannot fit, before a Pod bills. The image lives on
+    // the container disk; the models go to the volume (some may already be on
+    // it, so only a total above its whole size is certain) or, with no volume,
+    // to the Pod's own disk.
+    if (body.fetchModels !== false) {
+        for (const p of plans) {
+            const dl = downloadNeed(p.serve);
+            if (dl.failing.length) throw new RunPodError(`${dl.failing.join(', ')} cannot fetch all of its models on a new machine (see tools/model-provenance/fresh-machine.cjs): leave it out`, 400);
+            if (dl.gb == null) continue;
+            const room = volume ? Number(volume.size) : Number(body.podVolumeGb) || 80;
+            const need = Math.ceil(dl.gb * 1.05 + (volume ? 2 : RESULTS_DISK_GB));
+            if (room && need > room) throw new RunPodError(`${p.serve.join(' + ')} download${p.serve.length > 1 ? '' : 's'} ${dl.gb} GB of models: ${volume ? `the volume "${volume.name}" is only ${room} GB` : `a ${room} GB Pod disk is too small — set at least ${need} GB`}`, 400);
+        }
+    }
     // Pods already on the volume must be able to share it. The ones created
     // here boot the same image as each other, so they never block each other.
     const existing = await rest(key, 'GET', '/pods');
@@ -590,13 +609,15 @@ async function thunderPlan(ids) {
     const need = vramNeeded(picked);
     const offers = (await thunderOffers()).map(o => ({ ...o, fits: need.gb == null || o.vramGb == null ? null : o.vramGb >= need.gb }));
     const usable = (want) => offers.find(o => o.fits !== false && o.pricePerHr != null && o.availability === want);
-    return { need, picked, offers, recommended: (usable('available') || usable('unclear'))?.id || null };
+    const downloads = downloadNeed(ids);
+    downloads.minDiskGb = diskNeeded(downloads.gb);
+    return { need, picked, offers, downloads, recommended: (usable('available') || usable('unclear'))?.id || null };
 }
 
 route('GET', '/api/thunder/plan', async ({ query }) => {
     const ids = String(query.get('workflows') || '').split(',').filter(Boolean);
-    const { need, offers, recommended } = await thunderPlan(ids);
-    return { need, offers, recommended };
+    const { need, offers, recommended, downloads } = await thunderPlan(ids);
+    return { need, offers, recommended, downloads };
 });
 
 route('POST', '/api/thunder/launch', async ({ body }) => {
@@ -606,8 +627,11 @@ route('POST', '/api/thunder/launch', async ({ body }) => {
     const miss = missingSecrets(secrets);
     if (miss.length) throw new RunPodError(`save the ${miss.join(' and ')} under Credentials first`, 400);
     const ids = Array.isArray(body.workflows) ? body.workflows.map(String) : [];
-    const { need, picked, offers } = await thunderPlan(ids);
+    const { need, picked, offers, downloads } = await thunderPlan(ids);
     if (!picked.length) throw new RunPodError('tick at least one workflow to serve', 400);
+    // ★ Refused before anything bills: a workflow the fresh-machine audit knows
+    // cannot fetch its models would fail the whole setup after paying for it.
+    if (downloads.failing.length) throw new RunPodError(`${downloads.failing.join(', ')} cannot fetch all of its models on a new machine (see tools/model-provenance/fresh-machine.cjs): untick it`, 400);
     if (picked.length !== ids.length) throw new RunPodError('a ticked workflow is not in this repo any more: reload the page', 400);
     const offer = offers.find(o => o.id === body.gpu);
     if (!offer) throw new RunPodError('pick a card', 400);
@@ -615,6 +639,9 @@ route('POST', '/api/thunder/launch', async ({ body }) => {
     const vcpus = offer.vcpuOptions.includes(Number(body.vcpus)) ? Number(body.vcpus) : offer.vcpuOptions[0];
     const lim = offer.diskGb || { min: 100, max: 500 };
     const diskGb = Math.min(lim.max, Math.max(lim.min, Number(body.diskGb) || 200));
+    if (body.fetchModels !== false && downloads.gb != null && diskGb < downloads.minDiskGb) {
+        throw new RunPodError(`${diskGb} GB is too small: the image and ${downloads.gb} GB of models need at least ${downloads.minDiskGb} GB`, 400);
+    }
     const image = s.image || DEFAULT_IMAGE;
     const serve = picked.map(w => w.id);
     const fetchModels = body.fetchModels !== false;
@@ -622,6 +649,8 @@ route('POST', '/api/thunder/launch', async ({ body }) => {
     remoteScript({ image, env: thunderEnv({ podId: 'thunder-check', serve, secrets, fetchModels }) });
 
     const gpuType = offer.id.replace(/_x\d+$/, '');
+    // The whole bill, not the GPU alone: extra vCPUs and disk above 100 GB cost too.
+    const hourly = thunderHourly(offer, vcpus, diskGb) ?? offer.pricePerHr;
     let created;
     try {
         created = await thunderCreate(key, { gpuType, vcpus, diskGb });
@@ -631,12 +660,12 @@ route('POST', '/api/thunder/launch', async ({ body }) => {
     }
     const uuid = String(created?.uuid || '');
     if (!uuid) throw new RunPodError('Thunder created something but returned no uuid: check its console and delete it there if it exists', 502);
-    recordAttempt({ action: 'launch', provider: 'thunder', name: `thunder ${serve[0]}`, gpus: [offer.name], where: 'Thunder (N. America)', result: 'created', podId: uuid.slice(0, 8), costPerHr: offer.pricePerHr });
+    recordAttempt({ action: 'launch', provider: 'thunder', name: `thunder ${serve[0]}`, gpus: [offer.name], where: 'Thunder (N. America)', result: 'created', podId: uuid.slice(0, 8), costPerHr: hourly });
     if (created.key) writeKey(uuid, created.key);
     const all = loadThunder();
     all[uuid] = {
         id: String(created.identifier ?? ''), uuid, podId: `thunder-${uuid.replace(/[^A-Za-z0-9]/g, '').slice(0, 12)}`,
-        gpu: offer.id, gpuName: offer.name, pricePerHr: offer.pricePerHr, vcpus, diskGb, serve, image, fetchModels,
+        gpu: offer.id, gpuName: offer.name, pricePerHr: hourly, vcpus, diskGb, serve, image, fetchModels,
         createdAt: Date.now(), state: 'created', steps: [{ at: Date.now(), msg: `created: ${offer.name}, ${vcpus} vCPU, ${diskGb} GB` }], error: null,
     };
     saveThunder(all);
@@ -693,6 +722,74 @@ route('DELETE', '/api/thunder/instances/([A-Za-z0-9-]+)', async ({ match, body }
     if (inst) await thunderDelete(key, inst.id);
     forgetThunder(uuid);
     return { ok: true, deleted: !!inst };
+});
+
+// ---- spending -------------------------------------------------------------------
+// See tools/runpod/spend.mjs for what each figure means and where it comes from.
+const SPEND_FILE = path.join(os.homedir(), '.comfyq', 'spend-ledger.json');
+function loadLedger() { try { return JSON.parse(fs.readFileSync(SPEND_FILE, 'utf8')); } catch { return emptyLedger(); } }
+function saveLedger(l) {
+    fs.mkdirSync(path.dirname(SPEND_FILE), { recursive: true });
+    fs.writeFileSync(SPEND_FILE + '.tmp', JSON.stringify(l, null, 2));
+    fs.renameSync(SPEND_FILE + '.tmp', SPEND_FILE);
+}
+let offersCache = { at: 0, offers: null };
+async function cachedOffers() {
+    if (!offersCache.offers || Date.now() - offersCache.at > 10 * 60_000) offersCache = { at: Date.now(), offers: await thunderOffers() };
+    return offersCache.offers;
+}
+// Price any listed instance, including one started on Thunder's website.
+function thunderRateOf(inst, rec, offers) {
+    const key = rec?.gpu || `${String(inst.gpuType || '').toLowerCase().replace(/\s+/g, '')}_x${Number(inst.numGpus) || 1}`;
+    const offer = offers?.find(o => o.id === key) || offers?.find(o => o.name === inst.gpuType);
+    const rate = offer && thunderHourly(offer, rec?.vcpus ?? Number(inst.cpuCores), rec?.diskGb ?? Number(inst.storage));
+    return rate ?? rec?.pricePerHr ?? null;
+}
+
+route('GET', '/api/spend', async () => {
+    const s = loadSettings();
+    const now = Date.now();
+    const errors = [];
+    let thunderLive = null, runpodBalance = null, runpodRate = null, runpodMachines = [];
+    if (s.thunderApiKey) {
+        try {
+            const [live, offers] = await Promise.all([thunderInstances(s.thunderApiKey), cachedOffers().catch(() => null)]);
+            const recs = loadThunder();
+            thunderLive = live.map(i => ({
+                uuid: i.uuid, name: recs[i.uuid]?.serve?.join(' + ') || i.name || i.uuid,
+                gpu: i.gpuType || null, ratePerHr: thunderRateOf(i, recs[i.uuid], offers),
+                start: Date.parse(i.createdAt) || recs[i.uuid]?.createdAt || now,
+            }));
+        } catch (e) { errors.push(`Thunder: ${e.message}`); }
+    }
+    if (s.runpodApiKey) {
+        try {
+            const [me, pods] = await Promise.all([
+                graphql(s.runpodApiKey, 'query { myself { clientBalance currentSpendPerHr } }'),
+                rest(s.runpodApiKey, 'GET', '/pods'),
+            ]);
+            runpodBalance = Number(me?.myself?.clientBalance);
+            runpodRate = Number(me?.myself?.currentSpendPerHr);
+            runpodMachines = (pods || []).filter(p => p.desiredStatus === 'RUNNING').map(p => ({
+                id: p.id, name: p.name, gpu: p.gpu?.displayName || p.machine?.gpuTypeId || null,
+                ratePerHr: Number(p.costPerHr ?? p.adjustedCostPerHr) || null,
+                since: Date.parse(p.lastStartedAt) || null,
+            }));
+        } catch (e) { errors.push(`RunPod: ${e.message}`); }
+    }
+    const ledger = updateLedger(loadLedger(), { now, thunderLive, runpodBalance: Number.isFinite(runpodBalance) ? runpodBalance : null });
+    saveLedger(ledger);
+    const budget = Number(s.dailyBudget) > 0 ? Number(s.dailyBudget) : null;
+    return { ...summarize(ledger, { now, runpodRatePerHr: Number.isFinite(runpodRate) ? runpodRate : null, runpodBalance: Number.isFinite(runpodBalance) ? runpodBalance : null, runpodMachines, budgetPerDay: budget }), errors };
+});
+
+route('PUT', '/api/spend/budget', ({ body }) => {
+    const v = body.dailyBudget === '' || body.dailyBudget == null ? null : Number(body.dailyBudget);
+    if (v != null && !(v >= 0 && v < 100000)) throw new RunPodError('enter a daily budget in dollars, or leave it empty', 400);
+    const all = loadSettings();
+    all.dailyBudget = v;
+    saveSettings(all);
+    return { ok: true, dailyBudget: v };
 });
 
 function send(res, status, data) {

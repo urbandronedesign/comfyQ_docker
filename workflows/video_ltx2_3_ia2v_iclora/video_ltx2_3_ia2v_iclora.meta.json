@@ -60,6 +60,7 @@
       {
         "type": "other",
         "file": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
+        "dir": "latent_upscale_models",
         "url": "https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
         "source": "https://huggingface.co/Lightricks/LTX-2.3"
       }
