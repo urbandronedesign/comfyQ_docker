@@ -85,7 +85,7 @@ function makeRouter({ configManager, registry, adminGate, exitForRestart, runtim
     });
 
     // First-run / admin: set ComfyUI paths and server settings.
-    router.put('/comfy', express.json(), (req, res) => {
+    router.put('/comfy', adminGate, express.json(), (req, res) => {
         try {
             const { root_path, python_executable, output_dir, api_host, api_port, lan_access, autoStart, vramBudgetGb, installation_type, assets_dir, use_sage_attention, fp16_accumulation } = req.body || {};
             configManager.update(c => {
@@ -114,7 +114,7 @@ function makeRouter({ configManager, registry, adminGate, exitForRestart, runtim
     // Federation: toggle this machine's presence on the LAN status beacon.
     // Takes effect live (the beacon re-reads enabled state each tick; kick()
     // sends one immediately so enabling shows up right away in the monitor).
-    router.put('/federation', express.json(), (req, res) => {
+    router.put('/federation', adminGate, express.json(), (req, res) => {
         try {
             const { enabled } = req.body || {};
             if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be a boolean' });
@@ -135,7 +135,7 @@ function makeRouter({ configManager, registry, adminGate, exitForRestart, runtim
     //
     // Takes effect live: buildSnapshot() reads config.instance directly, so the
     // next beacon tick — kicked immediately below — already carries the new name.
-    router.put('/instance', express.json(), (req, res) => {
+    router.put('/instance', adminGate, express.json(), (req, res) => {
         try {
             const raw = req.body?.name;
             if (raw !== undefined && typeof raw !== 'string') {
@@ -836,7 +836,7 @@ function makeRouter({ configManager, registry, adminGate, exitForRestart, runtim
 
     // Auto-detect a local ComfyUI install and return the paths for the admin
     // UI's "Auto-detect" button to drop into the form. Read-only (doesn't save).
-    router.post('/autodetect-paths', (req, res) => {
+    router.post('/autodetect-paths', adminGate, (req, res) => {
         const detected = configManager.detectComfyPaths();
         if (!detected) return res.json({ found: false });
         res.json({ found: true, ...detected });
@@ -900,7 +900,7 @@ function makeRouter({ configManager, registry, adminGate, exitForRestart, runtim
     // Read-only — runs filesystem checks and tries `python --version` with a
     // 5s timeout. Returns a per-check breakdown so the UI can show exactly
     // which path is wrong.
-    router.post('/check-paths', express.json(), async (req, res) => {
+    router.post('/check-paths', adminGate, express.json(), async (req, res) => {
         const { root_path, python_executable, output_dir, assets_dir } = req.body || {};
         const checks = [];
 
@@ -1147,15 +1147,46 @@ function makeRouter({ configManager, registry, adminGate, exitForRestart, runtim
         }
     });
 
-    router.post('/activate-workflow', express.json(), (req, res) => {
+    // ★ adminGate'd (2026-10-20): it was open, and on a Pod anyone holding the
+    //   URL could switch what the machine serves.
+    router.post('/activate-workflow', adminGate, express.json(), (req, res) => {
         try {
-            const { workflowId } = req.body || {};
+            const { workflowId, serveWithoutModels } = req.body || {};
             if (!workflowId) return res.status(400).json({ error: 'workflowId required' });
             const entry = registry.get(workflowId);
             if (!entry || entry.unavailable) {
                 return res.status(409).json({ error: entry?.reason || 'workflow unavailable' });
             }
             const prev = configManager.load().config;
+
+            // ★ Missing models are downloaded first, exactly as when a machine is
+            //   launched with this workflow (cloud/podPlan.js): a machine started
+            //   with no workflow, then given one in this panel, used to serve it
+            //   without its models, and every job failed (owner, 2026-10-20).
+            //   The plan downloads, then switches to serving by itself; on a
+            //   failure it stays in admin mode and says why.
+            const plan = require('../cloud/podPlan');
+            // While a download is under way nothing else switches: it ends by
+            // switching to what it downloaded for, and would undo the other.
+            // A plan left "fetching" by a restart mid-download is not running: a
+            // live one is rewritten every few seconds (podPlan pollMs).
+            const running = plan.readPlan();
+            const live = running && Date.now() - Date.parse(running.updatedAt || 0) < 120_000;
+            if (running && live && ['pending', 'fetching'].includes(running.status)) {
+                return res.status(409).json({ error: `models are being downloaded for ${(running.serve || []).join(', ')}: wait for that to finish` });
+            }
+            const missing = serveWithoutModels ? [] : plan.missingModels(entry, prev.comfy_ui?.root_path).filter(m => !m.auto);
+            if (missing.length) {
+                if (!runtime?.downloader) return res.status(503).json({ error: 'the model downloader is not available here' });
+                // The lanes open now stay open, so their models are checked too.
+                const serve = [workflowId, ...(prev.workflows.extraLaneWorkflowIds || []).filter(x => x !== workflowId)];
+                const now = new Date().toISOString();
+                plan.writePlan({ serve, fetchModels: true, createdAt: now, updatedAt: now, files: [], error: null, status: 'pending', from: 'admin panel' });
+                console.log(`[Admin] activate-workflow: ${workflowId} is missing ${missing.length} model file(s): downloading them first`);
+                plan.runPlan({ configManager, registry, downloader: runtime.downloader, exitForRestart })
+                    .catch(e => console.error('[pod-plan] failed:', e.message));
+                return res.json({ ok: true, fetching: true, workflowId, missing: missing.map(m => m.file) });
+            }
             const prevId = prev.workflows.activeWorkflowId;
             const prevMode = prev.mode;
             console.log(`[Admin] activate-workflow: ${prevId || '(none)'} → ${workflowId}  (mode: ${prevMode} → student)`);

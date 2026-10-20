@@ -30,7 +30,8 @@ const { estimateWorkflowVram, invalidateModelIndex } = require('../workflows/vra
 // The student access password is optional, as it is on a LAN rig: without it
 // anyone who has the Pod's URL can book jobs, which is the owner's call.
 
-const PLAN_FILE = path.join(__dirname, '..', 'data', 'pod-plan.json');
+// COMFYQ_POD_PLAN_FILE: tests only, so they never write into server/data.
+const PLAN_FILE = process.env.COMFYQ_POD_PLAN_FILE || path.join(__dirname, '..', 'data', 'pod-plan.json');
 
 function readPlan(file = PLAN_FILE) {
     try { return JSON.parse(fs.readFileSync(file, 'utf8')); }

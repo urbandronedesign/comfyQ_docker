@@ -12,6 +12,7 @@ import ModelQuarantine from '../components/admin/ModelQuarantine';
 import VolumePods from '../components/admin/VolumePods';
 import NodePacks from '../components/admin/NodePacks';
 import InstallUpdates from '../components/admin/InstallUpdates';
+import ActivateProgress from '../components/admin/ActivateProgress';
 import Modal from '../components/ui/Modal';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
@@ -52,6 +53,8 @@ const AdminConfig = ({ currentMode }) => {
     const [pathDraft, setPathDraft] = useState({});
     const [pickedWorkflow, setPickedWorkflow] = useState(null);
     const [activatingId, setActivatingId] = useState(null);
+    // A workflow whose missing models are being downloaded before it serves.
+    const [fetching, setFetching] = useState(null);   // { workflowId, missing }
     const [deactivating, setDeactivating] = useState(false);
     // Set when Stop serving was pressed with jobs on the machine: { running, queued }
     // (null counts = the queue could not be read). Null = no window open.
@@ -540,16 +543,19 @@ const AdminConfig = ({ currentMode }) => {
         }
     };
 
-    const activate = async (workflowId) => {
+    const activate = async (workflowId, { serveWithoutModels = false } = {}) => {
         const id = workflowId || pickedWorkflow?.id;
         if (!id) return;
         setActivatingId(id);
         try {
             const res = await fetch(`${SERVER_URL}/admin/activate-workflow`, {
                 method: 'POST', headers: adminHeaders(),
-                body: JSON.stringify({ workflowId: id })
+                body: JSON.stringify({ workflowId: id, serveWithoutModels })
             });
-            if (!res.ok) throw new Error((await res.json()).error || 'Failed to activate');
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || 'Failed to activate');
+            // Models missing: the machine downloads them first, then serves.
+            if (data.fetching) { setFetching({ workflowId: id, missing: data.missing || [] }); setActivatingId(null); return; }
             showToast(`Activating “${id}” and switching to student mode…`);
             // Server will exit; nodemon will restart. Reload after a moment.
             setTimeout(() => window.location.assign('/user'), 2000);
@@ -1485,6 +1491,12 @@ const AdminConfig = ({ currentMode }) => {
                     showToast('Workflow metadata saved');
                 }}
             />
+
+            {fetching && (
+                <ActivateProgress workflowId={fetching.workflowId} missing={fetching.missing}
+                    onClose={() => setFetching(null)}
+                    onServeAnyway={() => { const id = fetching.workflowId; setFetching(null); activate(id, { serveWithoutModels: true }); }} />
+            )}
 
             <Modal isOpen={!!stopConfirm} onClose={() => !deactivating && setStopConfirm(null)}
                 title="Stop serving while jobs are on this machine?" maxWidth="max-w-md">
