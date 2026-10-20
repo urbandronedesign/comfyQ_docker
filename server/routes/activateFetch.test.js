@@ -12,6 +12,10 @@ const bcrypt = require('bcryptjs');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'activate-fetch-'));
 process.env.COMFYQ_POD_PLAN_FILE = path.join(tmp, 'pod-plan.json');   // never server/data
+const sizesFile = path.join(tmp, 'sizes.json');
+process.env.COMFYQ_DOWNLOADS_FILE = sizesFile;
+const setSizes = (sizes) => fs.writeFileSync(sizesFile, JSON.stringify({ sizes }));
+setSizes({});
 
 const { makeRouter } = require('./admin');
 const { adminGate } = require('../auth/authGate');
@@ -70,8 +74,16 @@ app.use('/admin', makeRouter({ configManager, registry, adminGate: adminGate(con
         check('changing the ComfyUI paths (its Python) without the password is refused', put.status === 401 && config.comfy_ui.python_executable === undefined);
         check('check-paths without the password is refused', (await post('/check-paths', { python_executable: '/tmp/evil' }, null)).status === 401);
 
-        // ---- a workflow with a model missing: download, then serve ----
+        // ---- models that do not fit on the disk: refused before any download ----
         invalidateModelIndex();
+        setSizes({ 'missing.safetensors': 1e15 });   // a petabyte
+        const big = await post('/activate-workflow', { workflowId: 'needs_model' });
+        const bigBody = await big.json();
+        check(`models bigger than the free disk are refused up front (${big.status} ${bigBody.error})`, big.status === 507 && /GB free/.test(bigBody.error || ''));
+        check('and nothing was downloaded or switched', jobs.size === 0 && config.mode === 'admin' && restarts.length === 0);
+        setSizes({ 'missing.safetensors': 1000 });
+
+        // ---- a workflow with a model missing: download, then serve ----
         const r1 = await post('/activate-workflow', { workflowId: 'needs_model' });
         const d1 = await r1.json();
         check(`missing models are downloaded first (${JSON.stringify(d1)})`, r1.status === 200 && d1.fetching === true && d1.missing.includes('missing.safetensors'));

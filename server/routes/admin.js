@@ -1178,6 +1178,8 @@ function makeRouter({ configManager, registry, adminGate, exitForRestart, runtim
             const missing = serveWithoutModels ? [] : plan.missingModels(entry, prev.comfy_ui?.root_path).filter(m => !m.auto);
             if (missing.length) {
                 if (!runtime?.downloader) return res.status(503).json({ error: 'the model downloader is not available here' });
+                const room = plan.diskCheck(missing, prev.comfy_ui?.root_path);
+                if (!room.ok) return res.status(507).json({ error: room.message, needGb: +(room.need / 1024 ** 3).toFixed(1), freeGb: +(room.free / 1024 ** 3).toFixed(1) });
                 // The lanes open now stay open, so their models are checked too.
                 const serve = [workflowId, ...(prev.workflows.extraLaneWorkflowIds || []).filter(x => x !== workflowId)];
                 const now = new Date().toISOString();

@@ -6,11 +6,14 @@ Detailed, evolving plans live in [implementation_plan.md](implementation_plan.md
 
 ## Latest progress (2026-10-20)
 
-### ▶ Resume here (paused 2026-10-20 ~13:50 local, before compacting)
+### ▶ Resume here (2026-10-20 afternoon)
 
-**⚠ BILLING NOW: Thunder L40 `bago9lu5`, $0.79/h, the owner's, since 13:25 local.** Launched from the installed app in admin mode; the owner then pressed *Activate & serve* on `image_sdxl_smoke_test`. It runs image **`245f873`** (before the fix below), so **it serves SDXL WITHOUT its model** (`sd_xl_base_1.0` absent, no download) — every job there would fail. Do first, with the owner:
-1. Image **`934e713` is built and is `latest`** (the boot-time fetch below). To apply it: *Retry setup* (`POST /api/thunder/instances/bago9lu5/setup`) — ⚠ **it answered "this instance was not launched from this console"** although the instances list shows its `rec` (setup steps readable). Unexplained: look at the `/setup` route (`loadThunder()[uuid]`) vs the list (`recs[i.uuid]`) in the installed 0.1.4 — maybe a record keyed differently. Fallbacks: over ssh (`~/.comfyq/thunder-keys/bago9lu5.pem`, `bago9lu5.known_hosts`, user ubuntu, IP/port in the setup log: 216.81.200.228:32464) `sudo -n docker pull ghcr.io/urbandronedesign/comfyq:latest` then `sudo -n docker restart comfyq` will NOT change the image (restart reuses it) — rerun the start (rm + run with the same env file `~/.comfyq.env`), or simply Delete + relaunch from the app.
-2. With `934e713` the instance should, at start, see SDXL missing → admin mode → download → serve. Check `/admin/pod-plan` on `https://bago9lu5-3000.thundercompute.net` and that `/opt/ComfyUI/models` (via `/workspace`) gets `sd_xl_base_1.0.safetensors`. Then delete it when the owner is done.
+**Nothing bills on Thunder:** `bago9lu5` ran 13:25–13:36 and was deleted (ledger), which is also why *Retry setup* answered "not launched from this console": its record was already forgotten. Not a bug.
+
+**★ The production flow (owner, 2026-10-20):** *launch an instance with NO workflow → set the admin password → pick a workflow in its admin panel → its models download → students are served.* On Thunder this keeps the disk small (only the chosen workflow's models); on RunPod the volume usually has them already (served at once), else they are downloaded onto it. Made safe for that:
+- **The disk is checked before the first byte** ([podPlan.js](server/cloud/podPlan.js) `diskCheck`, used by *Activate & serve* — HTTP 507 with the sizes — and by the start-up plan): sum of the missing files' sizes from `workflow-downloads.json` + 2 GB vs free space under `models/`. Before, the downloader only noticed per file, partway through a paid download that could never finish. activateFetch.test.js 14 checks.
+- **Thunder Create panel, no workflow ticked:** says which workflows the chosen disk holds and that the disk cannot grow later. **Default disk 120 GB** (was 200): one workflow at a time, **110 GB holds every one of the 60** (100 GB holds 42); disk above 100 GB costs $0.0003/h per GB, so 120 GB is +$0.006/h.
+- ⚠ Still not seen end to end on a real machine (admin-mode launch → Activate & serve → download → serve). Next paid test, ask first: Thunder L40, no workflow, 120 GB, then *Activate & serve* `image_sdxl_smoke_test` (7 GB, ~15 min ≈ $0.25).
 
 **Built today (afternoon), all pushed:**
 - **"Activate & serve" downloads missing models first** (`58f169d`) — see the entry below; **plus at every start on a cloud machine** (`934e713`, server/index.js: `COMFYQ_POD_ID`/`RUNPOD_POD_ID` set + serving workflows with missing models → admin mode + pending plan → download → serve; not on rigs). Not yet seen on a real machine.

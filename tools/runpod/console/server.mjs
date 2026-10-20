@@ -705,7 +705,13 @@ async function thunderPlan(ids) {
 route('GET', '/api/thunder/plan', async ({ query }) => {
     const ids = String(query.get('workflows') || '').split(',').filter(Boolean);
     const { need, offers, recommended, downloads } = await thunderPlan(ids);
-    return { need, offers, recommended, downloads };
+    // No workflow ticked (admin mode, the usual way: launch, then pick a workflow
+    // in its admin panel, which downloads its models then): the disk is chosen
+    // before the workflow, so say which workflows each disk size will hold.
+    const diskByWorkflow = ids.length ? null : listWorkflows()
+        .map(w => { const d = downloadNeed([w.id]); return { id: w.id, gb: d.gb, minDiskGb: diskNeeded(d.gb), failing: d.failing.length > 0 }; })
+        .filter(w => w.gb != null && !w.failing);
+    return { need, offers, recommended, downloads, diskByWorkflow };
 });
 
 route('POST', '/api/thunder/launch', async ({ body }) => {

@@ -310,9 +310,25 @@ function thunderHourly(o, vcpus, diskGb) {
         + Math.max(0, (Number(diskGb) || 0) - 100) * (o.diskGbPerHr || 0);
 }
 
+// Admin mode: the workflow is picked later in the instance's admin panel, which
+// downloads its models then. The disk is fixed at launch, so say what it holds.
+function adminDiskHint() {
+    const rows = tPlan?.diskByWorkflow || [];
+    const disk = Number($('tDisk').value) || 0;
+    const tooBig = rows.filter(w => w.minDiskGb > disk).sort((a, b) => b.minDiskGb - a.minDiskGb);
+    let t = 'No workflow ticked: the instance starts in admin mode. Set the admin password, then pick a workflow in its admin panel: its models download then, and it serves.';
+    if (rows.length) {
+        t += tooBig.length
+            ? ` With ${disk} GB of disk, ${rows.length - tooBig.length} of ${rows.length} workflows fit; too big: ${tooBig.slice(0, 6).map(w => `${w.id} (${w.minDiskGb} GB)`).join(', ')}${tooBig.length > 6 ? `, and ${tooBig.length - 6} more` : ''}.`
+            : ` With ${disk} GB of disk, any one of the ${rows.length} workflows fits.`;
+        t += ' Pick the disk for the workflow you will serve: the disk cannot grow later, and a workflow that does not fit is refused before downloading.';
+    }
+    return t;
+}
+
 function renderThunderPlan() {
     const n = tPlan.need;
-    $('tNeed').textContent = !tChosen.length ? 'No workflow ticked: the instance starts in admin mode (pick a workflow in its admin panel later), and downloads nothing. Tick workflows to have it serve them and pick the card from what they need.'
+    $('tNeed').textContent = !tChosen.length ? adminDiskHint()
         : n.gb == null ? 'No VRAM figure for these workflows: pick a card with room to spare.'
         : `These workflows need about ${n.gb} GB of VRAM together${n.unknown.length ? ` (no figure for ${n.unknown.join(', ')})` : ''}.`;
     const dl = tPlan.downloads;
@@ -363,7 +379,7 @@ $('tLaunch').onclick = async () => {
     const warn = o.availability === 'available' ? '' : `\n\nThunder does not clearly say this card is free right now (${AVAIL_LABEL[o.availability]}): the launch may be refused.`;
     const perHr = thunderHourly(o, $('tVcpus').value, $('tDisk').value) ?? 0;
     await loadSpend();
-    if (!confirm(`Launch a ${o.name} on Thunder Compute at $${perHr.toFixed(2)}/hour (${$('tVcpus').value} vCPU, ${$('tDisk').value} GB)?\n\nIt bills until you delete it. ${tChosen.length ? `It will serve: ${tChosen.join(', ')}.` : 'It starts in admin mode: no workflow, nothing downloaded.'}${warn}${coverage(spend?.thunder?.balance ?? null, perHr, 'Thunder')}`)) return;
+    if (!confirm(`Launch a ${o.name} on Thunder Compute at $${perHr.toFixed(2)}/hour (${$('tVcpus').value} vCPU, ${$('tDisk').value} GB)?\n\nIt bills until you delete it. ${tChosen.length ? `It will serve: ${tChosen.join(', ')}.` : 'It starts in admin mode: pick the workflow in its admin panel; its models download then.'}${warn}${coverage(spend?.thunder?.balance ?? null, perHr, 'Thunder')}`)) return;
     $('tLaunch').disabled = true;
     try {
         await api('POST', '/api/thunder/launch', { workflows: tChosen, gpu: o.id, vcpus: Number($('tVcpus').value), diskGb: Number($('tDisk').value), fetchModels: $('tFetch').checked });

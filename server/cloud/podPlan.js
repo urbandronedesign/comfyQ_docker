@@ -148,6 +148,38 @@ const base = (v) => String(v || '').split('\\').join('/').split('/').pop().toLow
  * where the meta says each comes from. Includes the ones reachable only
  * through a switch the defaults leave the other way: a student can flip it.
  */
+// Sizes of every downloadable model, measured by
+// tools/model-provenance/fresh-machine.cjs --write-sizes (in the image too).
+const SIZES_FILE = process.env.COMFYQ_DOWNLOADS_FILE || path.join(__dirname, '..', '..', 'tools', 'model-provenance', 'workflow-downloads.json');
+const HEADROOM = 2 * 1024 ** 3;
+const gbOf = (b) => (b / 1024 ** 3).toFixed(1);
+
+/**
+ * Do these missing files fit on the disk the models go to?
+ * ★ Checked BEFORE the first byte (2026-10-20): a machine launched with no
+ *   workflow gets its disk before anyone chooses one, and the downloader only
+ *   noticed per file, partway through: paying for a download that could never
+ *   finish. A file of unknown size counts as 0 and is named in `unknown`.
+ */
+function diskCheck(files, comfyRoot, { freeBytes } = {}) {
+    let sizes = {};
+    try { sizes = JSON.parse(fs.readFileSync(SIZES_FILE, 'utf8')).sizes || {}; } catch { /* none known */ }
+    const byBase = new Map(Object.entries(sizes).map(([k, v]) => [base(k), Number(v) || 0]));
+    let need = 0; const unknown = [];
+    for (const m of files) {
+        if (m.auto || !m.url) continue;
+        const b = byBase.get(base(m.file));
+        if (b == null) unknown.push(m.file); else need += b;
+    }
+    const dir = comfyRoot ? path.join(comfyRoot, 'models') : null;
+    let free = null;
+    if (freeBytes) free = freeBytes(dir);
+    else if (dir) { try { const st = fs.statfsSync(dir); free = st.bavail * st.bsize; } catch { free = null; } }
+    const ok = free == null || need + HEADROOM <= free;
+    return { ok, need, free, unknown,
+        message: ok ? null : `these models need ${gbOf(need)} GB and this machine has ${gbOf(free)} GB free (keeping ${gbOf(HEADROOM)} GB spare). Nothing was downloaded. Pick a lighter workflow, or delete this machine and launch one with a bigger disk.` };
+}
+
 function missingModels(entry, comfyRoot) {
     const est = estimateWorkflowVram(entry.apiWorkflow || {}, comfyRoot);
     const names = [...new Set([...(est.unresolved || []), ...(est.unresolvedInactive || [])])];
@@ -193,6 +225,9 @@ async function runPlan({ configManager, registry, downloader, exitForRestart, pl
                 else wanted.get(k).for.push(id);
             }
         }
+
+        const room = diskCheck([...wanted.values()], comfyRoot);
+        if (!room.ok) return fail(room.message);
 
         const files = [];
         for (const m of wanted.values()) {
@@ -259,4 +294,4 @@ async function runPlan({ configManager, registry, downloader, exitForRestart, pl
     return readPlan(planFile);
 }
 
-module.exports = { PLAN_FILE, applyEnv, runPlan, missingModels, readPlan, writePlan };
+module.exports = { PLAN_FILE, applyEnv, runPlan, missingModels, diskCheck, readPlan, writePlan };
