@@ -19,6 +19,8 @@ check('an unknown workflow is refused', throws(() => validateBooking({ count: 1,
 check('shut-down before the start is refused', throws(() => validateBooking({ count: 1, minVramGb: 24, maxPricePerHr: 1, startAt: '2026-10-21T10:00:00Z', endAt: '2026-10-21T09:00:00Z' }, { now }), /after the start/));
 check('a shut-down time already past is refused', throws(() => validateBooking({ count: 1, minVramGb: 24, maxPricePerHr: 1, startAt: '2026-10-20T01:00:00Z', endAt: '2026-10-20T04:00:00Z' }, { now }), /already past/));
 check('ready-by before the start is refused', throws(() => validateBooking({ count: 1, minVramGb: 24, maxPricePerHr: 1, startAt: '2026-10-21T10:00:00Z', readyBy: '2026-10-21T09:00:00Z' }, { now }), /before the start/));
+check('on shared storage the booking is Secure, whatever was picked', (() => { const v = validateBooking({ count: 1, minVramGb: 24, maxPricePerHr: 1, cloud: 'community', volumeId: 'uxd7q30mim' }, { now }); return v.volumeId === 'uxd7q30mim' && v.cloud === 'secure' && cloudsFor(v).join() === 'false'; })());
+check('"none" means no shared storage', validateBooking({ count: 1, minVramGb: 24, maxPricePerHr: 1, volumeId: 'none' }, { now }).volumeId === null);
 check('keep hunting can be switched off', validateBooking({ count: 1, minVramGb: 24, maxPricePerHr: 1, keepHunting: false }, { now }).keepHunting === false);
 
 // ---- cards ----

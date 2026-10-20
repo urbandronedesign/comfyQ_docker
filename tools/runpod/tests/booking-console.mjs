@@ -55,7 +55,7 @@ const fake = http.createServer(async (req, res) => {
         if (req.method === 'DELETE') { pods.delete(m[1]); return json(res, 200, {}); }
         return pods.has(m[1]) ? json(res, 200, pods.get(m[1])) : json(res, 404, { error: 'not found' });
     }
-    if (url.pathname === '/v1/networkvolumes') return json(res, 200, []);
+    if (url.pathname === '/v1/networkvolumes') return json(res, 200, [{ id: 'vol1', name: 'comfyq-models', dataCenterId: 'EU-RO-1', size: 100 }]);
     // ---- the Pods themselves, through the proxy: /pod/<id>/... ----
     if ((m = url.pathname.match(/^\/pod\/([^/]+)(\/.*)$/))) {
         const [, id, rest] = m;
@@ -143,6 +143,14 @@ try {
     check(`no card at 80 GB under $0.35: it says so instead of trying (${nb.blocked})`, /no card has at least 80 GB/.test(nb.blocked || '') && !creates.some(c => c.name.startsWith(`comfyq-bk-${nb.id}`)));
     await api('POST', `/api/bookings/${nb.id}/stop`);
 
+    // ---- on shared storage: Secure, in the volume's data centre, mounting it ----
+    const onVol = await api('POST', '/api/bookings', { name: 'Shared', count: 1, minVramGb: 24, maxPricePerHr: 0.5, cloud: 'community', volumeId: 'vol1', serve: ['image_sdxl_smoke_test'] });
+    check(`a booking on shared storage is Secure (${onVol.data.booking?.cloud})`, onVol.status === 200 && onVol.data.booking.cloud === 'secure');
+    check('its machine is found', await until(async () => [...pods.values()].some(p => p.name.startsWith(`comfyq-bk-${onVol.data.booking.id}-`))));
+    const vc = creates.filter(c => c.name.startsWith(`comfyq-bk-${onVol.data.booking.id}-`)).at(-1);
+    check(`it mounts the volume, on Secure Cloud, in its data centre (${vc?.cloudType} ${vc?.networkVolumeId} ${vc?.dataCenterIds})`, vc?.networkVolumeId === 'vol1' && vc.cloudType === 'SECURE' && vc.dataCenterIds?.join() === 'EU-RO-1' && !vc.volumeInGb);
+    await api('POST', `/api/bookings/${onVol.data.booking.id}/stop`);
+
     // ---- a scheduled booking waits for its start ----
     const later = await api('POST', '/api/bookings', { name: 'Tomorrow', count: 1, minVramGb: 24, maxPricePerHr: 0.35, serve: [], startAt: new Date(Date.now() + 3600_000).toISOString() });
     await sleep(1000);
@@ -153,7 +161,8 @@ try {
     const bi = process.argv.indexOf('--browser');
     if (bi > 0) {
         const r = await browserCheck(process.argv[bi + 1]);
-        check(`the form lists only qualifying cards, cheapest first (${r.cards})`, /RTX A5000.*RTX 3090.*RTX A6000/s.test(r.cards) && !/4090|4080/.test(r.cards));
+        check(`with one network volume the form picks it: Secure, in its data centre (${r.volume})`, r.volume === 'vol1' && r.cloudLocked && /Secure in EU-RO-1/.test(r.cards));
+        check(`the form lists only qualifying cards, cheapest first (${r.cards})`, /RTX A5000.*RTX 3090/s.test(r.cards) && !/4090|4080|A6000/.test(r.cards));
         check(`the form says what the day costs at most (${r.summary})`, /2 × \$0\.35\/h = \$0\.70\/h/.test(r.summary));
         check(`booking from the page works and it shows in the list (${r.list.slice(0, 80)})`, r.booked && /Page booking/.test(r.list) && /hunting|ready/.test(r.list));
         check(`no script error on the page (${r.errors.join(' | ')})`, r.errors.length === 0);
@@ -197,12 +206,14 @@ async function browserCheck(chrome) {
             const c = document.getElementById('bCount'); c.value = '2'; c.dispatchEvent(new Event('change')); return 1; })()`);
         await sleep(2500);
         const cards = await evalJs("document.getElementById('bCards').innerText");
+        const volume = await evalJs("document.getElementById('bVolume').value");
+        const cloudLocked = await evalJs("document.getElementById('bCloud').disabled");
         const summary = await evalJs("document.getElementById('bSummary').innerText");
         await evalJs("window.confirm = () => true; document.getElementById('bBook').click(); 1");
         await sleep(2500);
         const booked = await evalJs("document.getElementById('drawer-booking').hidden");
         const list = await evalJs("document.getElementById('bookingList').innerText");
-        return { cards, summary, booked, list, errors };
+        return { cards, summary, booked, list, errors, volume, cloudLocked };
     } finally { p.kill(); }
 }
 process.exit(bad ? 1 : 0);

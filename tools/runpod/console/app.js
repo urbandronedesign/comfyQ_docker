@@ -1705,9 +1705,18 @@ let bWorkflows = null, bChosen = [], bGpuCache = {};
 const localInput = (t) => { const d = new Date(t - new Date(t).getTimezoneOffset() * 60000); return d.toISOString().slice(0, 16); };
 const fromLocal = (v) => v ? new Date(v).toISOString() : null;
 
+let bVolumes = null;
 async function loadBookingForm() {
     if (!bWorkflows) {
         try { bWorkflows = (await api('GET', '/api/workflows')).workflows; } catch (e) { toast(e.message, true); bWorkflows = []; }
+    }
+    if (!bVolumes) {
+        try { bVolumes = (await api('GET', '/api/volumes')).volumes || []; } catch { bVolumes = []; }
+        $('bVolume').innerHTML = '<option value="none">None: each machine downloads its own models</option>'
+            + bVolumes.map(v => `<option value="${esc(v.id)}">${esc(v.name)} · ${esc(v.dataCenterId)} · ${v.size} GB</option>`).join('');
+        // The usual choice when there is one: every machine shares the models.
+        if (bVolumes.length === 1) $('bVolume').value = bVolumes[0].id;
+        bookingVolumeChanged();
     }
     if (!$('bStart').value) $('bStart').value = localInput(Date.now());
     renderBookingWorkflows();
@@ -1736,20 +1745,32 @@ function renderBookingWorkflows() {
 }
 $('bWfSearch').oninput = renderBookingWorkflows;
 
+// A network volume exists only on Secure Cloud, and pins its machines to its data centre.
+function bookingVolumeChanged() {
+    const v = (bVolumes || []).find(x => x.id === $('bVolume').value);
+    $('bCloud').disabled = !!v;
+    if (v) $('bCloud').value = 'secure';
+    $('bVolumeNote').hidden = !v;
+    if (v) $('bVolumeNote').innerHTML = `Every machine mounts <b>${esc(v.name)}</b>: the models are downloaded once and shared by all of them (and kept for the next booking). A network volume is on <b>Secure Cloud</b> only, and every machine has to be in its data centre, <b>${esc(v.dataCenterId)}</b>.`;
+    bookingCards();
+}
+$('bVolume').onchange = bookingVolumeChanged;
+
 // Which cards qualify right now, and what the day costs at most.
 async function bookingCards() {
-    const cloud = $('bCloud').value;
+    const vol = (bVolumes || []).find(x => x.id === $('bVolume').value) || null;
+    const cloud = vol ? 'secure' : $('bCloud').value;
     const minVram = Number($('bVram').value), cap = Number($('bPrice').value), count = Number($('bCount').value) || 1;
     const need = (bWorkflows || []).filter(w => bChosen.includes(w.id)).reduce((a, w) => a + (Number(w.vramGb) || 0), 0);
     const clouds = cloud === 'secure' ? ['0'] : cloud === 'community-secure' ? ['1', '0'] : ['1'];
     const lines = [];
     for (const c of clouds) {
-        const key = `${c}|${bChosen.join(',')}`;
+        const key = `${c}|${vol?.dataCenterId || ''}|${bChosen.join(',')}`;
         try {
-            if (!bGpuCache[key] || Date.now() - bGpuCache[key].at > 120000) bGpuCache[key] = { at: Date.now(), data: await api('GET', `/api/gpus?community=${c}&workflows=${encodeURIComponent(bChosen.join(','))}`) };
+            if (!bGpuCache[key] || Date.now() - bGpuCache[key].at > 120000) bGpuCache[key] = { at: Date.now(), data: await api('GET', `/api/gpus?community=${c}${vol ? `&dataCenterId=${encodeURIComponent(vol.dataCenterId)}` : ''}&workflows=${encodeURIComponent(bChosen.join(','))}`) };
             const ok = bGpuCache[key].data.rows.filter(r => r.launchable !== false && r.pricePerHr != null && r.vramGb >= Math.max(minVram, need) && r.pricePerHr <= cap)
                 .sort((a, b) => a.pricePerHr - b.pricePerHr);
-            lines.push(`${c === '1' ? 'Community' : 'Secure'}: ${ok.length ? ok.slice(0, 8).map(r => `${esc(r.name)} ${r.vramGb} GB $${r.pricePerHr.toFixed(2)}`).join(' · ') : '<b>no card meets this size and price</b>'}`);
+            lines.push(`${c === '1' ? 'Community' : `Secure${vol ? ` in ${esc(vol.dataCenterId)}` : ''}`}: ${ok.length ? ok.slice(0, 8).map(r => `${esc(r.name)} ${r.vramGb} GB $${r.pricePerHr.toFixed(2)}${r.stock ? ` (stock ${esc(r.stock)})` : ''}`).join(' · ') : '<b>no card meets this size and price</b>'}`);
         } catch (e) { lines.push(`${c === '1' ? 'Community' : 'Secure'}: ${esc(e.message)}`); }
     }
     $('bCards').innerHTML = `Cards that qualify${need > minVram ? ` (the workflows need about ${need} GB, more than the size set)` : ''}: ${lines.join('<br>')}<br>Whether one is free is only known by asking: RunPod's stock figures leave out the CUDA 12.8 driver ComfyQ needs.`;
@@ -1763,7 +1784,7 @@ for (const id of ['bCloud', 'bVram', 'bPrice', 'bCount', 'bStart', 'bEnd']) $(id
 $('bBook').onclick = async () => {
     const body = {
         name: $('bName').value, count: Number($('bCount').value), minVramGb: Number($('bVram').value), maxPricePerHr: Number($('bPrice').value),
-        cloud: $('bCloud').value, serve: bChosen, startAt: fromLocal($('bStart').value), readyBy: fromLocal($('bReady').value),
+        cloud: $('bCloud').value, volumeId: $('bVolume').value, serve: bChosen, startAt: fromLocal($('bStart').value), readyBy: fromLocal($('bReady').value),
         endAt: fromLocal($('bEnd').value), keepHunting: $('bKeep').checked,
     };
     const end = body.endAt ? new Date(body.endAt).toLocaleString() : 'until you terminate them';
@@ -1783,7 +1804,7 @@ async function loadBookings() {
         return `<div class="booking ${active ? '' : 'muted'}">
           <div class="row wrap">
             <b>${esc(b.status)}</b>
-            <span class="muted small">≥ ${b.minVramGb} GB · ≤ $${b.maxPricePerHr.toFixed(2)}/h · ${esc(b.cloud)} · ${b.serve.length ? esc(b.serve.join(', ')) : 'admin mode'}</span>
+            <span class="muted small">≥ ${b.minVramGb} GB · ≤ $${b.maxPricePerHr.toFixed(2)}/h · ${b.volumeId ? `Secure, shared storage ${esc(b.volumeId)}` : esc(b.cloud)} · ${b.serve.length ? esc(b.serve.join(', ')) : 'admin mode'}</span>
             <span class="muted small">from ${when(b.startAt)}${b.readyBy ? ` · ready by ${when(b.readyBy)}` : ''}${b.endAt ? ` · shut down ${when(b.endAt)}` : ''}${b.lastTry ? ` · last try ${new Date(b.lastTry).toLocaleTimeString()}` : ''}</span>
             <span style="flex:1"></span>
             ${active ? `<button class="secondary small" data-bstop="${esc(b.id)}" title="Stop hunting; the machines found keep running">Stop hunting</button>` : ''}

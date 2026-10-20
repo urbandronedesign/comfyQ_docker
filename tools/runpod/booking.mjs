@@ -27,7 +27,10 @@ export function validateBooking(input, { now = Date.now(), workflows = [] } = {}
     if (!(minVramGb >= 8 && minVramGb <= 200)) throw new Error('minimum GPU size: 8 to 200 GB of VRAM');
     const maxPricePerHr = Number(b.maxPricePerHr);
     if (!(maxPricePerHr > 0 && maxPricePerHr <= 20)) throw new Error('price cap: more than $0 and at most $20 per hour per machine');
-    const cloud = CLOUDS.includes(b.cloud) ? b.cloud : 'community';
+    // Shared storage: a RunPod network volume exists only on Secure Cloud and pins
+    // every Pod to its data centre, so a booking on one is Secure there.
+    const volumeId = b.volumeId && b.volumeId !== 'none' ? String(b.volumeId) : null;
+    const cloud = volumeId ? 'secure' : CLOUDS.includes(b.cloud) ? b.cloud : 'community';
     const serve = Array.isArray(b.serve) ? [...new Set(b.serve.map(String).filter(Boolean))] : [];
     const known = new Set(workflows.map(w => w.id));
     const unknown = serve.filter(id => !known.has(id));
@@ -40,7 +43,7 @@ export function validateBooking(input, { now = Date.now(), workflows = [] } = {}
     if (endAt && Date.parse(endAt) <= now) throw new Error('"shut down at" is already past');
     const name = String(b.name || '').trim().slice(0, 60) || `Workshop ${new Date(startAt).toISOString().slice(0, 10)}`;
     return {
-        name, count, minVramGb, maxPricePerHr, cloud, serve,
+        name, count, minVramGb, maxPricePerHr, cloud, serve, volumeId,
         startAt, readyBy, endAt,
         keepHunting: b.keepHunting !== false,
         diskGb: Number(b.diskGb) > 0 ? Math.round(Number(b.diskGb)) : null,

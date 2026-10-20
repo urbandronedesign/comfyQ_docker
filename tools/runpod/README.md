@@ -158,6 +158,7 @@ RunPod's stock figures do not show: a card listed as free is often refused. So i
 | **Minimum GPU size** | only cards with at least this VRAM (and what the workflows need) |
 | **Price cap** | only cards at or under this price per hour, per machine |
 | Cloud | Community only, Community then Secure, or Secure only |
+| **Shared storage** | your network volume (picked by default when you have one): every machine mounts it, so the models are downloaded once and shared, and kept for the next booking. It makes the booking **Secure Cloud, in the volume's data centre only** (EU-RO-1 for `comfyq-models`). *None*: each machine downloads its own models |
 | Start hunting at | when the console starts asking |
 | Must be ready by | optional: you are told at that time how many were found |
 | Shut down at | optional: results saved to `Desktop\ComfyQ results`, then terminated |
@@ -169,8 +170,8 @@ asks first):
 
 - from the start time, **every minute** the console asks RunPod for the machines still missing, with
   every qualifying card as a fallback, cheapest first. A refused try costs nothing; each try is in *Attempts*;
-- each machine found is **kept**. It boots serving the workflows, downloading their models to its own disk
-  (Community Cloud has no network volume): a few minutes, ~19 GB for Krea 2. You get a Windows
+- each machine found is **kept**. It boots serving the workflows; their models come from the shared volume,
+  or, with none, are downloaded to its own disk (a few minutes, ~19 GB for Krea 2). You get a Windows
   notification, and its student links show under the booking;
 - it never makes more machines than asked for and never pays more than the cap; it does not hunt if
   your RunPod balance cannot pay every machine at the cap until the shut-down (or for 10 hours);

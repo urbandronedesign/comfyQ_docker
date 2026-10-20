@@ -279,7 +279,9 @@
         <label class="field"><span>Minimum GPU size</span><select id="bVram"><option>16</option><option>20</option><option selected>24</option><option>32</option><option>48</option><option>80</option></select></label>
         <label class="field"><span>Price cap per machine ($/hour)</span><input id="bPrice" type="number" min="0.05" max="20" step="0.01" value="0.35"></label>
         <label class="field"><span>Cloud</span><select id="bCloud"><option value="community">Community only</option><option value="community-secure">Community, then Secure</option><option value="secure">Secure only</option></select></label>
+        <label class="field"><span>Shared storage</span><select id="bVolume"><option value="none">None: each machine downloads its own models</option></select></label>
       </div>
+      <p id="bVolumeNote" class="muted small" hidden></p>
       <p id="bCards" class="muted small"></p>
     </div>
     <div class="section">

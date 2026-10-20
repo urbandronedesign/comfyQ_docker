@@ -991,16 +991,26 @@ async function tickBooking(b0, pods, key, now) {
     const vram = vramNeeded(picked);
     const dl = downloadNeed(b.serve);
     const n = (b.podIds || []).length + 1;
+    // On shared storage: Secure Cloud, in the volume's data centre only.
+    let volume = null;
+    if (b.volumeId) {
+        volume = (await rest(key, 'GET', '/networkvolumes')).find(v => v.id === b.volumeId);
+        if (!volume) {
+            const why = `its network volume ${b.volumeId} no longer exists`;
+            if (b.blocked !== why) patchBooking(b.id, x => { x.blocked = why; bookingEvent(x, 'blocked', `${x.name}: not hunting`, `${why}.`, 'bad'); });
+            return;
+        }
+    }
     let created = null, tried = [];
     for (const community of cloudsFor(b)) {
-        const { gpus } = await gpuTypes(key, { secureCloud: !community });
+        const { gpus } = await gpuTypes(key, { secureCloud: !community, dataCenterId: volume?.dataCenterId });
         const { rows } = rankGpus(gpus, Math.max(b.minVramGb, vram.gb || 0), { community, accepted: knownAcceptedGpus() });
         const cards = cardsFor(rows, b);
-        tried.push(`${community ? 'Community' : 'Secure'}: ${cards.length} card(s)`);
+        tried.push(`${community ? 'Community' : `Secure${volume ? ` ${volume.dataCenterId}` : ''}`}: ${cards.length} card(s)`);
         if (!cards.length) continue;
         try {
             const out = await launchPods({
-                volumeId: NO_VOLUME, community, podVolumeGb: podDiskFor(dl.gb, b.diskGb), expectedPerHr: b.maxPricePerHr,
+                volumeId: volume ? volume.id : NO_VOLUME, community, podVolumeGb: podDiskFor(dl.gb, b.diskGb), expectedPerHr: b.maxPricePerHr,
                 pods: [{ serve: b.serve, gpuTypeIds: cards.map(c => c.id), name: `${podPrefix(b)}${n}` }],
             });
             created = out.pod;
