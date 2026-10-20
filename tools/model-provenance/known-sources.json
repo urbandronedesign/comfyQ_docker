@@ -15,23 +15,24 @@
     "",
     "Files that are genuinely unknown are LEFT OUT on purpose, so the harvest",
     "keeps reporting them. A guess here would be worse than the gap:",
-    "  3DREAL-strong.safetensors                        community LTX IC-LoRA",
     "  DynamicCharacterSheet_krea2_v1.safetensors       community Krea 2 LoRA",
     "  QuadView_krea2_v1.safetensors                    community Krea 2 LoRA",
-    "  qwen-image-edit-2511-multiple-angles-lora.safetensors",
-    "  wan_2.1_idv2v_int8_convrot.safetensors           int8_convrot line",
     "",
     "  override  true makes this entry beat a link found in the notes. Only for",
     "            a note that is demonstrably wrong -- see the LTX pixel-spatial",
     "            upscaler, whose template links to the wrong (gated) repo."
   ],
   "qwen-image-2.1-fix-1.0-comfy.safetensors": {
+    "url": "https://huggingface.co/e-n-v-y/Qwen-Image-2.1-Fix/resolve/main/qwen-image-2.1-fix-1.0-comfy.safetensors",
     "source": "https://huggingface.co/e-n-v-y/Qwen-Image-2.1-Fix",
-    "note": "The author's recommended sampler settings are only inside the workflow zip in this repo, not in the README."
+    "note": "Repo root; verified 2026-10-20.",
+    "override": true
   },
   "Qwen-Image-Edit-Unblur-Upscale_20.safetensors": {
+    "url": "https://huggingface.co/prithivMLmods/Qwen-Image-Edit-2511-Unblur-Upscale/resolve/main/Qwen-Image-Edit-Unblur-Upscale_20.safetensors",
     "source": "https://huggingface.co/prithivMLmods/Qwen-Image-Edit-2511-Unblur-Upscale",
-    "note": "Four training checkpoints (_5/_10/_15/_20) live in this repo; the bundle exposes them through a dropdown."
+    "note": "Repo root; checkpoints _5/_10/_15 sit beside it; verified 2026-10-20.",
+    "override": true
   },
   "Qwen-Image-2.1-Fun-Controlnet-Union.safetensors": {
     "url": "https://huggingface.co/alibaba-pai/Qwen-Image-2.1-Fun-Controlnet-Union/resolve/main/Qwen-Image-2.1-Fun-Controlnet-Union.safetensors",
@@ -44,12 +45,16 @@
     "note": "The author's own repo (thedeoxen), not Comfy-Org's Klein repack, which does not hold it. Verified 2026-10-20: 165.7 MB."
   },
   "pid_1.5_qwenimage_1024_to_4096_4step_bf16.safetensors": {
-    "source": "https://github.com/BennyDaBall930/ComfyUI-Latent-Tiled-PiD",
-    "note": "Released with the PiD node pack rather than on HuggingFace; follow the pack's own download instructions."
+    "url": "https://huggingface.co/Comfy-Org/PixelDiT/resolve/main/diffusion_models/pid_1.5_qwenimage_1024_to_4096_4step_bf16.safetensors",
+    "source": "https://huggingface.co/Comfy-Org/PixelDiT",
+    "note": "Comfy-Org repack; verified 2026-10-20.",
+    "override": true
   },
   "gemma_2_2b_it_elm_bf16.safetensors": {
-    "source": "https://github.com/BennyDaBall930/ComfyUI-Latent-Tiled-PiD",
-    "note": "Ships with the PiD 1.5 release; it is PiD's own prompt encoder, not a general Gemma build."
+    "url": "https://huggingface.co/Comfy-Org/PixelDiT/resolve/main/text_encoders/gemma_2_2b_it_elm_bf16.safetensors",
+    "source": "https://huggingface.co/Comfy-Org/PixelDiT",
+    "note": "Comfy-Org repack; verified 2026-10-20.",
+    "override": true
   },
   "yolox_l.torchscript.pt": {
     "auto": true,
@@ -110,14 +115,57 @@
     "note": "Face detectors the LivePortrait cropper fetches itself. Only the MediaPipe cropper is wired in this bundle."
   },
   "ltx-2.5-22b-ic-lora-pixel-spatial-upscaler-x2-1.0.safetensors": {
-    "override": true,
-    "source": "https://huggingface.co/Lightricks/LTX-2.3-22b-IC-LoRA-Pixel-Spatial-Upscaler",
-    "note": "Lightricks' Pixel Spatial Upscaler adapter, and NOT the DEBLUR-trigger LoRA its template's note links to: that repo (LTX-2.3-22b-IC-LoRA-Deblur) only holds ltx-2.3-22b-ic-lora-deblur-0.9. Gated, so a token is needed."
+    "url": "https://huggingface.co/Lightricks/LTX-2.5-22b-IC-LoRA-Pixel-Spatial-Upscaler/resolve/main/ltx-2.5-22b-ic-lora-pixel-spatial-upscaler-x2-1.0.safetensors",
+    "source": "https://huggingface.co/Lightricks/LTX-2.5-22b-IC-LoRA-Pixel-Spatial-Upscaler",
+    "note": "GATED: accept the licence on this repo with the account whose token is set (separate from Lightricks/LTX-2.5). The LTX-2.3 repo only has 0.9 versions; verified 2026-10-20.",
+    "override": true
   },
   "da3_large.safetensors": {
     "auto": true,
     "override": true,
     "source": "https://huggingface.co/depth-anything/DA3-LARGE-1.1",
     "note": "ComfyUI-DepthAnythingV3 downloads it on first use (model.safetensors from this repo, renamed) into models/depthanything3/."
+  },
+  "krea2_realism_lora.safetensors": {
+    "url": "https://huggingface.co/gokaygokay/Krea-2-Realism-LoRA/resolve/main/krea2_realism_lora.safetensors",
+    "source": "https://huggingface.co/gokaygokay/Krea-2-Realism-LoRA",
+    "note": "Community LoRA by gokaygokay, not in Comfy-Org/Krea-2; verified 2026-10-20.",
+    "override": true
+  },
+  "qwen_image_edit_2511_bf16.safetensors": {
+    "url": "https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_edit_2511_bf16.safetensors",
+    "source": "https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI",
+    "note": "verified 2026-10-20.",
+    "override": true
+  },
+  "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors": {
+    "url": "https://huggingface.co/lightx2v/Qwen-Image-Edit-2511-Lightning/resolve/main/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
+    "source": "https://huggingface.co/lightx2v/Qwen-Image-Edit-2511-Lightning",
+    "note": "The 2511 Lightning repo, not Qwen-Image-Lightning (2509 only); verified 2026-10-20.",
+    "override": true
+  },
+  "3DREAL-strong.safetensors": {
+    "url": "https://huggingface.co/fal/LTX-2.3-3DREAL-LoRA/resolve/main/3DREAL-strong.safetensors",
+    "source": "https://huggingface.co/fal/LTX-2.3-3DREAL-LoRA",
+    "note": "fal's repo; 3DREAL-light and a -strong-v2 sit beside it; verified 2026-10-20.",
+    "override": true
+  },
+  "wan_2.1_idv2v_int8_convrot.safetensors": {
+    "url": "https://huggingface.co/Kijai/Wan_ID_V2V_comfy/resolve/main/wan_2.1_idv2v_int8_convrot.safetensors",
+    "source": "https://huggingface.co/Kijai/Wan_ID_V2V_comfy",
+    "note": "Kijai's ComfyUI repack of Eyeline-Labs/ID-V2V; verified 2026-10-20.",
+    "override": true
+  },
+  "wan_animate_2_distill_int8_convrot.safetensors": {
+    "url": "https://huggingface.co/Comfy-Org/Wan-Animate-2/resolve/main/diffusion_models/wan_animate_2_distill_int8_convrot.safetensors",
+    "source": "https://huggingface.co/Comfy-Org/Wan-Animate-2",
+    "note": "verified 2026-10-20.",
+    "override": true
+  },
+  "video_depth_anything_vits.pth": {
+    "auto": true,
+    "source": "https://huggingface.co/depth-anything/Video-Depth-Anything-Small",
+    "note": "ComfyUI-Video-Depth-Anything downloads it on first use into models/videodepthanything/.",
+    "override": true
   }
 }

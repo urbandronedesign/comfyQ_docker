@@ -62,7 +62,8 @@
         "type": "lora",
         "file": "qwen-image-2.1-fix-1.0-comfy.safetensors",
         "source": "https://huggingface.co/e-n-v-y/Qwen-Image-2.1-Fix",
-        "note": "The author's recommended sampler settings are only inside the workflow zip in this repo, not in the README."
+        "note": "Repo root; verified 2026-10-20.",
+        "url": "https://huggingface.co/e-n-v-y/Qwen-Image-2.1-Fix/resolve/main/qwen-image-2.1-fix-1.0-comfy.safetensors"
       }
     ]
   },

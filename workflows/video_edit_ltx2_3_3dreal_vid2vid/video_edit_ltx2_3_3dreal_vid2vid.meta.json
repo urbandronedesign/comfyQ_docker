@@ -48,7 +48,10 @@
       },
       {
         "type": "lora",
-        "file": "3DREAL-strong.safetensors"
+        "file": "3DREAL-strong.safetensors",
+        "url": "https://huggingface.co/fal/LTX-2.3-3DREAL-LoRA/resolve/main/3DREAL-strong.safetensors",
+        "source": "https://huggingface.co/fal/LTX-2.3-3DREAL-LoRA",
+        "note": "fal's repo; 3DREAL-light and a -strong-v2 sit beside it; verified 2026-10-20."
       },
       {
         "type": "lora",

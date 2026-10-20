@@ -74,7 +74,9 @@
       {
         "type": "other",
         "file": "video_depth_anything_vits.pth",
-        "source": "https://huggingface.co/depth-anything/Video-Depth-Anything-Small"
+        "source": "https://huggingface.co/depth-anything/Video-Depth-Anything-Small",
+        "auto": true,
+        "note": "ComfyUI-Video-Depth-Anything downloads it on first use into models/videodepthanything/."
       }
     ]
   },

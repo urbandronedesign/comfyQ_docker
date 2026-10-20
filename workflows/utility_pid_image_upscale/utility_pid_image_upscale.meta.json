@@ -31,14 +31,16 @@
       {
         "type": "unet",
         "file": "pid_1.5_qwenimage_1024_to_4096_4step_bf16.safetensors",
-        "source": "https://github.com/BennyDaBall930/ComfyUI-Latent-Tiled-PiD",
-        "note": "Released with the PiD node pack rather than on HuggingFace; follow the pack's own download instructions."
+        "source": "https://huggingface.co/Comfy-Org/PixelDiT",
+        "note": "Comfy-Org repack; verified 2026-10-20.",
+        "url": "https://huggingface.co/Comfy-Org/PixelDiT/resolve/main/diffusion_models/pid_1.5_qwenimage_1024_to_4096_4step_bf16.safetensors"
       },
       {
         "type": "clip",
         "file": "gemma_2_2b_it_elm_bf16.safetensors",
-        "source": "https://github.com/BennyDaBall930/ComfyUI-Latent-Tiled-PiD",
-        "note": "Ships with the PiD 1.5 release; it is PiD's own prompt encoder, not a general Gemma build."
+        "source": "https://huggingface.co/Comfy-Org/PixelDiT",
+        "note": "Comfy-Org repack; verified 2026-10-20.",
+        "url": "https://huggingface.co/Comfy-Org/PixelDiT/resolve/main/text_encoders/gemma_2_2b_it_elm_bf16.safetensors"
       }
     ]
   },

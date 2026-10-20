@@ -24,7 +24,9 @@
       {
         "type": "unet",
         "file": "wan_animate_2_distill_int8_convrot.safetensors",
-        "source": "https://huggingface.co/Comfy-Org/Wan-Animate-2"
+        "source": "https://huggingface.co/Comfy-Org/Wan-Animate-2",
+        "url": "https://huggingface.co/Comfy-Org/Wan-Animate-2/resolve/main/diffusion_models/wan_animate_2_distill_int8_convrot.safetensors",
+        "note": "verified 2026-10-20."
       },
       {
         "type": "vae",

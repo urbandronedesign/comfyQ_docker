@@ -23,7 +23,9 @@
       {
         "type": "unet",
         "file": "qwen_image_edit_2511_bf16.safetensors",
-        "source": "https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI"
+        "source": "https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI",
+        "url": "https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_edit_2511_bf16.safetensors",
+        "note": "verified 2026-10-20."
       },
       {
         "type": "clip",
@@ -41,12 +43,15 @@
         "type": "lora",
         "file": "Qwen-Image-Edit-Unblur-Upscale_20.safetensors",
         "source": "https://huggingface.co/prithivMLmods/Qwen-Image-Edit-2511-Unblur-Upscale",
-        "note": "Four training checkpoints (_5/_10/_15/_20) live in this repo; the bundle exposes them through a dropdown."
+        "note": "Repo root; checkpoints _5/_10/_15 sit beside it; verified 2026-10-20.",
+        "url": "https://huggingface.co/prithivMLmods/Qwen-Image-Edit-2511-Unblur-Upscale/resolve/main/Qwen-Image-Edit-Unblur-Upscale_20.safetensors"
       },
       {
         "type": "lora",
         "file": "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
-        "source": "https://huggingface.co/lightx2v/Qwen-Image-Lightning"
+        "source": "https://huggingface.co/lightx2v/Qwen-Image-Edit-2511-Lightning",
+        "url": "https://huggingface.co/lightx2v/Qwen-Image-Edit-2511-Lightning/resolve/main/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
+        "note": "The 2511 Lightning repo, not Qwen-Image-Lightning (2509 only); verified 2026-10-20."
       }
     ],
     "disabledPerfFlags": [

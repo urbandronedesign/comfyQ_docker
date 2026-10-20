@@ -26,7 +26,10 @@
     "models": [
       {
         "type": "unet",
-        "file": "wan_2.1_idv2v_int8_convrot.safetensors"
+        "file": "wan_2.1_idv2v_int8_convrot.safetensors",
+        "url": "https://huggingface.co/Kijai/Wan_ID_V2V_comfy/resolve/main/wan_2.1_idv2v_int8_convrot.safetensors",
+        "source": "https://huggingface.co/Kijai/Wan_ID_V2V_comfy",
+        "note": "Kijai's ComfyUI repack of Eyeline-Labs/ID-V2V; verified 2026-10-20."
       },
       {
         "type": "vae",

@@ -67,8 +67,9 @@
       {
         "type": "lora",
         "file": "ltx-2.5-22b-ic-lora-pixel-spatial-upscaler-x2-1.0.safetensors",
-        "source": "https://huggingface.co/Lightricks/LTX-2.3-22b-IC-LoRA-Pixel-Spatial-Upscaler",
-        "note": "Lightricks' Pixel Spatial Upscaler adapter, and NOT the DEBLUR-trigger LoRA its template's note links to: that repo (LTX-2.3-22b-IC-LoRA-Deblur) only holds ltx-2.3-22b-ic-lora-deblur-0.9. Gated, so a token is needed."
+        "source": "https://huggingface.co/Lightricks/LTX-2.5-22b-IC-LoRA-Pixel-Spatial-Upscaler",
+        "note": "GATED: accept the licence on this repo with the account whose token is set (separate from Lightricks/LTX-2.5). The LTX-2.3 repo only has 0.9 versions; verified 2026-10-20.",
+        "url": "https://huggingface.co/Lightricks/LTX-2.5-22b-IC-LoRA-Pixel-Spatial-Upscaler/resolve/main/ltx-2.5-22b-ic-lora-pixel-spatial-upscaler-x2-1.0.safetensors"
       }
     ]
   },
