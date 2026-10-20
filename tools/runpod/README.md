@@ -145,6 +145,41 @@ A new machine downloads every model its workflows need. The console reads how mu
 
 Regenerate the sizes after adding a workflow: `node tools/model-provenance/fresh-machine.cjs --online --write-sizes`.
 
+## Workshop bookings: machines found before the class, kept all day
+
+RunPod's cheap cards come and go by the minute, and the image needs a host with a CUDA 12.8 driver, which
+RunPod's stock figures do not show: a card listed as free is often refused. So instead of pressing
+*Create* until one works, **book** them: RunPod page → *Workshop bookings* → **+ Book machines**.
+
+| Setting | What it does |
+|---|---|
+| Workflows | what each machine serves (none: it starts in admin mode) |
+| How many | 1 to 8 machines |
+| **Minimum GPU size** | only cards with at least this VRAM (and what the workflows need) |
+| **Price cap** | only cards at or under this price per hour, per machine |
+| Cloud | Community only, Community then Secure, or Secure only |
+| Start hunting at | when the console starts asking |
+| Must be ready by | optional: you are told at that time how many were found |
+| Shut down at | optional: results saved to `Desktop\ComfyQ results`, then terminated |
+| Keep hunting | on: a machine still missing, or lost during the day, is looked for again |
+
+The form shows which cards qualify right now and the most the booking can cost per hour and until the
+shut-down time. Then, **while the app runs** (window closed is fine; quitting stops the hunt, and the app
+asks first):
+
+- from the start time, **every minute** the console asks RunPod for the machines still missing, with
+  every qualifying card as a fallback, cheapest first. A refused try costs nothing; each try is in *Attempts*;
+- each machine found is **kept**. It boots serving the workflows, downloading their models to its own disk
+  (Community Cloud has no network volume): a few minutes, ~19 GB for Krea 2. You get a Windows
+  notification, and its student links show under the booking;
+- it never makes more machines than asked for and never pays more than the cap; it does not hunt if
+  your RunPod balance cannot pay every machine at the cap until the shut-down (or for 10 hours);
+- *Stop hunting* keeps the machines found; *Shut down now…* saves the results then terminates them.
+
+Machines are recognised by name (`comfyq-bk-<booking>-<n>`); bookings are kept in `~/.comfyq/bookings.json`.
+Tested against a stand-in RunPod: `node tools/runpod/booking.test.mjs` and
+`node tools/runpod/tests/booking-console.mjs [--browser "<chrome.exe>"]`.
+
 ## Storage for the whole library on one RunPod volume
 
 Estimated 2026-10-20 from `tools/model-provenance/workflow-downloads.json` (70 workflows):

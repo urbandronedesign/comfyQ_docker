@@ -5,7 +5,8 @@
 //   - a machine finished its setup and serves, or its setup failed (it bills anyway);
 //   - a machine has been on for 3 hours, then again at 6 and 9;
 //   - today passed the daily budget;
-//   - a balance covers less than 4 hours at the current rate.
+//   - a balance covers less than 4 hours at the current rate;
+//   - what a workshop booking reports (a machine found or lost, ready-by, too low a balance, ended).
 // What is already true when the app starts is taken as known, not announced:
 // opening the app must not fire a burst of old news.
 'use strict';
@@ -25,9 +26,10 @@ const dayKey = (t) => new Date(t).toDateString();
  * @param {number} now
  * @returns {{ state: object, events: Array<{key,title,body,level}> }}
  */
-function decide(state, { spend, machines = [] }, now) {
+function decide(state, { spend, machines = [], bookings = [] }, now) {
     const first = !state;
     const s = state ? JSON.parse(JSON.stringify(state)) : { stages: {}, longOn: {}, budgetDay: null, low: {} };
+    s.bookingSeen = s.bookingSeen || {};
     const events = [];
     const say = (key, title, body, level = 'info') => { if (!first) events.push({ key, title, body, level }); };
 
@@ -77,19 +79,41 @@ function decide(state, { spend, machines = [] }, now) {
         if (low && !s.low[name]) say(`low:${name}`, `${name} balance is running out`, `About ${money(b.balance)} left: ${b.hoursLeft} hours at the current rate.${name === 'RunPod' ? ' RunPod stops a Pod when it reaches zero.' : ''}`, 'bad');
         s.low[name] = !!low;
     }
+    // ---- workshop bookings: each event the console recorded, said once ----
+    for (const b of bookings) {
+        const seen = s.bookingSeen[b.id] || 0;
+        const fresh = (b.events || []).filter(e => e.at > seen);
+        // What was there when the app started is old news; after that every new
+        // event is said, a booking made meanwhile included ("booked" excepted:
+        // the owner just did it).
+        if (!first) for (const e of fresh) if (e.kind !== 'created') events.push({ key: `booking:${b.id}:${e.at}`, title: e.title, body: e.body || '', level: e.level || 'info' });
+        s.bookingSeen[b.id] = Math.max(seen, ...(b.events || []).map(e => e.at), 0);
+    }
+    for (const id of Object.keys(s.bookingSeen)) if (!bookings.some(b => b.id === id)) delete s.bookingSeen[id];
     return { state: s, events };
 }
 
+/** Bookings still hunting or waiting: quitting the app stops them. */
+const huntingBookings = (bookings = []) => bookings.filter(b => !['stopped', 'ended'].includes(b.state));
+
 /** The question asked before quitting, or null when nothing bills by the hour. */
-function quitQuestion(spend) {
+function quitQuestion(spend, bookings = []) {
     const ms = spend?.machines || [];
+    const hunting = huntingBookings(bookings);
+    if (!ms.length && hunting.length) {
+        return {
+            title: `${hunting.length} workshop booking${hunting.length > 1 ? 's are' : ' is'} active`,
+            detail: `${hunting.map(b => `• ${b.status || b.name}`).join('\n')}\n\nThe hunt runs inside this app: quitting stops it until the app is opened again. Keep the app running (closing the window is enough) to keep hunting.`,
+        };
+    }
     if (!ms.length) return null;
     const rate = ms.reduce((a, m) => a + (Number(m.ratePerHr) || 0), 0);
     return {
         title: `${ms.length} machine${ms.length > 1 ? 's are' : ' is'} still billing`,
         detail: `${ms.map(m => `• ${m.provider === 'thunder' ? 'Thunder' : 'RunPod'} · ${m.name || m.id}: ${money(m.ratePerHr)}/h`).join('\n')}\n\n`
             + `Together ${money(rate)}/h. Quitting the app does not stop them: they keep billing, and the app will not warn you any more. `
-            + 'Delete or stop them in the console first, or quit anyway.',
+            + 'Delete or stop them in the console first, or quit anyway.'
+            + (hunting.length ? `\n\n${hunting.length} workshop booking${hunting.length > 1 ? 's' : ''} also stop${hunting.length > 1 ? '' : 's'} hunting until the app is opened again.` : ''),
     };
 }
 
@@ -102,4 +126,4 @@ function trayLine(spend) {
         + ` · today ${money(spend.today)}`;
 }
 
-module.exports = { decide, quitQuestion, trayLine, LONG_ON_HOURS, LOW_BALANCE_HOURS };
+module.exports = { decide, quitQuestion, trayLine, huntingBookings, LONG_ON_HOURS, LOW_BALANCE_HOURS };

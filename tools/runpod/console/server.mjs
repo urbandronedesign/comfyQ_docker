@@ -33,6 +33,7 @@ import {
 } from '../thunder.mjs';
 import { graphql, downloadNeed, diskNeeded, RESULTS_DISK_GB, acceptedGpuIds } from '../lib.mjs';
 import { updateLedger, summarize, emptyLedger, thunderBalanceNow } from '../spend.mjs';
+import { validateBooking, cardsFor, decide as bookingDecide, podsOf, isLive, cloudsFor, podDiskFor, hoursToCover, statusLine, podPrefix } from '../booking.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.COMFYQ_CONSOLE_PORT || 4777);
@@ -263,7 +264,8 @@ route('GET', '/api/gpus', async ({ query }) => {
 // options are shared. Pods are created one after the other; one RunPod has no
 // machine for does not undo the others, which are already billing, so the
 // answer lists both what was created and what failed.
-route('POST', '/api/launch', async ({ body }) => {
+// The launch itself, shared by the Create panel and the workshop bookings.
+async function launchPods(body) {
     const s = loadSettings();
     const key = apiKey();
     const image = s.image || DEFAULT_IMAGE;
@@ -368,7 +370,8 @@ route('POST', '/api/launch', async ({ body }) => {
     if (!created.length) throw new RunPodError(plans.length === 1 ? failed[0].error : failed.map(f => `${f.name}: ${f.error}`).join(' — '),
         failed.every(f => /no free machine/.test(f.error)) ? 409 : failed[0].status);
     return { pod: created[0], created, failed, results };
-});
+}
+route('POST', '/api/launch', ({ body }) => launchPods(body));
 
 // The Pod object minus its environment, which holds the passwords. RunPod
 // gives only the volume's id, so its name comes from the volume list.
@@ -827,8 +830,7 @@ function resultsFolder(name) {
     const day = new Date().toISOString().slice(0, 10);
     return path.join(fs.existsSync(desk) ? desk : os.homedir(), 'ComfyQ results', `${name}-${day}`);
 }
-async function saveThunderResults(uuid, st) {
-    const base = thunderUrl(uuid);
+async function saveResultsFrom(base, st, label) {
     const jr = await fetch(`${base}/jobs?limit=100000`, { signal: AbortSignal.timeout(60000) });
     if (!jr.ok) throw new RunPodError(`the instance answered HTTP ${jr.status} for its job list`, 502);
     const jobs = (await jr.json()).jobs || [];
@@ -858,7 +860,7 @@ async function saveThunderResults(uuid, st) {
     };
     await Promise.all(Array.from({ length: 4 }, worker));
     st.state = 'done';
-    console.log(`[results] ${uuid}: ${st.saved}/${st.total} files, ${Math.round(st.bytes / 1e6)} MB → ${st.folder}${st.failed.length ? ` (${st.failed.length} failed)` : ''}`);
+    console.log(`[results] ${label}: ${st.saved}/${st.total} files, ${Math.round(st.bytes / 1e6)} MB → ${st.folder}${st.failed.length ? ` (${st.failed.length} failed)` : ''}`);
     // Open it for the owner (not in the tests: COMFYQ_NO_EXPLORER).
     if (process.platform === 'win32' && !process.env.COMFYQ_NO_EXPLORER) spawn('explorer', [st.folder], { detached: true, stdio: 'ignore' }).unref();
 }
@@ -870,7 +872,7 @@ route('POST', '/api/thunder/instances/([A-Za-z0-9-]+)/download', ({ match }) => 
     if (running && !['done', 'failed'].includes(running.state)) return running;
     const st = { state: 'listing', jobs: 0, total: 0, saved: 0, bytes: 0, failed: [], error: null, folder: resultsFolder(`thunder-${r.uuid}`), startedAt: Date.now() };
     resultSaves.set(r.uuid, st);
-    saveThunderResults(r.uuid, st).catch(e => { st.state = 'failed'; st.error = redact(e.message); });
+    saveResultsFrom(thunderUrl(r.uuid), st, r.uuid).catch(e => { st.state = 'failed'; st.error = redact(e.message); });
     return st;
 });
 
@@ -885,6 +887,193 @@ route('DELETE', '/api/thunder/instances/([A-Za-z0-9-]+)', async ({ match, body }
     forgetThunder(uuid);
     return { ok: true, deleted: !!inst };
 });
+
+// ---- workshop bookings ----------------------------------------------------------
+// From a start time, hunt RunPod every minute for N machines that meet a GPU size
+// and a price cap; keep each one found (it boots serving the booking's workflows,
+// downloading their models itself); replace one that is lost; at an optional end
+// time save the results and terminate. See tools/runpod/booking.mjs for the rules.
+const BOOKINGS_FILE = path.join(os.homedir(), '.comfyq', 'bookings.json');
+const BOOKING_TICK_MS = Number(process.env.COMFYQ_BOOKING_TICK_MS) || 60_000;
+function loadBookings() { try { return JSON.parse(fs.readFileSync(BOOKINGS_FILE, 'utf8')); } catch { return []; } }
+function saveBookings(list) {
+    fs.mkdirSync(path.dirname(BOOKINGS_FILE), { recursive: true });
+    fs.writeFileSync(BOOKINGS_FILE + '.tmp', JSON.stringify(list, null, 2));
+    fs.renameSync(BOOKINGS_FILE + '.tmp', BOOKINGS_FILE);
+}
+function patchBooking(id, fn) {
+    const all = loadBookings();
+    const b = all.find(x => x.id === id);
+    if (!b) return null;
+    fn(b);
+    saveBookings(all);
+    return b;
+}
+// What the app turns into notifications: each event once, newest kept.
+function bookingEvent(b, kind, title, body, level = 'info') {
+    b.events = [...(b.events || []), { at: Date.now(), kind, title, body, level }].slice(-50);
+    console.log(`[booking] ${b.name}: ${title}${body ? ` — ${body}` : ''}`);
+}
+
+let bookingTicking = false;
+async function tickBookings(now = Date.now()) {
+    if (bookingTicking) return;
+    bookingTicking = true;
+    try {
+        const active = loadBookings().filter(b => !['stopped', 'ended'].includes(b.state));
+        if (!active.length) return;
+        let key;
+        try { key = apiKey(); } catch { return; }
+        const pods = await rest(key, 'GET', '/pods');
+        for (const b0 of active) {
+            try { await tickBooking(b0, pods, key, now); }
+            catch (e) { patchBooking(b0.id, b => { b.lastError = redact(e.message); }); }
+        }
+    } catch { /* RunPod unreachable: try again next minute */ }
+    finally { bookingTicking = false; }
+}
+
+async function tickBooking(b0, pods, key, now) {
+    const mine = podsOf(b0, pods);
+    const live = mine.filter(isLive);
+    // Machines found, and machines lost (RunPod took it back, or it was terminated).
+    patchBooking(b0.id, b => {
+        const known = new Set(b.podIds || []);
+        for (const p of live) if (!known.has(p.id)) {
+            known.add(p.id);
+            bookingEvent(b, 'found', `${b.name}: machine ${known.size} found`, `${p.gpu?.displayName || 'GPU'} at $${Number(p.costPerHr || 0).toFixed(2)}/h. It downloads its models and starts serving in a few minutes.`);
+        }
+        for (const id of b.livePodIds || []) if (!live.some(p => p.id === id)) {
+            bookingEvent(b, 'lost', `${b.name}: a machine was lost`, `${id} is no longer running${b.keepHunting ? ': looking for another.' : '.'}`, 'warn');
+        }
+        b.podIds = [...known];
+        b.livePodIds = live.map(p => p.id);
+        if (b.readyBy && !b.readyAnnounced && now >= Date.parse(b.readyBy)) {
+            b.readyAnnounced = true;
+            bookingEvent(b, 'ready-by', live.length >= b.count ? `${b.name}: ${live.length} of ${b.count} ready` : `${b.name}: only ${live.length} of ${b.count} ready`,
+                live.length >= b.count ? 'Every machine was found in time.' : (b.keepHunting ? 'Still hunting for the others.' : 'Hunting stopped, as set.'), live.length >= b.count ? 'info' : 'warn');
+        }
+        if (b.state === 'scheduled' && now >= Date.parse(b.startAt)) { b.state = 'active'; bookingEvent(b, 'start', `${b.name}: hunting started`, `${b.count} machine(s), at least ${b.minVramGb} GB, at most $${b.maxPricePerHr.toFixed(2)}/h.`); }
+    });
+    const b = loadBookings().find(x => x.id === b0.id);
+    const d = bookingDecide(b, now, live);
+
+    if (d.action === 'finish') {
+        patchBooking(b.id, x => { x.state = 'ended'; bookingEvent(x, 'ended', `${x.name}: ended`, 'Nothing of it is running.'); });
+        return;
+    }
+    if (d.action === 'end') {
+        // Results first, then terminate: a Pod with no volume loses them.
+        for (const p of live) {
+            const st = { state: 'listing', jobs: 0, total: 0, saved: 0, bytes: 0, failed: [], error: null, folder: resultsFolder(`${b.name}-${p.id}`.replace(/[^\w.-]+/g, '_')), startedAt: Date.now() };
+            try { await saveResultsFrom(proxyUrl(p.id), st, p.id); } catch (e) { st.error = redact(e.message); }
+            try { await rest(key, 'DELETE', `/pods/${p.id}`); } catch (e) { patchBooking(b.id, x => { x.lastError = `terminate ${p.id}: ${redact(e.message)}`; }); continue; }
+            patchBooking(b.id, x => bookingEvent(x, 'terminated', `${x.name}: ${p.id} terminated`, st.error ? `Its results could not be saved: ${st.error}` : `${st.saved} result(s) saved to ${st.folder}.`, st.error ? 'warn' : 'info'));
+        }
+        return;
+    }
+    if (d.action !== 'launch') {
+        if (b.blocked) patchBooking(b.id, x => { x.blocked = null; });
+        return;
+    }
+
+    // ---- hunt: one machine per minute ----
+    // The balance must pay for every machine at the cap until the end (or a working day).
+    const need = (live.length + 1) * b.maxPricePerHr * hoursToCover(b, now);
+    let balance = null;
+    try { balance = Number((await graphql(key, 'query { myself { clientBalance } }'))?.myself?.clientBalance); } catch { /* unknown: do not block */ }
+    if (Number.isFinite(balance) && balance < need) {
+        const why = `balance $${balance.toFixed(2)} < $${need.toFixed(2)} needed`;
+        if (b.blocked !== why) patchBooking(b.id, x => { x.blocked = why; bookingEvent(x, 'blocked', `${x.name}: not hunting — balance too low`, `${live.length + 1} machine(s) at $${x.maxPricePerHr.toFixed(2)}/h until the end need about $${need.toFixed(2)}; RunPod has $${balance.toFixed(2)}. Top it up.`, 'bad'); });
+        return;
+    }
+    const picked = listWorkflows().filter(w => b.serve.includes(w.id));
+    const vram = vramNeeded(picked);
+    const dl = downloadNeed(b.serve);
+    const n = (b.podIds || []).length + 1;
+    let created = null, tried = [];
+    for (const community of cloudsFor(b)) {
+        const { gpus } = await gpuTypes(key, { secureCloud: !community });
+        const { rows } = rankGpus(gpus, Math.max(b.minVramGb, vram.gb || 0), { community, accepted: knownAcceptedGpus() });
+        const cards = cardsFor(rows, b);
+        tried.push(`${community ? 'Community' : 'Secure'}: ${cards.length} card(s)`);
+        if (!cards.length) continue;
+        try {
+            const out = await launchPods({
+                volumeId: NO_VOLUME, community, podVolumeGb: podDiskFor(dl.gb, b.diskGb), expectedPerHr: b.maxPricePerHr,
+                pods: [{ serve: b.serve, gpuTypeIds: cards.map(c => c.id), name: `${podPrefix(b)}${n}` }],
+            });
+            created = out.pod;
+            break;
+        } catch (e) {
+            if (e.status !== 409) throw e;          // only "no free machine" is worth waiting out
+        }
+    }
+    patchBooking(b.id, x => {
+        x.tries = (x.tries || 0) + 1;
+        x.lastTry = now;
+        x.lastTryNote = created ? `created ${created.id}` : `no machine (${tried.join(', ')})`;
+        x.blocked = tried.length && tried.every(t => /: 0 card/.test(t)) ? `no card has at least ${x.minVramGb} GB at $${x.maxPricePerHr.toFixed(2)}/h or less` : null;
+    });
+}
+
+function publicBooking(b, pods = null) {
+    const live = pods ? podsOf(b, pods).filter(isLive) : (b.livePodIds || []).map(id => ({ id }));
+    return { ...b, live: live.map(p => ({ id: p.id, gpu: p.gpu?.displayName || null, costPerHr: p.costPerHr ?? null, links: p.id ? { students: proxyUrl(p.id), admin: `${proxyUrl(p.id)}/admin`, byWorkflow: studentLinks(proxyUrl(p.id), b.serve) } : null })), status: statusLine(b, live) };
+}
+
+route('GET', '/api/bookings', async () => {
+    const list = loadBookings();
+    let pods = null;
+    try { if (list.some(b => !['stopped', 'ended'].includes(b.state))) pods = await rest(apiKey(), 'GET', '/pods'); } catch { pods = null; }
+    return { bookings: list.map(b => publicBooking(b, pods)).reverse() };
+});
+
+route('POST', '/api/bookings', async ({ body }) => {
+    const s = loadSettings();
+    if (missingSecrets(secretsOf(s)).length && (body.serve || []).length) throw new RunPodError('set the admin password in Settings (top right) first: a Pod is reachable by anyone who has its URL, admin panel included', 400);
+    let b;
+    try { b = validateBooking(body, { workflows: listWorkflows() }); } catch (e) { throw new RunPodError(e.message, 400); }
+    const dl = downloadNeed(b.serve);
+    if (dl.failing.length) throw new RunPodError(`${dl.failing.join(', ')} cannot fetch all of its models on a new machine: leave it out`, 400);
+    b.id = crypto.randomBytes(3).toString('hex');
+    b.state = Date.now() >= Date.parse(b.startAt) ? 'active' : 'scheduled';
+    b.createdAt = Date.now();
+    b.tries = 0;
+    b.events = [];
+    bookingEvent(b, 'created', `${b.name}: booked`, b.state === 'active' ? 'Hunting starts now.' : `Hunting starts ${new Date(b.startAt).toLocaleString()}.`);
+    saveBookings([...loadBookings(), b]);
+    setTimeout(() => tickBookings().catch(() => {}), 500);
+    return { booking: publicBooking(b) };
+});
+
+// Stop hunting: the machines already found keep running (and billing).
+route('POST', '/api/bookings/([a-f0-9]+)/stop', ({ match }) => {
+    const b = patchBooking(match[1], x => { if (!['ended'].includes(x.state)) { x.state = 'stopped'; bookingEvent(x, 'stopped', `${x.name}: stopped`, `The ${(x.livePodIds || []).length} machine(s) found keep running: terminate them on the Pods list when the class is over.`); } });
+    if (!b) throw new RunPodError('no such booking', 404);
+    return { booking: publicBooking(b) };
+});
+
+// Shut down now: save the results of its machines, then terminate them.
+route('POST', '/api/bookings/([a-f0-9]+)/end', async ({ match, body }) => {
+    const b0 = loadBookings().find(x => x.id === match[1]);
+    if (!b0) throw new RunPodError('no such booking', 404);
+    if (String(body.confirm || '').trim() !== b0.id) throw new RunPodError(`type ${b0.id} to confirm`, 400);
+    patchBooking(b0.id, x => { x.endAt = new Date().toISOString(); if (x.state === 'stopped') x.state = 'active'; });
+    await tickBookings(Date.now());
+    return { booking: publicBooking(loadBookings().find(x => x.id === b0.id)) };
+});
+
+route('DELETE', '/api/bookings/([a-f0-9]+)', ({ match }) => {
+    const all = loadBookings();
+    const b = all.find(x => x.id === match[1]);
+    if (!b) throw new RunPodError('no such booking', 404);
+    if (!['stopped', 'ended'].includes(b.state)) throw new RunPodError('stop it first', 409);
+    saveBookings(all.filter(x => x.id !== b.id));
+    return { ok: true };
+});
+
+setInterval(() => tickBookings().catch(() => {}), BOOKING_TICK_MS).unref();
 
 // ---- spending -------------------------------------------------------------------
 // See tools/runpod/spend.mjs for what each figure means and where it comes from.

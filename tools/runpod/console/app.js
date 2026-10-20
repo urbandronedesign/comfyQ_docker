@@ -105,6 +105,7 @@ function openDrawer(name) {
     $('scrim').hidden = false;
     if (name === 'createPod') loadLaunch();
     if (name === 'createThunder') loadThunder();
+    if (name === 'booking') loadBookingForm();
 }
 function closeDrawers() {
     for (const d of document.querySelectorAll('.drawer')) d.hidden = true;
@@ -116,6 +117,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('scri
 $('settingsBtn').onclick = () => openDrawer('settings');
 $('openCreatePod').onclick = () => openDrawer('createPod');
 $('openCreateThunder').onclick = () => openDrawer('createThunder');
+$('openBooking').onclick = () => openDrawer('booking');
 $('stockFold').ontoggle = () => { if ($('stockFold').open) loadStock(); };
 $('attemptsFold').ontoggle = () => { if ($('attemptsFold').open) loadAttempts(); };
 
@@ -946,6 +948,7 @@ async function loadPods() {
     renderPodList();
     loadDetail();
     loadBuilds();
+    loadBookings();
     clearInterval(listTimer);
     listTimer = setInterval(() => { if (pageOpen('runpod') && !document.hidden) loadPods(); }, 30000);
 }
@@ -1694,3 +1697,115 @@ if (UPD) {
     // First run: nothing works without a key, so start with the keys.
     if (!settings.runpodApiKey.set && !settings.thunderApiKey.set) openDrawer('settings');
 })();
+
+
+// ---- workshop bookings ----------------------------------------------------------
+// The server hunts (tools/runpod/booking.mjs); this page books, shows and stops.
+let bWorkflows = null, bChosen = [], bGpuCache = {};
+const localInput = (t) => { const d = new Date(t - new Date(t).getTimezoneOffset() * 60000); return d.toISOString().slice(0, 16); };
+const fromLocal = (v) => v ? new Date(v).toISOString() : null;
+
+async function loadBookingForm() {
+    if (!bWorkflows) {
+        try { bWorkflows = (await api('GET', '/api/workflows')).workflows; } catch (e) { toast(e.message, true); bWorkflows = []; }
+    }
+    if (!$('bStart').value) $('bStart').value = localInput(Date.now());
+    renderBookingWorkflows();
+    bookingCards();
+}
+
+function renderBookingWorkflows() {
+    const q = $('bWfSearch').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const rows = (bWorkflows || []).filter(w => q.every(t => `${w.name} ${w.id} ${w.category}`.toLowerCase().includes(t)));
+    $('bWfList').innerHTML = rows.map(w => `
+        <label class="wf">
+          <input type="checkbox" data-bwf="${esc(w.id)}" ${bChosen.includes(w.id) ? 'checked' : ''} ${w.cannotFetch ? 'disabled' : ''}>
+          <div>
+            <div class="name">${esc(w.name)}${w.experimental ? '<span class="badge exp">experimental</span>' : ''}${w.cannotFetch ? '<span class="badge">cannot download its models</span>' : ''}</div>
+            <div class="desc">${esc(w.id)} · ${w.downloadGb != null ? `${w.downloadGb} GB of models` : 'size unknown'}</div>
+          </div>
+          <div class="vram">${w.vramGb ? `${w.vramGb} GB` : '?'}<div class="muted small">VRAM</div></div>
+        </label>`).join('') || '<p class="muted" style="padding:12px">No workflow matches.</p>';
+    for (const cb of $('bWfList').querySelectorAll('input[data-bwf]')) cb.onchange = () => {
+        bChosen = cb.checked ? [...bChosen, cb.dataset.bwf] : bChosen.filter(x => x !== cb.dataset.bwf);
+        renderBookingWorkflows(); bookingCards();
+    };
+    $('bWfChosen').innerHTML = bChosen.map((id, i) => `<span class="chip">${i === 0 ? '<b>main</b> ' : ''}${esc(id)} <button data-brm="${esc(id)}" title="Remove">×</button></span>`).join('')
+        || '<span class="muted small">None ticked: each machine starts in admin mode, and you pick its workflow in its admin panel.</span>';
+    for (const b of $('bWfChosen').querySelectorAll('[data-brm]')) b.onclick = () => { bChosen = bChosen.filter(x => x !== b.dataset.brm); renderBookingWorkflows(); bookingCards(); };
+}
+$('bWfSearch').oninput = renderBookingWorkflows;
+
+// Which cards qualify right now, and what the day costs at most.
+async function bookingCards() {
+    const cloud = $('bCloud').value;
+    const minVram = Number($('bVram').value), cap = Number($('bPrice').value), count = Number($('bCount').value) || 1;
+    const need = (bWorkflows || []).filter(w => bChosen.includes(w.id)).reduce((a, w) => a + (Number(w.vramGb) || 0), 0);
+    const clouds = cloud === 'secure' ? ['0'] : cloud === 'community-secure' ? ['1', '0'] : ['1'];
+    const lines = [];
+    for (const c of clouds) {
+        const key = `${c}|${bChosen.join(',')}`;
+        try {
+            if (!bGpuCache[key] || Date.now() - bGpuCache[key].at > 120000) bGpuCache[key] = { at: Date.now(), data: await api('GET', `/api/gpus?community=${c}&workflows=${encodeURIComponent(bChosen.join(','))}`) };
+            const ok = bGpuCache[key].data.rows.filter(r => r.launchable !== false && r.pricePerHr != null && r.vramGb >= Math.max(minVram, need) && r.pricePerHr <= cap)
+                .sort((a, b) => a.pricePerHr - b.pricePerHr);
+            lines.push(`${c === '1' ? 'Community' : 'Secure'}: ${ok.length ? ok.slice(0, 8).map(r => `${esc(r.name)} ${r.vramGb} GB $${r.pricePerHr.toFixed(2)}`).join(' · ') : '<b>no card meets this size and price</b>'}`);
+        } catch (e) { lines.push(`${c === '1' ? 'Community' : 'Secure'}: ${esc(e.message)}`); }
+    }
+    $('bCards').innerHTML = `Cards that qualify${need > minVram ? ` (the workflows need about ${need} GB, more than the size set)` : ''}: ${lines.join('<br>')}<br>Whether one is free is only known by asking: RunPod's stock figures leave out the CUDA 12.8 driver ComfyQ needs.`;
+    const end = fromLocal($('bEnd').value), start = fromLocal($('bStart').value) || new Date().toISOString();
+    const hours = end ? Math.max(0, (Date.parse(end) - Date.parse(start)) / 3600000) : null;
+    $('bSummary').textContent = `At most ${count} × $${cap.toFixed(2)}/h = $${(count * cap).toFixed(2)}/h`
+        + (hours ? `, about $${(count * cap * hours).toFixed(2)} for the ${hours.toFixed(1)} h until the shut-down` : ' — no shut-down time: they run until you terminate them');
+}
+for (const id of ['bCloud', 'bVram', 'bPrice', 'bCount', 'bStart', 'bEnd']) $(id).onchange = bookingCards;
+
+$('bBook').onclick = async () => {
+    const body = {
+        name: $('bName').value, count: Number($('bCount').value), minVramGb: Number($('bVram').value), maxPricePerHr: Number($('bPrice').value),
+        cloud: $('bCloud').value, serve: bChosen, startAt: fromLocal($('bStart').value), readyBy: fromLocal($('bReady').value),
+        endAt: fromLocal($('bEnd').value), keepHunting: $('bKeep').checked,
+    };
+    const end = body.endAt ? new Date(body.endAt).toLocaleString() : 'until you terminate them';
+    if (!confirm(`Book ${body.count} machine(s), at least ${body.minVramGb} GB, at most $${body.maxPricePerHr.toFixed(2)}/h each?\n\nHunting starts ${new Date(body.startAt || Date.now()).toLocaleString()}. Each machine found BILLS from then on, ${end}.${bChosen.length ? `\nThey serve: ${bChosen.join(', ')}.` : '\nThey start in admin mode.'}`)) return;
+    try { await api('POST', '/api/bookings', body); toast('Booked: hunting runs while this app runs'); closeDrawers(); loadBookings(); }
+    catch (e) { toast(e.message, true); }
+};
+
+async function loadBookings() {
+    let list;
+    try { ({ bookings: list } = await api('GET', '/api/bookings')); } catch (e) { $('bookingList').innerHTML = `<p class="muted pad small">${esc(e.message)}</p>`; return; }
+    if (!list.length) { $('bookingList').innerHTML = '<p class="muted pad small">No booking yet.</p>'; return; }
+    const when = (t) => t ? new Date(t).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
+    $('bookingList').innerHTML = list.map(b => {
+        const active = !['stopped', 'ended'].includes(b.state);
+        const last = (b.events || []).slice(-1)[0];
+        return `<div class="booking ${active ? '' : 'muted'}">
+          <div class="row wrap">
+            <b>${esc(b.status)}</b>
+            <span class="muted small">≥ ${b.minVramGb} GB · ≤ $${b.maxPricePerHr.toFixed(2)}/h · ${esc(b.cloud)} · ${b.serve.length ? esc(b.serve.join(', ')) : 'admin mode'}</span>
+            <span class="muted small">from ${when(b.startAt)}${b.readyBy ? ` · ready by ${when(b.readyBy)}` : ''}${b.endAt ? ` · shut down ${when(b.endAt)}` : ''}${b.lastTry ? ` · last try ${new Date(b.lastTry).toLocaleTimeString()}` : ''}</span>
+            <span style="flex:1"></span>
+            ${active ? `<button class="secondary small" data-bstop="${esc(b.id)}" title="Stop hunting; the machines found keep running">Stop hunting</button>` : ''}
+            ${b.live.length ? `<button class="danger small" data-bend="${esc(b.id)}" title="Save the results, then terminate its machines">Shut down now…</button>` : ''}
+            ${!active ? `<button class="ghost small" data-bdel="${esc(b.id)}">Remove</button>` : ''}
+          </div>
+          ${b.blocked ? `<div class="note bad small">${esc(b.blocked)}</div>` : ''}
+          ${b.live.map(p => `<div class="small">• ${esc(p.gpu || p.id)}${p.costPerHr != null ? ` $${Number(p.costPerHr).toFixed(2)}/h` : ''} — ${(p.links?.byWorkflow || []).map(l => `<a href="${esc(l.url)}" target="_blank" rel="noreferrer">${esc(l.id)} ↗</a>`).join(' ')} <a href="${esc(p.links?.admin || '')}" target="_blank" rel="noreferrer">admin ↗</a></div>`).join('')}
+          ${last ? `<div class="muted small">${new Date(last.at).toLocaleTimeString()} — ${esc(last.title)}${last.body ? `: ${esc(last.body)}` : ''}</div>` : ''}
+        </div>`;
+    }).join('');
+    for (const x of $('bookingList').querySelectorAll('[data-bstop]')) x.onclick = async () => {
+        try { await api('POST', `/api/bookings/${x.dataset.bstop}/stop`); toast('Hunting stopped: the machines found keep running'); loadBookings(); } catch (e) { toast(e.message, true); }
+    };
+    for (const x of $('bookingList').querySelectorAll('[data-bend]')) x.onclick = async () => {
+        const id = x.dataset.bend;
+        const typed = await askCode({ title: 'Shut this booking down now?', text: `Every result of its machines is saved to Desktop\ComfyQ results, then they are terminated (billing stops). Type ${id} to confirm.`, code: id, button: 'Shut down' });
+        if (typed == null) return;
+        try { await api('POST', `/api/bookings/${id}/end`, { confirm: typed.trim() }); toast('Shutting down: results first, then terminate'); loadBookings(); loadPods(); } catch (e) { toast(e.message, true); }
+    };
+    for (const x of $('bookingList').querySelectorAll('[data-bdel]')) x.onclick = async () => {
+        try { await api('DELETE', `/api/bookings/${x.dataset.bdel}`); loadBookings(); } catch (e) { toast(e.message, true); }
+    };
+}
+setInterval(() => { if (pageOpen('runpod') && !document.hidden) loadBookings(); }, 20000);

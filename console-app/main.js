@@ -39,6 +39,7 @@ let win = null;
 let quitting = false;      // a quit is under way (confirmed, or nothing billed)
 let tray = null;
 let lastSpend = null;      // the last GET /api/spend, for the tray and the quit question
+let lastBookings = [];     // the last GET /api/bookings: notifications, the tray, the quit question
 let watchState = null;
 let toldTray = false;      // said once that closing keeps the app in the tray
 const ICON = path.join(__dirname, 'assets', 'icon.png');
@@ -250,6 +251,7 @@ ${trayUpdateLine()}` : line);
         { type: 'separator' },
         { label: lastSpend ? `Now ${money(lastSpend.ratePerHr)}/h · today ${money(lastSpend.today)}` : 'Reading what you spend…', enabled: false },
         ...ms.map(m => ({ label: `${m.provider === 'thunder' ? 'Thunder' : 'RunPod'} · ${m.name || m.id} · ${money(m.ratePerHr)}/h`, enabled: false })),
+        ...watch.huntingBookings(lastBookings).map(b => ({ label: `Booking · ${b.status || b.name}`, enabled: false })),
         { type: 'separator' },
         { label: `Version ${app.getVersion()}${app.isPackaged ? '' : ' (from the repo)'}`, enabled: false },
         ...(trayUpdateLine() ? [{ label: trayUpdateLine(), enabled: false }] : []),
@@ -265,7 +267,9 @@ async function tick() {
     updateTray();
     if (!lastSpend) return;
     const machines = await machineStages();
-    const r = watch.decide(watchState, { spend: lastSpend, machines }, Date.now());
+    try { lastBookings = (await consoleGet('/api/bookings')).bookings || []; } catch { /* keep the last list */ }
+    updateTray();
+    const r = watch.decide(watchState, { spend: lastSpend, machines, bookings: lastBookings }, Date.now());
     watchState = r.state;
     for (const ev of r.events) notify(ev.title, ev.body);
 }
@@ -444,7 +448,7 @@ app.whenReady().then(async () => {
 // the app quits, and nothing warns about them any more.
 app.on('before-quit', (e) => {
     if (quitting) return;
-    const q = watch.quitQuestion(lastSpend);
+    const q = watch.quitQuestion(lastSpend, lastBookings);
     if (!q) { quitting = true; return; }
     e.preventDefault();
     showWindow();

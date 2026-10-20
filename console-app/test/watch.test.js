@@ -77,5 +77,24 @@ check('billing: the question names each machine, the total, and that they keep b
 check('tray line', trayLine(spend({ ratePerHr: 0.91, today: 2.5, machines: [{}] })) === 'ComfyQ Console — $0.91/h · 1 machine on · today $2.50');
 check('tray line before the first reading', trayLine(null) === 'ComfyQ Console');
 
+// ---- workshop bookings ----
+{
+    const { huntingBookings } = require('../watch');
+    const bk = (events, state = 'active') => [{ id: 'k1', name: 'Workshop', state, status: 'Workshop: 1 of 2 ready · hunting', events }];
+    let w = decide(null, { spend: spend(), bookings: bk([{ at: 1, kind: 'found', title: 'Workshop: machine 1 found' }]) }, t0);
+    check('booking events already there when the app starts are not announced', w.events.length === 0);
+    w = decide(w.state, { spend: spend(), bookings: bk([{ at: 1, kind: 'found', title: 'old' }, { at: 2, kind: 'found', title: 'Workshop: machine 2 found', body: 'RTX 3090 at $0.22/h' }]) }, t0 + 60_000);
+    check('a new booking event is announced once', w.events.length === 1 && /machine 2 found/.test(w.events[0].title) && /3090/.test(w.events[0].body));
+    w = decide(w.state, { spend: spend(), bookings: bk([{ at: 1, kind: 'found', title: 'old' }, { at: 2, kind: 'found', title: 'x' }]) }, t0 + 120_000);
+    check('and not again', w.events.length === 0);
+    w = decide(w.state, { spend: spend(), bookings: [...bk([{ at: 2, kind: 'found', title: 'x' }]), { id: 'k2', name: 'New', state: 'active', events: [{ at: 5, kind: 'created', title: 'New: booked' }, { at: 6, kind: 'found', title: 'New: machine 1 found' }] }] }, t0 + 180_000);
+    check('a booking made while the app runs: its first machine is announced, "booked" is not', w.events.length === 1 && /New: machine 1 found/.test(w.events[0].title));
+    w = decide(w.state, { spend: spend(), bookings: bk([{ at: 3, kind: 'blocked', title: 'Workshop: not hunting — balance too low', level: 'bad' }]) }, t0 + 240_000);
+    check('a blocked hunt is announced as bad news', w.events.length === 1 && w.events[0].level === 'bad');
+    const q = quitQuestion(spend(), bk([]));
+    check('quitting with a booking hunting (and nothing billing) asks first', !!q && /hunt runs inside this app/.test(q.detail));
+    check('a stopped booking does not hold quitting', quitQuestion(spend(), bk([], 'stopped')) === null && huntingBookings(bk([], 'ended')).length === 0);
+}
+
 console.log(`watch: ${n - bad}/${n} checks passed`);
 process.exit(bad ? 1 : 0);

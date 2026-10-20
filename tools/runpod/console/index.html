@@ -79,6 +79,15 @@
     <div class="tile"><span class="label">Pods $/hour</span><b id="rpRate">–</b></div>
   </div>
 
+  <div class="panel" id="bookingsPanel">
+    <div class="toolbar">
+      <b>Workshop bookings</b>
+      <span class="muted small" style="flex:1">Hunts for machines from a start time and keeps them all day, while this app runs (also in the tray).</span>
+      <button id="openBooking" class="secondary">+ Book machines</button>
+    </div>
+    <div id="bookingList"><p class="muted pad small">No booking yet.</p></div>
+  </div>
+
   <div class="panel">
     <div class="toolbar">
       <input id="podSearch" type="search" placeholder="Search by name, status, GPU, workflow…">
@@ -249,6 +258,44 @@
       <button id="addToBatch" class="secondary" title="Keep this Pod's workflows and GPU, and set up another Pod to launch with it">+ Add another Pod</button>
       <button id="launchBtn" class="cta">Launch Pod</button>
     </div>
+  </div>
+</aside>
+
+<aside id="drawer-booking" class="drawer" hidden aria-label="Book machines for a workshop">
+  <div class="drawer-head"><h2>Book machines <span class="muted">RunPod, for a workshop</span></h2><button class="ghost icon" data-close>✕</button></div>
+  <div class="drawer-body">
+    <div class="note small">From the start time, the console asks RunPod <b>every minute</b> for the machines still missing: only cards with at least the GPU size you set, at or under your price cap, cheapest first. A refused try costs nothing. Each machine found is <b>kept</b>: it starts serving the workflows below (downloading their models itself, a few minutes) and you are told. It runs while this app runs, window closed or not. <b>Community Cloud has no network volume</b>: each machine downloads its models to its own disk.</div>
+    <div class="section">
+      <h3>Workflows each machine serves</h3>
+      <div class="row wrap"><input id="bWfSearch" type="search" placeholder="Search workflows…"></div>
+      <div id="bWfChosen" class="chips"></div>
+      <div id="bWfList" class="list"></div>
+    </div>
+    <div class="section">
+      <h3>Machines</h3>
+      <div class="grid3">
+        <label class="field"><span>Name</span><input id="bName" type="text" placeholder="Workshop Tuesday"></label>
+        <label class="field"><span>How many</span><input id="bCount" type="number" min="1" max="8" value="1"></label>
+        <label class="field"><span>Minimum GPU size</span><select id="bVram"><option>16</option><option>20</option><option selected>24</option><option>32</option><option>48</option><option>80</option></select></label>
+        <label class="field"><span>Price cap per machine ($/hour)</span><input id="bPrice" type="number" min="0.05" max="20" step="0.01" value="0.35"></label>
+        <label class="field"><span>Cloud</span><select id="bCloud"><option value="community">Community only</option><option value="community-secure">Community, then Secure</option><option value="secure">Secure only</option></select></label>
+      </div>
+      <p id="bCards" class="muted small"></p>
+    </div>
+    <div class="section">
+      <h3>Schedule</h3>
+      <div class="grid3">
+        <label class="field"><span>Start hunting at</span><input id="bStart" type="datetime-local"></label>
+        <label class="field"><span>Must be ready by (optional)</span><input id="bReady" type="datetime-local"></label>
+        <label class="field"><span>Shut down at (optional)</span><input id="bEnd" type="datetime-local"></label>
+      </div>
+      <label class="check"><input id="bKeep" type="checkbox" checked> Keep hunting during the day for a machine still missing or lost</label>
+      <p class="muted small">At the shut-down time every result is saved to <i>Desktop\ComfyQ results</i>, then the machines are terminated. Leave it empty to keep them until you terminate them yourself.</p>
+    </div>
+  </div>
+  <div class="drawer-foot">
+    <span id="bSummary" class="muted small"></span>
+    <div class="row"><button id="bBook" class="cta">Book</button></div>
   </div>
 </aside>
 
