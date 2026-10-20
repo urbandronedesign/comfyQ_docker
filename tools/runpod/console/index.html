@@ -33,7 +33,8 @@
     <div class="kpi"><span class="label">RunPod balance</span><b id="spBal">…</b><span id="spLeft" class="sub"></span></div>
     <div class="kpi tbal">
       <span class="label">Thunder balance</span><b id="spTBal">…</b><span id="spTLeft" class="sub"></span>
-      <span class="tbal-set"><input id="spTBalIn" type="number" min="0" step="0.01" placeholder="as Thunder shows it" title="Thunder only shows its balance on its website (console.thundercompute.com → Settings → Billing). Type it here; the console subtracts what runs on Thunder from then on."><button id="spTBalBtn" class="ghost small">Set</button></span>
+      <button id="spTBalEdit" class="ghost small" hidden>Update</button>
+      <span class="tbal-set" id="spTBalForm"><input id="spTBalIn" type="number" min="0" step="0.01" placeholder="as Thunder shows it" title="Thunder only shows its balance on its website (console.thundercompute.com → Settings → Billing). Type it here; the console subtracts what runs on Thunder from then on."><button id="spTBalBtn" class="ghost small">Set</button></span>
     </div>
     <div class="kpi budget">
       <label class="label" for="spBudget">Daily budget ($)</label>

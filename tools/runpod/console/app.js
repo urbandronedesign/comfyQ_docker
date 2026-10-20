@@ -1294,6 +1294,9 @@ function renderSpend() {
     $('spTLeft').textContent = tb.balance == null ? 'type it from Thunder\'s billing page'
         : `${tb.hoursLeft != null ? `≈ ${tb.hoursLeft} h at this rate · ` : ''}set ${new Date(tb.balanceEnteredAt).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}, ${money(tb.spentSinceEntered)} used since`;
     $('spTBal').parentElement.classList.toggle('low', tb.balance != null && tb.balance < 2);
+    // Once a balance is saved, show it and keep the box out of the way: an empty
+    // box under a saved balance reads as if the balance were lost.
+    if (!tBalEditing) { $('spTBalForm').hidden = tb.balance != null; $('spTBalEdit').hidden = tb.balance == null; }
     $('spBal').parentElement.classList.toggle('low', spend.runpod.balance != null && spend.runpod.balance < 2);
     const b = spend.budgetPerDay;
     if (document.activeElement !== $('spBudget')) $('spBudget').value = b ?? '';
@@ -1317,10 +1320,22 @@ function renderSpend() {
     notes.push('RunPod figures come from its balance; Thunder ones are computed from each instance\'s price and running time (its API has no balance).');
     $('spNote').textContent = notes.join(' ');
 }
-$('spTBalBtn').onclick = async () => {
-    try { await api('PUT', '/api/spend/thunder-balance', { amount: $('spTBalIn').value }); $('spTBalIn').value = ''; toast('Thunder balance saved'); loadSpend(); }
-    catch (e) { toast(e.message, true); }
+let tBalEditing = false;
+$('spTBalEdit').onclick = () => {
+    tBalEditing = true;
+    $('spTBalForm').hidden = false; $('spTBalEdit').hidden = true;
+    $('spTBalIn').value = spend?.thunder?.balance != null ? spend.thunder.balance.toFixed(2) : '';
+    $('spTBalIn').focus(); $('spTBalIn').select();
 };
+$('spTBalBtn').onclick = async () => {
+    if ($('spTBalIn').value === '') return toast('Type the balance Thunder\'s billing page shows', true);
+    try {
+        await api('PUT', '/api/spend/thunder-balance', { amount: $('spTBalIn').value });
+        tBalEditing = false; $('spTBalIn').value = '';
+        toast('Thunder balance saved'); loadSpend();
+    } catch (e) { toast(e.message, true); }
+};
+$('spTBalIn').onkeydown = (e) => { if (e.key === 'Enter') $('spTBalBtn').click(); if (e.key === 'Escape') { tBalEditing = false; renderSpend(); } };
 // What a balance covers at a given hourly cost, for the launch confirmations.
 function coverage(balance, perHr, name) {
     if (balance == null) return `\n\n${name} balance unknown${name === 'Thunder' ? ' — type it in the spending bar to have it checked' : ''}.`;
