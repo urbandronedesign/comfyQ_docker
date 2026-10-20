@@ -145,6 +145,37 @@ A new machine downloads every model its workflows need. The console reads how mu
 
 Regenerate the sizes after adding a workflow: `node tools/model-provenance/fresh-machine.cjs --online --write-sizes`.
 
+## Storage for the whole library on one RunPod volume
+
+Estimated 2026-10-20 from `tools/model-provenance/workflow-downloads.json` (70 workflows):
+
+- **103 distinct model files, 650 GB**, each file counted once (many workflows share text encoders and VAEs);
+- **about 25 GB more** that node packs fetch themselves on first use, mostly SeedVR2's 7B and 3B models
+  (an estimate, not a measurement), plus depth models. The DWPose pose detectors (~0.4 GB) go to each Pod's
+  own disk instead;
+- so **about 675 GB of models; make the volume 750 GB** for each Pod's queue, uploads and results and for
+  new workflows. The largest single workflows need ~50 GB (Qwen 2511 unblur, the LTX 2.5 IC-LoRA trio).
+  The volume `comfyq-models` (EU-RO-1) is 100 GB today and holds ~32 GB.
+
+Cost at RunPod's usual network-storage price, ~$0.07 per GB per month below 1 TB (check their pricing page):
+
+| Volume | Per month | 10 days |
+|---|---|---|
+| 100 GB (today) | ~$7 | ~$2.30 |
+| 700 GB (models only, tight) | ~$49 | ~$16 |
+| **750 GB (recommended)** | **~$52** | **~$17.50** |
+| 1 TB | ~$70 | ~$23 |
+
+- **Filling it:** 650 GB at the 100–200 MB/s RunPod gets from HuggingFace is 1–2 hours of a cheap Pod
+  (about $1). Or let it fill by itself: each workflow downloads its models onto the volume the first time it
+  is *Activate & serve*d, and every later Pod finds them there.
+- **The GPUs cost more than the storage:** one card at $0.60–0.90/h, 8 h a day for 10 days, is $50–70.
+- **A volume can grow, never shrink.** After a workshop, keeping 750 GB costs ~$52 a month; deleting it
+  loses the models (1–2 hours to download them again). Keep it if it will be used again within a couple of
+  months.
+- To size a subset instead: the console's Create panel adds up the downloads of the ticked workflows
+  (`downloadNeed` in `lib.mjs`), each shared file once.
+
 ## Stock history: when are cards free?
 
 RunPod only says what is in stock **now** and keeps no history. A GitHub
