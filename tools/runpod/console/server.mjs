@@ -46,6 +46,11 @@ const SETTINGS_FILE = path.join(os.homedir(), '.comfyq', 'runpod-console.json');
 // a test script running its own copy of the console shows up here too.
 const ATTEMPTS_FILE = path.join(os.homedir(), '.comfyq', 'runpod-attempts.jsonl');
 const SOURCE = process.env.COMFYQ_CONSOLE_SOURCE || 'console';
+// The desktop app (console-app/) starts this server with a fresh random token
+// and gives it only to its own window: then any other program on the machine,
+// which could otherwise call this port with the fixed header, is refused.
+// Without it (RunPod-Console.bat, npm run runpod:console) the header is '1'.
+const CONSOLE_TOKEN = process.env.COMFYQ_CONSOLE_TOKEN || '1';
 function recordAttempt(entry) {
     try {
         fs.mkdirSync(path.dirname(ATTEMPTS_FILE), { recursive: true });
@@ -861,7 +866,7 @@ const server = http.createServer(async (req, res) => {
         return fs.createReadStream(path.join(HERE, file)).pipe(res);
     }
 
-    if (req.headers['x-comfyq-console'] !== '1') return send(res, 403, { error: 'missing console header' });
+    if (req.headers['x-comfyq-console'] !== CONSOLE_TOKEN) return send(res, 403, { error: 'missing console header' });
     const hit = routes.map(r => ({ r, m: r.method === req.method && url.pathname.match(r.re) })).find(x => x.m);
     if (!hit) return send(res, 404, { error: 'no such route' });
     try {
@@ -892,6 +897,7 @@ function openBrowser(url) {
 server.listen(PORT, HOST, () => {
     const url = `http://localhost:${PORT}`;
     console.log(`ComfyQ RunPod console: ${url}  (this machine only; Ctrl+C to stop)`);
+    if (process.send) process.send({ ready: true, port: PORT });
     console.log(`Credentials are kept in ${SETTINGS_FILE}`);
     openBrowser(url);
 });

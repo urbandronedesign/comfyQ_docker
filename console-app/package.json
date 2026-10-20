@@ -1,0 +1,17 @@
+{
+  "name": "comfyq-console-app",
+  "version": "0.1.0",
+  "description": "ComfyQ Console — launch, watch and pay for ComfyQ machines on RunPod and Thunder Compute",
+  "main": "main.js",
+  "private": true,
+  "engines": {
+    "node": ">=22.0.0 <25.0.0"
+  },
+  "scripts": {
+    "start": "electron .",
+    "test": "node test/app-smoke.mjs"
+  },
+  "devDependencies": {
+    "electron": "^42.5.0"
+  }
+}

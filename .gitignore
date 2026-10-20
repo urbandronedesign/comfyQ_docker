@@ -249,3 +249,8 @@ tools/maintenance/model-audit/links.json
 tools/maintenance/model-audit/nodes.json
 tools/maintenance/model-audit/*.bak
 tools/maintenance/model-audit/*.decisions-*.csv
+
+# The console desktop app: commit its lockfile (CI will use npm ci), not its builds.
+!console-app/package-lock.json
+console-app/node_modules/
+console-app/dist/

@@ -9,6 +9,7 @@
   "scripts": {
     "start": "node server/index.js",
     "runpod:console": "node tools/runpod/console/server.mjs",
+    "console:app": "npm start --prefix console-app",
     "client": "npm run dev --prefix client",
     "server": "nodemon server/index.js --watch server --ignore server/data",
     "dev": "concurrently --kill-others-on-fail \"npm run server\" \"npm run client\"",

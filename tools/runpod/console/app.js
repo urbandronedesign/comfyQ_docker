@@ -4,10 +4,14 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const gb = (b) => (Number(b || 0) / 1024 ** 3).toFixed(1);
 
+// In the desktop app the window is given a per-start token (console-app/preload.js);
+// in a browser the fixed '1' is what the local server expects.
+const CONSOLE_TOKEN = window.comfyqConsole?.token || '1';
+
 async function api(method, route, body) {
     const res = await fetch(route, {
         method,
-        headers: { 'X-ComfyQ-Console': '1', ...(body ? { 'Content-Type': 'application/json' } : {}) },
+        headers: { 'X-ComfyQ-Console': CONSOLE_TOKEN, ...(body ? { 'Content-Type': 'application/json' } : {}) },
         body: body ? JSON.stringify(body) : undefined,
     });
     const data = await res.json().catch(() => ({}));
