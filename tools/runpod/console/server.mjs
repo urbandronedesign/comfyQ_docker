@@ -31,7 +31,7 @@ import {
 import {
     thunderOffers, thunderInstances, thunderCreate, thunderDelete, thunderAddKey, thunderUrl, thunderEnv, remoteScript, setupInstance, thunderHourly,
 } from '../thunder.mjs';
-import { graphql, downloadNeed, diskNeeded, RESULTS_DISK_GB } from '../lib.mjs';
+import { graphql, downloadNeed, diskNeeded, RESULTS_DISK_GB, acceptedGpuIds } from '../lib.mjs';
 import { updateLedger, summarize, emptyLedger, thunderBalanceNow } from '../spend.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -49,12 +49,16 @@ const SOURCE = process.env.COMFYQ_CONSOLE_SOURCE || 'console';
 // The desktop app (console-app/) starts this server with a fresh random token
 // and gives it only to its own window: then any other program on the machine,
 // which could otherwise call this port with the fixed header, is refused.
-// Without it (RunPod-Console.bat, npm run runpod:console) the header is '1'.
-const CONSOLE_TOKEN = process.env.COMFYQ_CONSOLE_TOKEN || '1';
+// Started any other way (RunPod-Console.bat, npm run runpod:console) it makes
+// its own random token at each start and opens the browser at #t=<token>: the
+// page keeps it in this tab's sessionStorage. A fixed value let any program, or
+// any other Windows user, on this PC drive the console (audit, 2026-10-20).
+const CONSOLE_TOKEN = process.env.COMFYQ_CONSOLE_TOKEN || crypto.randomBytes(24).toString('hex');
+const URL_FILE = path.join(os.homedir(), '.comfyq', 'console-url.txt');   // so a second start can open this one
 function recordAttempt(entry) {
     try {
         fs.mkdirSync(path.dirname(ATTEMPTS_FILE), { recursive: true });
-        fs.appendFileSync(ATTEMPTS_FILE, JSON.stringify({ at: Date.now(), source: SOURCE, ...entry }) + '\n');
+        fs.appendFileSync(ATTEMPTS_FILE, JSON.stringify({ at: Date.now(), source: SOURCE, ...entry, ...(entry.message ? { message: redact(entry.message) } : {}) }) + '\n');
         // Keep it small: past ~2 MB, keep the newest 3000 lines.
         if (fs.statSync(ATTEMPTS_FILE).size > 2e6) {
             const lines = fs.readFileSync(ATTEMPTS_FILE, 'utf8').trim().split('\n');
@@ -87,6 +91,25 @@ const PLAIN_KEYS = ['image', 'volumeId', 'community', 'diskGb'];
 const SECRETS_FROM_PARENT = process.env.COMFYQ_SECRETS === 'parent' && typeof process.send === 'function';
 let secretCache = {};
 
+// mode 0o600 means nothing on Windows: there, take the file away from everyone
+// but this account (the profile's default also lets Administrators and SYSTEM in).
+function restrictToUser(file) {
+    if (process.platform !== 'win32' || !process.env.USERNAME) return;
+    try { spawn('icacls', [file, '/inheritance:r', '/grant:r', `${process.env.USERNAME}:F`], { stdio: 'ignore', windowsHide: true }); } catch { /* best effort */ }
+}
+
+// Secret values never leave in an error message or a log line.
+function redact(text) {
+    let out = String(text ?? '');
+    let s = {};
+    try { s = loadSettings(); } catch { /* none */ }
+    for (const k of SECRET_KEYS) {
+        const v = String(s[k] || '');
+        if (v.length >= 4) out = out.split(v).join('***');
+    }
+    return out;
+}
+
 function readSettingsFile() {
     try { return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')); }
     catch { return {}; }
@@ -112,6 +135,7 @@ function saveSettings(s) {
     const tmp = SETTINGS_FILE + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(out, null, 2), { mode: 0o600 });
     fs.renameSync(tmp, SETTINGS_FILE);
+    restrictToUser(SETTINGS_FILE);
 }
 
 // What the page may see: whether each secret is set, and for the two long
@@ -144,7 +168,14 @@ const route = (method, pattern, fn) => routes.push({ method, re: new RegExp(`^${
 
 route('GET', '/api/settings', () => publicSettings());
 
+// A launch hands the image the admin and student passwords and the HuggingFace
+// token: anything but ComfyQ's own image has to be asked for explicitly.
+const OWN_IMAGE = /^ghcr\.io\/urbandronedesign\/comfyq([:@][A-Za-z0-9._:-]+)?$/;
+
 route('PUT', '/api/settings', ({ body }) => {
+    if (typeof body.image === 'string' && body.image.trim() && !OWN_IMAGE.test(body.image.trim()) && body.allowCustomImage !== true) {
+        throw new RunPodError(`${body.image.trim()} is not ComfyQ's image (ghcr.io/urbandronedesign/comfyq): a launch gives it your passwords and HuggingFace token. Confirm to use it anyway.`, 409);
+    }
     const s = loadSettings();
     // A key present in the body is set (or cleared when empty); a key left out
     // is kept. So the page sends only the fields someone typed into.
@@ -206,6 +237,13 @@ route('POST', '/api/volumes', async ({ body }) => {
 
 // GPUs ranked for the chosen workflows, priced and stocked in the volume's
 // data centre when RunPod will say.
+// The cards RunPod's create call accepts, learnt from its own refusal and kept.
+const GPU_ENUM_FILE = path.join(os.homedir(), '.comfyq', 'runpod-gpu-ids.json');
+function knownAcceptedGpus() { try { return JSON.parse(fs.readFileSync(GPU_ENUM_FILE, 'utf8')).ids || null; } catch { return null; } }
+function rememberAcceptedGpus(ids) {
+    try { fs.mkdirSync(path.dirname(GPU_ENUM_FILE), { recursive: true }); fs.writeFileSync(GPU_ENUM_FILE, JSON.stringify({ at: new Date().toISOString(), ids }, null, 1)); } catch { /* only a cache */ }
+}
+
 route('GET', '/api/gpus', async ({ query }) => {
     const all = listWorkflows();
     const chosen = String(query.get('workflows') || '').split(',').filter(Boolean)
@@ -216,7 +254,7 @@ route('GET', '/api/gpus', async ({ query }) => {
         dataCenterId: query.get('dataCenterId') || undefined,
         secureCloud: !community,
     });
-    const ranked = rankGpus(gpus, need.gb, { community });
+    const ranked = rankGpus(gpus, need.gb, { community, accepted: knownAcceptedGpus() });
     return { need, scopedToDataCenter, ...ranked };
 });
 
@@ -286,12 +324,28 @@ route('POST', '/api/launch', async ({ body }) => {
     const results = [];          // one per Pod asked for, in order
     for (const p of plans) {
         try {
-            const pod = await rest(key, 'POST', '/pods', podBody({
+            // Cards RunPod's create call is known to refuse are left out before asking.
+            const known = knownAcceptedGpus();
+            if (known) p.gpuTypeIds = p.gpuTypeIds.filter(id => known.includes(id));
+            if (!p.gpuTypeIds.length) throw new RunPodError('none of the GPUs picked can be launched through RunPod\'s API (MIG slices and some Server Editions cannot): pick another', 400);
+            const create = () => rest(key, 'POST', '/pods', podBody({
                 volume, gpuTypeIds: p.gpuTypeIds, serve: p.serve, secrets: secretsOf(s),
                 name: p.name, image: s.image, diskGb: body.diskGb || s.diskGb, podVolumeGb: body.podVolumeGb,
                 community: !!body.community, fetchModels: body.fetchModels !== false,
                 syncWorkflows: !!body.syncWorkflows, allowOpen: !!body.allowOpen && missing.length > 0,
             }));
+            let pod;
+            try { pod = await create(); }
+            catch (e) {
+                // RunPod refused a card id it does not accept: learn the list, drop them, try once more.
+                const accepted = acceptedGpuIds(e.message);
+                if (!accepted) throw e;
+                rememberAcceptedGpus(accepted);
+                const dropped = p.gpuTypeIds.filter(id => !accepted.includes(id));
+                p.gpuTypeIds = p.gpuTypeIds.filter(id => accepted.includes(id));
+                if (!p.gpuTypeIds.length) throw new RunPodError(`RunPod's API cannot launch ${dropped.join(', ')}: pick another GPU`, 400);
+                pod = await create();
+            }
             created.push(slimPod(pod, vols));
             results.push({ ok: true, pod: created.at(-1) });
             recordAttempt({ action: 'launch', name: p.name, gpus: p.gpuTypeIds, where, result: 'created', podId: pod.id, costPerHr: pod.costPerHr ?? null });
@@ -423,6 +477,8 @@ route('POST', '/api/volumes/([A-Za-z0-9]+)/folders/([A-Za-z0-9_-]+)/download', a
 // A Pod's own results, read by that Pod — the way out for a Pod with no
 // network volume, whose results go when it is terminated.
 route('POST', '/api/pods/([A-Za-z0-9]+)/download', async ({ match }) => {
+    // The admin password goes with the request for the results: only to a Pod of this account.
+    await rest(apiKey(), 'GET', `/pods/${match[1]}`);
     const token = crypto.randomBytes(18).toString('hex');
     downloads.set(token, { podId: match[1], folderId: match[1], until: Date.now() + 60000 });
     return { url: `/download/${token}` };
@@ -431,7 +487,7 @@ route('POST', '/api/pods/([A-Za-z0-9]+)/download', async ({ match }) => {
 async function serveDownload(token, res) {
     const d = downloads.get(token);
     downloads.delete(token);
-    if (!d || d.until < Date.now()) { res.writeHead(410); return res.end('This download link has expired: ask for it again in the console.'); }
+    if (!d || d.until < Date.now()) return sendText(res, 410, 'This download link has expired: ask for it again in the console.');
     try {
         const zip = `/admin/volume-folders/${encodeURIComponent(d.folderId)}/results.zip`;
         let r;
@@ -440,15 +496,15 @@ async function serveDownload(token, res) {
             const { pod } = d.podId ? { pod: { id: d.podId } } : await folderPod(apiKey(), d.volumeId);
             r = await podCall(pod.id, zip, { timeout: 6 * 3600_000 });
         }
-        if (!r.ok) { res.writeHead(r.status); return res.end(await r.text()); }
+        // Never the machine's own answer: it is somebody else's HTML at this origin.
+        if (!r.ok) return sendText(res, r.status >= 400 && r.status < 600 ? r.status : 502, `The machine answered HTTP ${r.status} when asked for its results. Try again in a minute.`);
         res.writeHead(200, {
             'Content-Type': 'application/zip',
             'Content-Disposition': r.headers.get('content-disposition') || `attachment; filename="comfyq-pod-${d.folderId}-results.zip"`,
         });
         Readable.fromWeb(r.body).pipe(res);
     } catch (e) {
-        res.writeHead(e.status || 502);
-        res.end(e.message);
+        sendText(res, e.status >= 400 && e.status < 600 ? e.status : 502, redact(e.message));
     }
 }
 
@@ -555,7 +611,7 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; ch
 
 const THUNDER_FILE = path.join(os.homedir(), '.comfyq', 'thunder-instances.json');
 const THUNDER_KEYS = path.join(os.homedir(), '.comfyq', 'thunder-keys');
-const KNOWN_HOSTS = path.join(os.homedir(), '.comfyq', 'thunder_known_hosts');
+const knownHostsOf = (uuid) => path.join(THUNDER_KEYS, `${String(uuid).replace(/[^A-Za-z0-9-]/g, '')}.known_hosts`);
 const thunderTasks = new Map();   // uuid -> setup promise
 
 function loadThunder() {
@@ -583,12 +639,14 @@ const keyFileOf = (uuid) => path.join(THUNDER_KEYS, `${uuid.replace(/[^A-Za-z0-9
 function writeKey(uuid, key) {
     fs.mkdirSync(THUNDER_KEYS, { recursive: true });
     fs.writeFileSync(keyFileOf(uuid), key.endsWith('\n') ? key : key + '\n', { mode: 0o600 });
+    restrictToUser(keyFileOf(uuid));
 }
 function forgetThunder(uuid) {
     const all = loadThunder();
     delete all[uuid];
     saveThunder(all);
     try { fs.unlinkSync(keyFileOf(uuid)); } catch { /* already gone */ }
+    try { fs.unlinkSync(knownHostsOf(uuid)); } catch { /* never logged in */ }
 }
 
 // A setup cut short by closing the console is not still running.
@@ -621,7 +679,7 @@ function startThunderSetup(uuid) {
             env: thunderEnv({ podId: rec.podId, serve: rec.serve, secrets: secretsOf(loadSettings()), fetchModels: rec.fetchModels }),
         });
         const r = await setupInstance({
-            apiKey: key, id: rec.id, uuid, keyFile: keyFileOf(uuid), knownHosts: KNOWN_HOSTS, script,
+            apiKey: key, id: rec.id, uuid, keyFile: keyFileOf(uuid), knownHosts: knownHostsOf(uuid), script,
             step: (state, msg) => stepThunder(uuid, state, msg),
         });
         patchThunder(uuid, x => { x.user = r.user; x.error = null; });
@@ -658,7 +716,8 @@ route('POST', '/api/thunder/launch', async ({ body }) => {
     if (miss.length) throw new RunPodError(`save the ${miss.join(' and ')} in Settings (top right) first`, 400);
     const ids = Array.isArray(body.workflows) ? body.workflows.map(String) : [];
     const { need, picked, offers, downloads } = await thunderPlan(ids);
-    if (!picked.length) throw new RunPodError('tick at least one workflow to serve', 400);
+    // No workflow ticked: the instance starts in admin mode, as a RunPod Pod can
+    // (pick a workflow in its admin panel later). Nothing is downloaded then.
     // ★ Refused before anything bills: a workflow the fresh-machine audit knows
     // cannot fetch its models would fail the whole setup after paying for it.
     if (downloads.failing.length) throw new RunPodError(`${downloads.failing.join(', ')} cannot fetch all of its models on a new machine (see tools/model-provenance/fresh-machine.cjs): untick it`, 400);
@@ -855,8 +914,16 @@ route('PUT', '/api/spend/budget', ({ body }) => {
     return { ok: true, dailyBudget: v };
 });
 
+// Anything that is not one of the console's own files: plain text the browser
+// will not run, even if it looks like HTML.
+const SAFE_HEADERS = { 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox", 'Cache-Control': 'no-store' };
+function sendText(res, status, text) {
+    res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8', ...SAFE_HEADERS });
+    res.end(String(text));
+}
+
 function send(res, status, data) {
-    res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', ...SAFE_HEADERS });
     res.end(JSON.stringify(data));
 }
 
@@ -871,7 +938,7 @@ async function readBody(req) {
 }
 
 const server = http.createServer(async (req, res) => {
-    if (!ALLOWED_HOSTS.has(req.headers.host)) { res.writeHead(403); return res.end('forbidden'); }
+    if (!ALLOWED_HOSTS.has(req.headers.host)) return sendText(res, 403, 'forbidden');
     const url = new URL(req.url, `http://${req.headers.host}`);
 
     const dl = req.method === 'GET' && url.pathname.match(/^\/download\/([a-f0-9]{36})$/);
@@ -879,12 +946,13 @@ const server = http.createServer(async (req, res) => {
 
     if (!url.pathname.startsWith('/api/')) {
         const file = STATIC[url.pathname];
-        if (req.method !== 'GET' || !file) { res.writeHead(404); return res.end('not found'); }
+        if (req.method !== 'GET' || !file) return sendText(res, 404, 'not found');
         res.writeHead(200, {
             'Content-Type': TYPES[path.extname(file)],
             'Cache-Control': 'no-store',
             'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; img-src 'self' data:",
             'X-Frame-Options': 'DENY',
+            'X-Content-Type-Options': 'nosniff',
         });
         return fs.createReadStream(path.join(HERE, file)).pipe(res);
     }
@@ -897,14 +965,16 @@ const server = http.createServer(async (req, res) => {
         send(res, 200, await hit.r.fn({ body, query: url.searchParams, match: hit.m }));
     } catch (e) {
         const status = e instanceof RunPodError && e.status >= 400 && e.status < 600 ? e.status : 500;
-        send(res, status, { error: e.message });
+        send(res, status, { error: redact(e.message) });
     }
 });
 
 server.on('error', (e) => {
     if (e.code === 'EADDRINUSE') {
-        console.log(`Port ${PORT} is in use — the console is probably already running: http://localhost:${PORT}`);
-        openBrowser(`http://localhost:${PORT}`);
+        let url = `http://localhost:${PORT}`;
+        try { url = fs.readFileSync(URL_FILE, 'utf8').trim() || url; } catch { /* started by the app, or an old console */ }
+        console.log(`Port ${PORT} is in use — the console is probably already running; opening it.`);
+        openBrowser(url);
         process.exit(0);
     }
     throw e;
@@ -932,7 +1002,11 @@ async function waitForSecrets() {
 await waitForSecrets();
 
 server.listen(PORT, HOST, () => {
-    const url = `http://localhost:${PORT}`;
+    // In the browser version the page learns the token from the address, once.
+    const url = process.env.COMFYQ_CONSOLE_TOKEN ? `http://localhost:${PORT}` : `http://localhost:${PORT}/#t=${CONSOLE_TOKEN}`;
+    if (!process.env.COMFYQ_CONSOLE_TOKEN) {
+        try { fs.mkdirSync(path.dirname(URL_FILE), { recursive: true }); fs.writeFileSync(URL_FILE, url, { mode: 0o600 }); restrictToUser(URL_FILE); } catch { /* the printed link still works */ }
+    }
     console.log(`ComfyQ RunPod console: ${url}  (this machine only; Ctrl+C to stop)`);
     if (process.send) process.send({ ready: true, port: PORT });
     console.log(`Credentials are kept in ${SETTINGS_FILE}`);

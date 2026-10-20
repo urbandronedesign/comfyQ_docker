@@ -38,7 +38,8 @@ function decide(state, { spend, machines = [] }, now) {
         const before = s.stages[m.id];
         if (before !== m.stage) {
             const label = `${m.provider === 'thunder' ? 'Thunder' : 'RunPod'} · ${m.name || m.id}`;
-            if (m.stage === 'serving') say(`serving:${m.id}`, `${label} is serving`, 'The student pages are ready.');
+            if (m.stage === 'serving') say(`serving:${m.id}`, /admin mode/.test(m.name || '') ? `${label} is up` : `${label} is serving`,
+                /admin mode/.test(m.name || '') ? 'ComfyQ answers in admin mode: pick a workflow in its admin panel.' : 'The student pages are ready.');
             if (m.stage === 'failed') say(`failed:${m.id}`, `${label}: setup failed`, `${m.detail || 'Open the console to see why.'} It is still billing.`, 'bad');
         }
         s.stages[m.id] = m.stage;

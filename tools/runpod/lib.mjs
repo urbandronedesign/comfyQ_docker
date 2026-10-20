@@ -370,13 +370,27 @@ export function vramNeeded(workflows) {
  * Rank GPUs for a VRAM need: enough memory, in stock, cheapest first. The
  * first fitting, available one is the recommendation.
  */
-export function rankGpus(gpus, needGb, { community = false } = {}) {
+// RunPod's GPU list (GraphQL) names cards its Pod-create call (REST) refuses —
+// MIG slices, some "Server Edition"s. One of them among the fallbacks made the
+// whole create fail with a schema error (2026-10-20). RunPod's refusal lists the
+// ids it accepts; read them out of it.
+export function acceptedGpuIds(errorText) {
+    const m = String(errorText || '').match(/gpuTypeIds\/items\/enum: value must be one of ([^"\]]+)/);
+    if (!m) return null;
+    const ids = [...m[1].matchAll(/'([^']+)'/g)].map(x => x[1]);
+    return ids.length ? ids : null;
+}
+
+export function rankGpus(gpus, needGb, { community = false, accepted = null } = {}) {
+    const ok = accepted ? new Set(accepted) : null;
     const rows = gpus
         .filter(g => (community ? g.communityCloud : g.secureCloud))
         .map(g => ({
             ...g,
             fits: needGb == null ? null : g.vramGb >= needGb,
-            available: g.stock == null ? null : g.stock !== 'None',
+            // A card the create call refuses cannot be launched, whatever its stock.
+            launchable: ok ? ok.has(g.id) : null,
+            available: ok && !ok.has(g.id) ? false : g.stock == null ? null : g.stock !== 'None',
         }));
     const score = (g) => [
         g.fits === false ? 1 : 0,

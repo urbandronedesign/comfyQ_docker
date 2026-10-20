@@ -11,6 +11,10 @@ const { app, BrowserWindow, ipcMain, shell, dialog, safeStorage, Tray, Menu, Not
 const fs = require('fs');
 const watch = require('./watch');
 const { fork, spawnSync } = require('child_process');
+// The installed app has no test hooks at all: every COMFYQ_APP_* setting goes
+// before anything reads one, so the key store, the workflow copy, the log and
+// the server all use the real ~/.comfyq (audit, 2026-10-20).
+if (app.isPackaged) for (const k of Object.keys(process.env)) if (k.startsWith('COMFYQ_APP_')) delete process.env[k];
 const secretsStore = require('./secrets');
 const workflowsCache = require('./workflows');
 const crypto = require('crypto');
@@ -111,12 +115,22 @@ async function startServer() {
         workflowsCache.refresh().then(r => console.log('[console-app] workflows from GitHub:', JSON.stringify(r)));
     }
     if (sshMissing()) extraEnv.COMFYQ_SSH_MISSING = '1';
+    // The installed app ignores the test hooks: one user-level environment
+    // variable could otherwise send the API keys or the admin password elsewhere
+    // (RUNPOD_*_URL, THUNDER_API_URL, *_PROXY), run another program than ssh, or
+    // silence the updater (audit, 2026-10-20).
+    const baseEnv = { ...process.env };
+    if (app.isPackaged) {
+        for (const k of Object.keys(baseEnv)) {
+            if (/^(RUNPOD_.*_URL|THUNDER_API_URL|COMFYQ_.*_PROXY|COMFYQ_THUNDER_SSH|COMFYQ_STOCK_URL|COMFYQ_APP_.*|COMFYQ_CONSOLE_.*|COMFYQ_WORKFLOWS_DIR|COMFYQ_DOWNLOADS_FILE)$/.test(k)) delete baseEnv[k];
+        }
+    }
     server = fork(path.join(CONSOLE_DIR, 'server.mjs'), ['--no-open'], {
         env: {
-            ...process.env,
+            ...baseEnv,
             // Test hook: the console's data folder (~/.comfyq) for the server
             // alone. Electron itself crashes on a made-up Windows profile.
-            ...(process.env.COMFYQ_APP_SERVER_HOME ? { USERPROFILE: process.env.COMFYQ_APP_SERVER_HOME, HOME: process.env.COMFYQ_APP_SERVER_HOME } : {}),
+            ...(!app.isPackaged && process.env.COMFYQ_APP_SERVER_HOME ? { USERPROFILE: process.env.COMFYQ_APP_SERVER_HOME, HOME: process.env.COMFYQ_APP_SERVER_HOME } : {}),
             ...extraEnv,
             ELECTRON_RUN_AS_NODE: '1',
             COMFYQ_CONSOLE_PORT: String(port),
@@ -203,10 +217,10 @@ async function machineStages() {
         const { instances } = await consoleGet('/api/thunder/instances');
         for (const i of instances) {
             const r = i.rec;
-            const stage = i.probe?.answering && i.probe.mode === 'student' ? 'serving'
+            const stage = i.probe?.answering && (i.probe.mode === 'student' || (r && !(r.serve || []).length)) ? 'serving'
                 : r && ['failed', 'interrupted'].includes(r.state) ? 'failed'
                 : r ? 'setting-up' : 'other';
-            out.push({ provider: 'thunder', id: i.uuid, name: (r?.serve || []).join(' + ') || i.uuid.slice(0, 8), stage, detail: r?.error || null });
+            out.push({ provider: 'thunder', id: i.uuid, name: (r?.serve || []).join(' + ') || `${i.uuid.slice(0, 8)} (admin mode)`, stage, detail: r?.error || null });
         }
     } catch { /* no Thunder key, or Thunder unreachable */ }
     try {
@@ -216,9 +230,9 @@ async function machineStages() {
             try {
                 const { probe } = await consoleGet(`/api/pods/${encodeURIComponent(p.id)}`);
                 if (['failed', 'refused'].includes(probe?.plan?.status)) { stage = 'failed'; detail = probe.plan.error; }
-                else if (probe?.answering && probe.mode === 'student') stage = 'serving';
+                else if (probe?.answering && (probe.mode === 'student' || !(p.serve || []).length)) stage = 'serving';
             } catch { /* keep "setting up" */ }
-            out.push({ provider: 'runpod', id: p.id, name: p.name, stage, detail });
+            out.push({ provider: 'runpod', id: p.id, name: (p.serve || []).length ? p.name : `${p.name} (admin mode)`, stage, detail });
         }
     } catch { /* no RunPod key, or RunPod unreachable */ }
     return out;
@@ -381,7 +395,7 @@ function fakeUpdater(version) {
 }
 
 function setupUpdates() {
-    if (process.env.COMFYQ_APP_FAKE_UPDATE) wireUpdater(fakeUpdater(process.env.COMFYQ_APP_FAKE_UPDATE));
+    if (process.env.COMFYQ_APP_FAKE_UPDATE && !app.isPackaged) wireUpdater(fakeUpdater(process.env.COMFYQ_APP_FAKE_UPDATE));
     else if (app.isPackaged) wireUpdater(require('electron-updater').autoUpdater);   // here, not at the top: it reads app details on load
     update.available = !!updater;
     pushUpdate();
@@ -395,9 +409,11 @@ function setupUpdates() {
 }
 
 // The page asks, and acts, through the preload.
-ipcMain.handle('update-get', () => update);
-ipcMain.on('update-check', () => checkForUpdates(true));
-ipcMain.on('update-install', () => installNow());
+// Only this app's own page may ask (audit, 2026-10-20).
+const fromOurPage = (e) => !!e.senderFrame && e.senderFrame.url.startsWith(`http://127.0.0.1:${port}/`);
+ipcMain.handle('update-get', (e) => fromOurPage(e) ? update : null);
+ipcMain.on('update-check', (e) => { if (fromOurPage(e)) checkForUpdates(true); });
+ipcMain.on('update-install', (e) => { if (fromOurPage(e)) installNow(); });
 
 function startWatching() {
     tray = new Tray(nativeImage.createFromPath(ICON).resize({ width: 16, height: 16 }));
@@ -409,7 +425,7 @@ function startWatching() {
 
 // Test hook: the page cannot close its own top-level window (Chromium refuses
 // window.close()), so the test asks the app to, as the ✕ button would.
-if (process.env.COMFYQ_APP_EVENTS_FILE) ipcMain.on('test-close-window', () => win?.close());
+if (process.env.COMFYQ_APP_EVENTS_FILE && !app.isPackaged) ipcMain.on('test-close-window', () => win?.close());
 
 // The token goes only to this app's own page.
 ipcMain.on('console-token', (e) => {

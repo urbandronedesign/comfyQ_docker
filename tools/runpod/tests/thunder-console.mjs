@@ -89,7 +89,7 @@ await new Promise(r => comfySrv.listen(0, '127.0.0.1', r));
 const PORT = 4791;
 const consoleProc = spawn(process.execPath, [path.join(HERE, '..', 'console', 'server.mjs'), '--no-open'], {
     env: {
-        ...process.env, USERPROFILE: tmp, HOME: tmp, COMFYQ_CONSOLE_PORT: String(PORT),
+        ...process.env, USERPROFILE: tmp, HOME: tmp, COMFYQ_CONSOLE_PORT: String(PORT), COMFYQ_CONSOLE_TOKEN: '1',
         THUNDER_API_URL: `http://127.0.0.1:${thunderSrv.address().port}`,
         COMFYQ_THUNDER_PROXY: `http://127.0.0.1:${comfySrv.address().port}`,
         COMFYQ_THUNDER_SSH: fakeSsh, COMFYQ_CONSOLE_SOURCE: 'thunder-test',
@@ -176,8 +176,9 @@ try {
     const plan = await api('GET', '/api/thunder/plan?workflows=image_sdxl_smoke_test');
     check('plan: the L40 is recommended for the smoke test', plan.data.recommended === 'l40_x1' && plan.data.offers[0].fits === true);
 
-    const refused = await api('POST', '/api/thunder/launch', { workflows: [], gpu: 'l40_x1' });
-    check('launch with no workflow is refused before anything is created', refused.status === 400 && !seen.includes('POST /v1/instances/create'));
+    // No workflow is allowed (admin mode, as on RunPod); no card is not.
+    const refused = await api('POST', '/api/thunder/launch', { workflows: [] });
+    check('launch with no card is refused before anything is created', refused.status === 400 && /pick a card/.test(refused.data.error || '') && !seen.includes('POST /v1/instances/create'));
 
     // A balance that cannot pay one hour stops the launch before Thunder is asked.
     await api('PUT', '/api/spend/thunder-balance', { amount: 0.5 });

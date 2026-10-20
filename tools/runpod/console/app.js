@@ -4,9 +4,19 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const gb = (b) => (Number(b || 0) / 1024 ** 3).toFixed(1);
 
-// In the desktop app the window is given a per-start token (console-app/preload.js);
-// in a browser the fixed '1' is what the local server expects.
-const CONSOLE_TOKEN = window.comfyqConsole?.token || '1';
+// The local server accepts only its per-start token. The desktop app's window
+// gets it from the preload; in a browser, RunPod-Console.bat opens the page at
+// #t=<token>, which this tab keeps (sessionStorage) and removes from the address.
+const CONSOLE_TOKEN = (() => {
+    if (window.comfyqConsole?.token) return window.comfyqConsole.token;
+    const m = location.hash.match(/(?:^#|&)t=([A-Za-z0-9]{16,})/);
+    if (m) {
+        try { sessionStorage.setItem('rpc.token', m[1]); } catch { /* private window: this load only */ }
+        history.replaceState(null, '', location.pathname);
+        return m[1];
+    }
+    try { return sessionStorage.getItem('rpc.token') || '1'; } catch { return '1'; }
+})();
 
 async function api(method, route, body) {
     const res = await fetch(route, {
@@ -15,7 +25,10 @@ async function api(method, route, body) {
         body: body ? JSON.stringify(body) : undefined,
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    if (res.status === 403 && data.error === 'missing console header') {
+        throw new Error('This tab has no access to the console: start it again with RunPod-Console.bat (it opens the right link), or open the ComfyQ Console app.');
+    }
+    if (!res.ok) throw Object.assign(new Error(data.error || `HTTP ${res.status}`), { status: res.status });
     return data;
 }
 
@@ -149,7 +162,14 @@ $('saveCreds').onclick = async () => {
     for (const k of SECRETS) if ($(k).value.trim()) body[k] = $(k).value.trim();
     body.image = $('image').value.trim();
     try {
-        settings = await api('PUT', '/api/settings', body);
+        try { settings = await api('PUT', '/api/settings', body); }
+        catch (e) {
+            // Not ComfyQ's image: say what it means, and only then save it.
+            if (e.status !== 409 || !confirm(`${e.message}
+
+Use ${body.image} anyway?`)) throw e;
+            settings = await api('PUT', '/api/settings', { ...body, allowCustomImage: true });
+        }
         renderSettings();
         toast('Saved');
     } catch (e) { toast(e.message, true); }
@@ -292,7 +312,7 @@ function thunderHourly(o, vcpus, diskGb) {
 
 function renderThunderPlan() {
     const n = tPlan.need;
-    $('tNeed').textContent = !tChosen.length ? 'Tick the workflows to serve: the card is picked from what they need.'
+    $('tNeed').textContent = !tChosen.length ? 'No workflow ticked: the instance starts in admin mode (pick a workflow in its admin panel later), and downloads nothing. Tick workflows to have it serve them and pick the card from what they need.'
         : n.gb == null ? 'No VRAM figure for these workflows: pick a card with room to spare.'
         : `These workflows need about ${n.gb} GB of VRAM together${n.unknown.length ? ` (no figure for ${n.unknown.join(', ')})` : ''}.`;
     const dl = tPlan.downloads;
@@ -328,8 +348,8 @@ function renderThunderPlan() {
         if (Number($('tDisk').value) < floor) $('tDisk').value = Math.min(floor, o.diskGb.max);
     }
     $('tLaunch').disabled = !!dl?.failing?.length;
-    $('tSummary').textContent = o && tChosen.length
-        ? `${o.name} · $${(thunderHourly(o, $('tVcpus').value, $('tDisk').value) ?? 0).toFixed(2)}/hour with ${$('tVcpus').value} vCPU and ${$('tDisk').value} GB (the card alone is $${(o.pricePerHr ?? 0).toFixed(2)}) · serves ${tChosen.length} workflow${tChosen.length > 1 ? 's' : ''}`
+    $('tSummary').textContent = o
+        ? `${o.name} · $${(thunderHourly(o, $('tVcpus').value, $('tDisk').value) ?? 0).toFixed(2)}/hour with ${$('tVcpus').value} vCPU and ${$('tDisk').value} GB (the card alone is $${(o.pricePerHr ?? 0).toFixed(2)}) · ${tChosen.length ? `serves ${tChosen.length} workflow${tChosen.length > 1 ? 's' : ''}` : 'admin mode'}`
         : '';
 }
 
@@ -339,12 +359,11 @@ $('tDisk').oninput = () => tPlan && renderThunderPlan();
 
 $('tLaunch').onclick = async () => {
     const o = tPlan?.offers.find(x => x.id === tPick);
-    if (!tChosen.length) return toast('Tick at least one workflow', true);
     if (!o) return toast('Pick a card', true);
     const warn = o.availability === 'available' ? '' : `\n\nThunder does not clearly say this card is free right now (${AVAIL_LABEL[o.availability]}): the launch may be refused.`;
     const perHr = thunderHourly(o, $('tVcpus').value, $('tDisk').value) ?? 0;
     await loadSpend();
-    if (!confirm(`Launch a ${o.name} on Thunder Compute at $${perHr.toFixed(2)}/hour (${$('tVcpus').value} vCPU, ${$('tDisk').value} GB)?\n\nIt bills until you delete it. It will serve: ${tChosen.join(', ')}.${warn}${coverage(spend?.thunder?.balance ?? null, perHr, 'Thunder')}`)) return;
+    if (!confirm(`Launch a ${o.name} on Thunder Compute at $${perHr.toFixed(2)}/hour (${$('tVcpus').value} vCPU, ${$('tDisk').value} GB)?\n\nIt bills until you delete it. ${tChosen.length ? `It will serve: ${tChosen.join(', ')}.` : 'It starts in admin mode: no workflow, nothing downloaded.'}${warn}${coverage(spend?.thunder?.balance ?? null, perHr, 'Thunder')}`)) return;
     $('tLaunch').disabled = true;
     try {
         await api('POST', '/api/thunder/launch', { workflows: tChosen, gpu: o.id, vcpus: Number($('tVcpus').value), diskGb: Number($('tDisk').value), fetchModels: $('tFetch').checked });
@@ -363,6 +382,7 @@ function thunderStage(i) {
     if (r?.state === 'interrupted') return { cls: 'bad', text: T_STATE.interrupted };
     if (i.probe?.answering) {
         if (plan?.status === 'failed' || plan?.status === 'refused') return { cls: 'bad', text: `ComfyQ could not prepare the workflows: ${plan.error || ''}` };
+        if (i.probe.mode === 'admin' && r && !(r.serve || []).length) return { cls: 'good', text: 'Up in admin mode — pick a workflow in its admin panel' };
         return { cls: '', text: plan?.status === 'fetching' ? 'Downloading models' : 'ComfyQ is up, switching to serving mode' };
     }
     if (r?.state === 'ready' && i.probe?.plan?.status === 'done') return { cls: '', text: 'Restarting into serving mode…' };

@@ -108,6 +108,16 @@ The workflow list comes from this checkout's `workflows/` folder. The Pod
 serves the workflows its image was built with, so a workflow added here after
 the last image build is not on the Pod yet.
 
+## Security
+
+The console holds keys that spend money, so it is locked down (audit, 2026-10-20):
+- It listens on this machine only, checks the `Host` header, and every API call needs a token made at each start: `RunPod-Console.bat` opens the page at `#t=<token>` (kept in that tab only); the desktop app hands it to its own window. A tab opened without it gets "no access": start the console again.
+- Anything that is not the console's own page is answered as plain text the browser will not run; a machine's own error page is never passed through.
+- The admin password is sent only to Pods and instances of your account. A Docker image other than ComfyQ's must be confirmed in Settings, because a launch gives it your passwords and HuggingFace token.
+- Thunder: the instance's SSH host key is pinned at the first login, before any secret is sent.
+- Key and settings files are readable by your Windows account only. The desktop app keeps the keys in Windows protected storage and ignores every test setting.
+- `node tools/runpod/tests/console-security.mjs` checks all of this (it runs in `npm run test:storyboard`).
+
 ## Spending, above both pages
 
 The tiles above both pages show what you are spending. It refreshes every 15 seconds and ticks every second in between:

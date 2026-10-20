@@ -144,4 +144,16 @@ check('the checkout\'s workflows are listed', wfs.length > 10);
 check('helper folders (_candidate_workflows) are not', !wfs.some(w => w.id.startsWith('_')));
 check('most workflows carry a measured VRAM figure', wfs.filter(w => w.vramSource === 'measured').length > wfs.length / 2);
 
+// ---- RunPod's create call refuses some listed cards (2026-10-20) ----
+{
+    const { acceptedGpuIds } = await import('./lib.mjs');
+    const err = `RunPod refused POST /pods (400): [{"error":"x","problems":["At /pods/properties/gpuTypeIds/items/enum: value must be one of 'NVIDIA A40', 'NVIDIA L4', 'NVIDIA RTX A5000'","At ..."]}]`;
+    const ids = acceptedGpuIds(err);
+    check('the accepted card ids are read out of the refusal from RunPod', JSON.stringify(ids) === JSON.stringify(['NVIDIA A40', 'NVIDIA L4', 'NVIDIA RTX A5000']));
+    check('any other error gives no list', acceptedGpuIds('There are no longer any instances available') === null);
+    const r = rankGpus([{ id: 'NVIDIA A40', secureCloud: true, vramGb: 48, pricePerHr: 0.59, stock: 'High' },
+        { id: 'NVIDIA RTX PRO 6000 Blackwell Server Edition MIG 1g.24gb', secureCloud: true, vramGb: 24, pricePerHr: 0.4, stock: 'High' }], null, { accepted: ids });
+    check('a card the create call refuses is not launchable, nor recommended, even with stock', r.recommended === 'NVIDIA A40' && r.rows.find(x => /MIG/.test(x.id)).available === false);
+}
+
 console.log(`runpod lib: ${ok.length} checks passed`);

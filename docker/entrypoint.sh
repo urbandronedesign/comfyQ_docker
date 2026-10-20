@@ -86,6 +86,11 @@ console.log("[entrypoint] config.json points at", comfy);
 # Once per container start, not per ComfyQ restart, so a mode switch made in
 # the admin panel is not undone by the next restart of the loop below.
 node server/cloud/podEnv.js || echo "[entrypoint] could not apply the environment settings — continuing without them"
+# Stored now (the passwords as hashes, the token in ComfyQ's settings): take them
+# out of the environment, so ComfyQ, ComfyUI and every custom node started below
+# do not inherit them (security audit, 2026-10-20). HF_TOKEN, if set on purpose,
+# stays: node packs that fetch gated models read that one.
+unset COMFYQ_ADMIN_PASSWORD COMFYQ_ACCESS_PASSWORD COMFYQ_HF_TOKEN
 
 # ComfyUI's stdout/stderr are pipes into the ComfyQ process that spawned it.
 # When ComfyQ exits, ComfyUI survives with both ends gone, and the next

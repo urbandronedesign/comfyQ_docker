@@ -34,6 +34,13 @@ fs.mkdirSync(dataDir, { recursive: true });
 fs.writeFileSync(settingsFile, JSON.stringify({ adminPassword: 'admin-pw-plain-1234', hfToken: 'hf_testtoken_abcdefghijklmnop', diskGb: 30 }));
 
 let debugPort = 9345;
+// The installed app ignores every COMFYQ_APP_* test hook (it would use the real
+// ~/.comfyq and its keys), so it cannot be checked here: refuse rather than touch them.
+if (process.env.COMFYQ_APP_EXE) {
+    console.log('  COMFYQ_APP_EXE: a packaged app ignores the test hooks and would use your real keys and data. Not run.');
+    process.exit(1);
+}
+
 async function launch(extraEnv = {}) {
     const env = { ...process.env, COMFYQ_APP_SERVER_HOME: home, COMFYQ_APP_GITHUB_WORKFLOWS: '1', COMFYQ_APP_EVENTS_FILE: eventsFile, COMFYQ_APP_WATCH_MS: '2000', ...extraEnv };
     delete env.ELECTRON_RUN_AS_NODE;   // set in some shells: it would run Electron as plain Node

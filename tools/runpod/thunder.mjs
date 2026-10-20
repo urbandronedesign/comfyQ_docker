@@ -163,13 +163,19 @@ export function remoteScript({ image, env }) {
         `$D pull -q ${image}`,
         '$D rm -f comfyq >/dev/null 2>&1 || true',
         '$S pkill -f /opt/ComfyUI/main.py >/dev/null 2>&1 || true',
-        `if $D run --rm --device nvidia.com/gpu=all --entrypoint nvidia-smi ${image} -L; then :`,
+        // On the host's network: some Thunder machines (A100, 2026-10-20) refuse a
+        // container its own network ("sysctl net.ipv4.ip_unprivileged_port_start
+        // not allowed in host network namespace"); a throwaway check needs none.
+        `if $D run --rm --network host --device nvidia.com/gpu=all --entrypoint nvidia-smi ${image} -L; then :`,
         'else say "warning: nvidia-smi inside the container did not list a GPU"; fi',
-        `start() { $D run -d --name comfyq --restart unless-stopped --device nvidia.com/gpu=all "$@" -p 3000:3000 -v "$WS:/workspace" --env-file "$ENVF" ${image}; }`,
-        'if ! start --shm-size 16g; then',
-        '    say "the run with --shm-size failed; trying without it"',
-        '    $D rm -f comfyq >/dev/null 2>&1 || true',
-        '    start',
+        // Its own network with port 3000 published first (as on the L40); then the
+        // instance's network, where ComfyQ listens on 3000 itself.
+        'NET="-p 3000:3000"',
+        `start() { $D rm -f comfyq >/dev/null 2>&1 || true; $D run -d --name comfyq --restart unless-stopped --device nvidia.com/gpu=all "$@" $NET -v "$WS:/workspace" --env-file "$ENVF" ${image}; }`,
+        'if ! start --shm-size 16g && ! { say "the run with --shm-size failed; trying without it"; start; }; then',
+        '    say "the container cannot have its own network here; starting it on the network of the instance"',
+        '    NET="--network host"',
+        '    if ! start --shm-size 16g && ! start; then say "the container did not start"; exit 22; fi',
         'fi',
         // A container that restarts in a loop still "started": wait, then look.
         'sleep 20',
@@ -195,8 +201,11 @@ export function runSsh({ ip, port, user, keyFile, knownHosts, input = '', onLine
     return new Promise((resolve) => {
         const args = ['-i', keyFile, '-p', String(port || 22),
             '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'ConnectTimeout=20', '-o', 'ServerAliveInterval=30',
-            // A new instance has a new host key and may reuse an old IP.
-            '-o', 'StrictHostKeyChecking=no', '-o', `UserKnownHostsFile=${knownHosts}`, '-o', 'LogLevel=ERROR',
+            // The host key is pinned at the first login (accept-new), which sends
+            // only `true`; the script with the secrets then goes only to that same
+            // machine. One known-hosts file per instance (a new instance may reuse
+            // an old IP), deleted with it. Was StrictHostKeyChecking=no (audit, 2026-10-20).
+            '-o', 'StrictHostKeyChecking=accept-new', '-o', `UserKnownHostsFile=${knownHosts}`, '-o', 'LogLevel=ERROR',
             `${user}@${ip}`, 'bash -s'];
         const stand = process.env.COMFYQ_THUNDER_SSH;
         const child = stand && /\.m?js$/.test(stand)
