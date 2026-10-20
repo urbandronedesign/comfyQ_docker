@@ -6,10 +6,11 @@ Detailed, evolving plans live in [implementation_plan.md](implementation_plan.md
 
 ## Latest progress (2026-10-20)
 
-### ▶ Resume here (2026-10-20, ~17:30 local)
+### ▶ Resume here (2026-10-20, ~21:00 local)
 
-**State:** nothing bills (0 Thunder instances, 0 RunPod Pods, **no RunPod volume any more** — deleted by the owner that evening). Image `latest` = ComfyUI **v0.42.1** with the 8 upstream workflows (70 bundles), *Serve alongside* downloading first, and the results-download logging. Owner's app = **console 0.1.7** (installed 17:24, debug port closed). Today's Thunder spend ≈ $0.37 + $0.86 for the two L40 tests below.
-**Open:** (1) the new file-by-file *Download results* (0.1.7) is tested against a fake instance only — check it on the next real Thunder machine; (2) the RunPod side of today's work (Activate/Serve alongside downloading onto the volume, FLUX.3 on v0.42.1) is unseen: RunPod had no card in EU-RO-1 at 15:00; (3) earlier RunPod items still pending (lanes test, I7, `sha-…` boot on RunPod); (4) FLUX.3 workflows stay experimental — base 70 s / distilled 14 s per 1 MP picture on an L40, quality checked by eye on ~10 pictures; (5) owner asked next for an **image-to-image workflow** from the library.
+**State:** nothing bills — 0 RunPod Pods, 0 Thunder instances, **no RunPod network volume** (the owner deleted `comfyq-models` this evening; a new one 3 days before the workshop, see the owner's plan further down). Image `latest` = ComfyUI **v0.42.1**, 70 bundles, **all 70 can fetch their models on a fresh machine** (Krea 2 links found and hash-checked tonight). Owner's app = **console 0.1.9**.
+**Built tonight:** *Workshop bookings* (0.1.8, + shared storage 0.1.9) — the owner's way to get machines before a class: count, min VRAM, price cap, cloud, optional network volume (→ Secure in its data centre), start / ready-by / shut-down, keep hunting; the console's server asks RunPod every minute, keeps each machine, replaces lost ones, saves results then terminates at the end. See the "Workshop bookings" entry below and tools/runpod/README.md.
+**Open:** (1) bookings never ran against real RunPod — tonight every RunPod try was refused (EU-RO-1 Secure, then any data centre Community and Secure, cards ≤ $0.59): RunPod's stock ignores the CUDA 12.8 driver filter; (2) Krea 2 not yet rendered on a cloud machine (Thunder had no L40/A6000 at 20:00, only an A100 the owner declined); (3) the file-by-file *Download results* (0.1.7) unseen on a real Thunder machine; (4) earlier RunPod items (lanes test, I7) need a volume again; (5) owner asked about image-to-image workflows for interior design — Qwen 2.1 depth/canny and FLUX.3 Klein edit suggested, nothing chosen yet.
 
 `bago9lu5` (13:25–13:36) was deleted, which is also why *Retry setup* answered "not launched from this console": its record was already forgotten. Not a bug.
 
