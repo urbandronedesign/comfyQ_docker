@@ -117,10 +117,19 @@ function zipResults({ root, id, res, archiver }) {
     res.setHeader('Content-Disposition', `attachment; filename="comfyq-pod-${id}-results.zip"`);
     const archive = archiver('zip', { zlib: { level: 1 } });   // outputs are already compressed media
     archive.on('error', (e) => { console.warn('[pod-folders] zip failed:', e.message); res.destroy(e); });
+    // A results download came back EMPTY on Thunder (2026-10-20, not reproduced
+    // here): say what was zipped and anything archiver skipped, so the next one shows why.
+    archive.on('warning', (e) => console.warn('[pod-folders] zip warning:', e.code || '', e.message));
+    res.on('close', () => console.log(`[pod-folders] results of ${id}: ${archive.pointer()} bytes sent${res.writableFinished ? '' : ' (connection closed early)'}`));
     archive.pipe(res);
     for (const [rel, name] of RESULT_PARTS) {
         const p = path.join(r.abs, rel);
-        try { if (fs.lstatSync(p).isDirectory()) archive.directory(p, name); } catch { /* absent */ }
+        try {
+            const st = fs.lstatSync(p);
+            // Never follow a link out of the Pod's folder (a link to the shared models would zip them all).
+            if (st.isDirectory()) archive.directory(p, name);
+            else console.warn(`[pod-folders] ${rel} is ${st.isSymbolicLink() ? 'a link' : 'not a folder'}: left out`);
+        } catch { /* absent */ }
     }
     archive.append(`Results of Pod ${id}, from its folder on the shared volume.\n`
         + 'output/ — what the jobs produced; ingredients/ — the settings and inputs of each job; uploads/ — files students uploaded.\n',

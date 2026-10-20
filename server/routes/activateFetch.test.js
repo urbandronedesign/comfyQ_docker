@@ -60,8 +60,10 @@ const downloader = {
     list: () => [...jobs.values()],
 };
 const restarts = [];
+const opened = [];
+const lanes = { open: async (id) => { opened.push(id); return { workflowId: id, name: id, port: 8189 }; }, get: () => null };
 const app = express();
-app.use('/admin', makeRouter({ configManager, registry, adminGate: adminGate(configManager), exitForRestart: (m) => restarts.push(m), runtime: { downloader } }));
+app.use('/admin', makeRouter({ configManager, registry, adminGate: adminGate(configManager), exitForRestart: (m) => restarts.push(m), runtime: { downloader, lanes } }));
 
 (async () => {
     const srv = app.listen(0);
@@ -112,6 +114,29 @@ app.use('/admin', makeRouter({ configManager, registry, adminGate: adminGate(con
         const r2 = await (await post('/activate-workflow', { workflowId: 'has_model' })).json();
         await sleep(400);
         check(`a workflow with its models switches at once (${JSON.stringify(r2)})`, r2.ok && !r2.fetching && config.workflows.activeWorkflowId === 'has_model' && restarts.includes('student'));
+
+        // ---- Serve alongside: download, then open the lane, no restart ----
+        fs.rmSync(path.join(root, 'models', 'checkpoints', 'missing.safetensors'));
+        invalidateModelIndex();
+        restarts.length = 0; config.mode = 'student';
+        const l1 = await post('/lanes', { workflowId: 'needs_model' });
+        const ld = await l1.json();
+        check(`Serve alongside downloads a lane's missing models first (${JSON.stringify(ld)})`, l1.status === 200 && ld.fetching === true && opened.length === 0);
+        let lp = null;
+        for (let i = 0; i < 40; i++) {
+            lp = (await (await fetch(base + '/pod-plan')).json()).plan;
+            if (lp?.status === 'done' || lp?.status === 'failed') break;
+            await sleep(100);
+        }
+        check(`then opens that lane (${lp?.status} ${lp?.error || ''})`, lp?.status === 'done' && opened.includes('needs_model'));
+        check('and the machine neither restarts nor changes what it serves', restarts.length === 0 && config.mode === 'student' && config.workflows.activeWorkflowId === 'has_model');
+        const l2 = await (await post('/lanes', { workflowId: 'has_model' })).json();
+        check('a lane whose models are here opens at once', l2.ok && !l2.fetching && opened.includes('has_model'));
+        const { runPlan, writePlan } = require('../cloud/podPlan');
+        writePlan({ serve: ['needs_model'], lane: true, status: 'pending', files: [], fetchModels: true });
+        const cut = await runPlan({ configManager, registry, downloader, exitForRestart: (m) => restarts.push(m) });
+        check(`a lane's plan found at boot does not take over the machine (${cut?.status})`, cut?.status === 'failed' && restarts.length === 0);
+        fs.writeFileSync(path.join(root, 'models', 'checkpoints', 'missing.safetensors'), 'x');
 
         // ---- "Serve anyway" after a failed download ----
         fs.rmSync(path.join(root, 'models', 'checkpoints', 'missing.safetensors'));

@@ -204,10 +204,18 @@ function missingModels(entry, comfyRoot) {
  * Runs in admin boot. Resolves once it has either handed over to student mode
  * (by calling exitForRestart) or recorded why it could not.
  */
-async function runPlan({ configManager, registry, downloader, exitForRestart, planFile = PLAN_FILE, pollMs = 3000, log = console.log }) {
+/**
+ * `onReady`, when given, replaces the last step (switch the machine to serving
+ * plan.serve and restart): "Serve alongside" downloads a lane's models with this
+ * same plan, then opens that one lane, and the machine keeps serving the others.
+ */
+async function runPlan({ configManager, registry, downloader, exitForRestart, onReady = null, planFile = PLAN_FILE, pollMs = 3000, log = console.log }) {
     const plan = readPlan(planFile);
     if (!plan || plan.status !== 'pending') return plan;
     const fail = (error) => { log(`[pod-plan] ${error}`); return updatePlan({ status: 'failed', error }, planFile); };
+    // A lane's plan found by the admin boot (a restart cut it short) must not
+    // make that lane the machine's only workflow.
+    if (plan.lane && !onReady) return fail(`the download for ${plan.serve.join(', ')} was cut short by a restart: press Serve alongside again`);
 
     const comfyRoot = configManager.load().config.comfy_ui?.root_path;
     if (plan.fetchModels) {
@@ -279,6 +287,14 @@ async function runPlan({ configManager, registry, downloader, exitForRestart, pl
             const still = missingModels(registry.get(id), comfyRoot).filter(m => !m.auto);
             if (still.length) return fail(`${id} is still missing ${still.map(m => m.name).join(', ')}`);
         }
+    }
+
+    if (onReady) {
+        try { await onReady(plan); }
+        catch (e) { return fail(`the models are in, but ${plan.serve.join(', ')} could not be started: ${e.message}`); }
+        updatePlan({ status: 'done', servedAt: new Date().toISOString() }, planFile);
+        log(`[pod-plan] serving ${plan.serve.join(', ')} alongside`);
+        return readPlan(planFile);
     }
 
     const [primary, ...extras] = plan.serve;

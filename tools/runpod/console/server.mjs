@@ -502,7 +502,13 @@ async function serveDownload(token, res) {
             'Content-Type': 'application/zip',
             'Content-Disposition': r.headers.get('content-disposition') || `attachment; filename="comfyq-pod-${d.folderId}-results.zip"`,
         });
-        Readable.fromWeb(r.body).pipe(res);
+        // Counted, because a download once came back empty with a 200 (2026-10-20).
+        let bytes = 0;
+        const body = Readable.fromWeb(r.body);
+        body.on('data', (c) => { bytes += c.length; });
+        body.on('error', (e) => console.warn(`[download] ${d.folderId}: the machine's stream broke after ${bytes} bytes: ${redact(e.message)}`));
+        res.on('close', () => console.log(`[download] ${d.folderId}: ${bytes} bytes relayed${bytes ? '' : ' — EMPTY: the machine sent nothing (see its log: [pod-folders])'}`));
+        body.pipe(res);
     } catch (e) {
         sendText(res, e.status >= 400 && e.status < 600 ? e.status : 502, redact(e.message));
     }

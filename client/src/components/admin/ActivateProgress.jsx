@@ -10,7 +10,9 @@ import { SERVER_URL } from '../../utils/api';
 // GET /admin/pod-plan: one row per model file, then serving — or why not.
 const gb = (b) => (Number(b || 0) / 1024 ** 3).toFixed(1);
 
-export default function ActivateProgress({ workflowId, missing = [], onClose, onServeAnyway }) {
+// `lane`: "Serve alongside" — the machine keeps serving and opens one more lane
+// when the models are in; nothing restarts and the admin page stays.
+export default function ActivateProgress({ workflowId, missing = [], lane = false, onClose, onServeAnyway }) {
     const [plan, setPlan] = useState(null);
     const [gone, setGone] = useState(false);   // the server restarted into serving
 
@@ -21,7 +23,7 @@ export default function ActivateProgress({ workflowId, missing = [], onClose, on
                 const r = await fetch(`${SERVER_URL}/admin/pod-plan`, { cache: 'no-store' });
                 const d = await r.json();
                 if (!stop) setPlan(d.plan);
-                if (d.plan?.status === 'done') { setTimeout(() => window.location.assign('/user'), 4000); return; }
+                if (d.plan?.status === 'done') { if (!lane) setTimeout(() => window.location.assign('/user'), 4000); return; }
                 if (d.plan?.status === 'failed' || d.plan?.status === 'refused') return;
             } catch {
                 // The server restarts once the models are in: that is the good end.
@@ -54,11 +56,15 @@ export default function ActivateProgress({ workflowId, missing = [], onClose, on
                 )}
                 {done && (
                     <p className="text-sm text-foreground flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-success" />
-                        Every model is in. The machine is switching to serving {workflowId}; the student page opens in a moment.</p>
+                        {lane
+                            ? `Every model is in, and ${workflowId} is now served alongside the other workflows.`
+                            : `Every model is in. The machine is switching to serving ${workflowId}; the student page opens in a moment.`}</p>
                 )}
                 {failed && (
                     <div className="text-sm text-foreground space-y-1">
-                        <p className="flex items-center gap-2 font-medium"><AlertTriangle className="w-4 h-4 text-danger" /> The models could not all be downloaded, so the machine is not serving.</p>
+                        <p className="flex items-center gap-2 font-medium"><AlertTriangle className="w-4 h-4 text-danger" /> {lane
+                            ? `${workflowId} is not served: its models could not all be downloaded, or it could not be started.`
+                            : 'The models could not all be downloaded, so the machine is not serving.'}</p>
                         <p className="text-muted">{plan?.error}</p>
                     </div>
                 )}

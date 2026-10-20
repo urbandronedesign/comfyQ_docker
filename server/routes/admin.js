@@ -1248,8 +1248,33 @@ function makeRouter({ configManager, registry, adminGate, exitForRestart, runtim
     router.post('/lanes', adminGate, express.json(), async (req, res) => {
         const lanes = runtime?.lanes;
         if (!lanes) return res.status(409).json({ error: 'lanes are only available while serving' });
-        const { workflowId, force = false } = req.body || {};
+        const { workflowId, force = false, serveWithoutModels } = req.body || {};
         if (!workflowId) return res.status(400).json({ error: 'workflowId required' });
+        // ★ Missing models are downloaded first, as for Activate & serve (owner,
+        //   2026-10-20): a lane opened without them served a workflow whose every
+        //   job failed. The plan downloads, then opens the lane; the machine keeps
+        //   serving the others meanwhile, and nothing restarts.
+        const entry = registry.get(workflowId);
+        if (!entry || entry.unavailable) return res.status(409).json({ error: entry?.reason || 'workflow unavailable' });
+        const plan = require('../cloud/podPlan');
+        const running = plan.readPlan();
+        if (running && Date.now() - Date.parse(running.updatedAt || 0) < 120_000 && ['pending', 'fetching'].includes(running.status)) {
+            return res.status(409).json({ error: `models are being downloaded for ${(running.serve || []).join(', ')}: wait for that to finish` });
+        }
+        const root = configManager.load().config.comfy_ui?.root_path;
+        const missing = serveWithoutModels ? [] : plan.missingModels(entry, root).filter(m => !m.auto);
+        if (missing.length) {
+            if (!runtime?.downloader) return res.status(503).json({ error: 'the model downloader is not available here' });
+            const room = plan.diskCheck(missing, root);
+            if (!room.ok) return res.status(507).json({ error: room.message });
+            const now = new Date().toISOString();
+            plan.writePlan({ serve: [workflowId], lane: true, fetchModels: true, createdAt: now, updatedAt: now, files: [], error: null, status: 'pending', from: 'serve alongside' });
+            console.log(`[Admin] serve alongside: ${workflowId} is missing ${missing.length} model file(s): downloading them first`);
+            plan.runPlan({ configManager, registry, downloader: runtime.downloader, exitForRestart,
+                onReady: () => lanes.open(workflowId, { force: !!force }) })
+                .catch(e => console.error('[pod-plan] failed:', e.message));
+            return res.json({ ok: true, fetching: true, workflowId, missing: missing.map(m => m.file) });
+        }
         try {
             const lane = await lanes.open(workflowId, { force: !!force });
             res.json({ ok: true, lane });

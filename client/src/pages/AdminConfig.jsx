@@ -651,16 +651,18 @@ const AdminConfig = ({ currentMode }) => {
         return () => clearInterval(t);
     }, [refreshLanes]);
 
-    const serveAlongside = async (workflowId) => {
+    const serveAlongside = async (workflowId, { serveWithoutModels } = {}) => {
         setServeAlongsideId(workflowId);
         showToast('Starting a second ComfyUI for this workflow — this takes a minute…');
         try {
             const res = await fetch(`${SERVER_URL}/admin/lanes`, {
                 method: 'POST', headers: adminHeaders(),
-                body: JSON.stringify({ workflowId })
+                body: JSON.stringify({ workflowId, serveWithoutModels })
             });
             const body = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(body.error || 'Could not start the lane');
+            // Models missing: the machine downloads them first, then opens the lane.
+            if (body.fetching) { setFetching({ workflowId, missing: body.missing || [], lane: true }); return; }
             showToast(`Now serving “${body.lane?.name || workflowId}” in parallel on port ${body.lane?.port}.`);
         } catch (e) {
             showToast(e.message, 'err');
@@ -1493,9 +1495,12 @@ const AdminConfig = ({ currentMode }) => {
             />
 
             {fetching && (
-                <ActivateProgress workflowId={fetching.workflowId} missing={fetching.missing}
-                    onClose={() => setFetching(null)}
-                    onServeAnyway={() => { const id = fetching.workflowId; setFetching(null); activate(id, { serveWithoutModels: true }); }} />
+                <ActivateProgress workflowId={fetching.workflowId} missing={fetching.missing} lane={!!fetching.lane}
+                    onClose={() => { setFetching(null); refreshLanes(); }}
+                    onServeAnyway={() => {
+                        const id = fetching.workflowId, lane = fetching.lane; setFetching(null);
+                        if (lane) serveAlongside(id, { serveWithoutModels: true }); else activate(id, { serveWithoutModels: true });
+                    }} />
             )}
 
             <Modal isOpen={!!stopConfirm} onClose={() => !deactivating && setStopConfirm(null)}
