@@ -191,7 +191,7 @@ Estimated 2026-10-20 from `tools/model-provenance/workflow-downloads.json` (70 w
   own disk instead;
 - so **about 675 GB of models; make the volume 750 GB** for each Pod's queue, uploads and results and for
   new workflows. The largest single workflows need ~50 GB (Qwen 2511 unblur, the LTX 2.5 IC-LoRA trio).
-  The volume `comfyq-models` (EU-RO-1) is 100 GB today and holds ~32 GB.
+  (The 100 GB volume `comfyq-models` in EU-RO-1 was deleted on 2026-10-20: there is none now.)
 
 Cost at RunPod's usual network-storage price, ~$0.07 per GB per month below 1 TB (check their pricing page):
 
