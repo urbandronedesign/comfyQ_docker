@@ -69,6 +69,12 @@ RUN npm install --prefix server --omit=dev --no-audit --no-fund
 COPY . .
 COPY --from=client /src/client/dist client/dist
 RUN chmod +x docker/entrypoint.sh
+# Our own fixes to cloned node packs (tools/maintenance/fix_custom_node_patches.py),
+# the same ones the rig gets from Maintenance → "Re-apply the custom-node fixes".
+# Without it the Qwen 2.1 ControlNet bundles fail every job with "aimdo memory
+# compile error" (found on Thunder, 2026-10-20). A patch that no longer applies
+# fails the build rather than shipping the bug.
+RUN COMFY_ROOT=/opt/ComfyUI /opt/venv/bin/python tools/maintenance/fix_custom_node_patches.py
 
 # 3000: ComfyQ (student page, admin panel, API). 8188: ComfyUI's own editor,
 # used by the admin's "Open in ComfyUI".
