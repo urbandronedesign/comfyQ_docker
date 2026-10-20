@@ -166,7 +166,7 @@ try {
 } finally {
     if (a) await a.quit().catch(() => {});
     await sleep(500);
-    try { fs.rmSync(home, { recursive: true, force: true }); } catch { /* a file may still be held */ }
+    if (process.env.COMFYQ_APP_KEEP_HOME) console.log('  kept', home); else try { fs.rmSync(home, { recursive: true, force: true }); } catch { /* a file may still be held */ }
 }
 console.log(`app smoke: ${n - bad}/${n} checks passed`);
 process.exit(bad ? 1 : 0);

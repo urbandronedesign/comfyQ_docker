@@ -238,7 +238,7 @@ function updateTray() {
         { type: 'separator' },
         { label: `Version ${app.getVersion()}${app.isPackaged ? '' : ' (from the repo)'}`, enabled: false },
         ...(updateState ? [{ label: updateState, enabled: false }] : []),
-        ...(updater ? [{ label: 'Check for updates', click: () => updater.checkForUpdates().catch((e) => notify('ComfyQ Console', `Could not check for updates: ${e.message}`)) }] : []),
+        ...(updater ? [{ label: 'Check for updates', click: () => checkForUpdates(true) }] : []),
         { label: 'Quit', click: () => app.quit() },
     ]));
     record({ type: 'tray', tooltip: line });
@@ -260,6 +260,29 @@ async function tick() {
 // question still comes first if a machine is billing.
 let updater = null;
 let updateState = '';       // shown in the tray menu
+let manualCheck = false;    // a check asked for from the tray always gets an answer
+let lastCheck = 0;
+
+// Every check, with its outcome, goes to ~/.comfyq/console-app.log: an update
+// that does not arrive can then be explained (it was silent before, 2026-10-20).
+function updateLog(msg) {
+    try {
+        const file = path.join(process.env.COMFYQ_APP_SERVER_HOME || require('os').homedir(), '.comfyq', 'console-app.log');
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.appendFileSync(file, `${new Date().toISOString()} [update] ${msg}\n`);
+    } catch { /* logging must never break the app */ }
+}
+
+function checkForUpdates(manual = false) {
+    if (!updater) return;
+    manualCheck = manual;
+    lastCheck = Date.now();
+    updateLog(`checking (version ${app.getVersion()}${manual ? ', asked from the tray' : ''})`);
+    updater.checkForUpdates().catch((e) => {
+        updateLog(`check failed: ${e.message}`);
+        if (manual) notify('ComfyQ Console', `Could not check for updates: ${e.message}`);
+    });
+}
 function setupUpdates() {
     if (!app.isPackaged) return;
     // Required here, not at the top: electron-updater reads app details as soon
@@ -267,17 +290,32 @@ function setupUpdates() {
     ({ autoUpdater: updater } = require('electron-updater'));
     updater.autoDownload = true;
     updater.autoInstallOnAppQuit = true;
-    updater.on('update-available', (i) => { updateState = `Downloading version ${i.version}…`; updateTray(); });
-    updater.on('update-not-available', () => { updateState = ''; updateTray(); });
-    updater.on('error', (e) => { updateState = ''; record({ type: 'update-error', message: String(e?.message || e) }); updateTray(); });
+    updater.on('update-available', (i) => {
+        updateLog(`version ${i.version} found, downloading`);
+        updateState = `Downloading version ${i.version}…`; updateTray();
+        if (manualCheck) notify('ComfyQ Console', `Version ${i.version} found: downloading it.`);
+    });
+    updater.on('update-not-available', () => {
+        updateLog('up to date');
+        updateState = ''; updateTray();
+        if (manualCheck) notify('ComfyQ Console', `You have the latest version (${app.getVersion()}).`);
+    });
+    updater.on('error', (e) => {
+        updateLog(`error: ${String(e?.message || e).split('\n')[0]}`);
+        updateState = ''; record({ type: 'update-error', message: String(e?.message || e) }); updateTray();
+    });
     updater.on('update-downloaded', (i) => {
+        updateLog(`version ${i.version} downloaded, installs on quit`);
         updateState = `Version ${i.version} installs when you quit`;
         notify('ComfyQ Console update ready', `Version ${i.version} is downloaded and installs the next time you quit the app.`);
         updateTray();
     });
-    const check = () => updater.checkForUpdates().catch(() => { /* offline: try again later */ });
-    setTimeout(check, 10_000);
-    setInterval(check, 6 * 3600_000);
+    // Soon after start, every 30 minutes, and when the window is opened (at most
+    // every 5 minutes): one check at start and then every 6 hours missed a release
+    // published while the app was already running.
+    setTimeout(() => checkForUpdates(), 10_000);
+    setInterval(() => checkForUpdates(), 30 * 60_000);
+    win?.on('show', () => { if (Date.now() - lastCheck > 5 * 60_000) checkForUpdates(); });
 }
 
 function startWatching() {
