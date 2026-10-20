@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Upload, X, Image as ImageIcon, Video as VideoIcon, Music, Loader2, AlertTriangle, RotateCw } from 'lucide-react';
+import { Upload, X, Image as ImageIcon, Video as VideoIcon, Music, Box, Loader2, AlertTriangle, RotateCw } from 'lucide-react';
 import { resizeImageFile } from '../../utils/imageResize';
 
 // Default image bounding box when the workflow's exposedParameter doesn't
@@ -8,6 +8,13 @@ import { resizeImageFile } from '../../utils/imageResize';
 // single square long-edge cap. Admins set maxInputEdge in the metadata editor.
 const DEFAULT_IMAGE_MAX_LONG = 1920;
 const DEFAULT_IMAGE_MAX_SHORT = 1080;
+
+// 3D meshes have no usable MIME prefix to filter on the way image/* and video/*
+// do — a browser reports .obj and .stl as '' and .glb inconsistently — so the
+// file picker and the drop target match on EXTENSION instead. These are the
+// formats ComfyUI's own mesh reader opens.
+const MODEL3D_EXTS = ['.glb', '.gltf', '.obj', '.stl', '.ply', '.fbx'];
+const hasModel3dExt = (name) => MODEL3D_EXTS.some(e => (name || '').toLowerCase().endsWith(e));
 
 // MediaCaptureField — image/video upload widget for BookingDialog.
 //
@@ -27,7 +34,7 @@ const DEFAULT_IMAGE_MAX_SHORT = 1080;
 const MediaCaptureField = ({
     paramKey,
     label,
-    type,           // 'image' | 'video' | 'audio'
+    type,           // 'image' | 'video' | 'audio' | 'model3d'
     maxInputEdge,   // optional; falls back to the 1920×1080 image box
     preview,        // dataURL string from parent's FileReader
     recalledName,   // optional: display name of an asset reused from a prior job
@@ -38,19 +45,27 @@ const MediaCaptureField = ({
     const [processing, setProcessing] = useState(false);
     const [dragActive, setDragActive] = useState(false);
     const [error, setError] = useState('');
+    const [pickedName, setPickedName] = useState('');
     const isVideo = type === 'video';
     const isAudio = type === 'audio';
+    const isModel3d = type === 'model3d';
     const isImage = type === 'image';
-    const noun = isAudio ? 'audio' : isVideo ? 'video' : 'image';
+    const noun = isAudio ? 'audio' : isVideo ? 'video' : isModel3d ? '3D model' : 'image';
     // When maxInputEdge is set, use it as a square long-edge cap (legacy
     // single-edge behavior); otherwise the 1920×1080 box.
     const maxLong = maxInputEdge ?? DEFAULT_IMAGE_MAX_LONG;
     const maxShort = maxInputEdge ?? DEFAULT_IMAGE_MAX_SHORT;
     const acceptPrefix = `${type}/`;
+    const acceptAttr = isModel3d ? MODEL3D_EXTS.join(',') : `${type}/*`;
 
     const handleFile = async (file) => {
         if (!file) return;
         setError('');
+        if (isModel3d && !hasModel3dExt(file.name)) {
+            setError(`That isn’t a 3D model file. Use one of ${MODEL3D_EXTS.join(', ')}.`);
+            return;
+        }
+        setPickedName(file.name || '');
         // Reset the input value so picking the same file twice still fires.
         if (fileInputRef.current) fileInputRef.current.value = '';
         let processed = file;
@@ -99,7 +114,13 @@ const MediaCaptureField = ({
         if (processing || preview) return;
         const file = e.dataTransfer?.files?.[0];
         if (!file) return;
-        if (file.type && !file.type.startsWith(acceptPrefix)) {
+        if (isModel3d) {
+            // Extension, not MIME: see MODEL3D_EXTS.
+            if (!hasModel3dExt(file.name)) {
+                console.warn(`[MediaCaptureField] ignored dropped file ${file.name} (expected a 3D model)`);
+                return;
+            }
+        } else if (file.type && !file.type.startsWith(acceptPrefix)) {
             console.warn(`[MediaCaptureField] ignored dropped file of type ${file.type} (expected ${acceptPrefix}*)`);
             return;
         }
@@ -111,9 +132,11 @@ const MediaCaptureField = ({
             <label className="text-sm font-medium text-slate-300 flex items-center gap-2 flex-wrap">
                 {isAudio
                     ? <Music size={14} className="text-primary" />
-                    : isVideo
-                        ? <VideoIcon size={14} className="text-primary" />
-                        : <ImageIcon size={14} className="text-primary" />}
+                    : isModel3d
+                        ? <Box size={14} className="text-primary" />
+                        : isVideo
+                            ? <VideoIcon size={14} className="text-primary" />
+                            : <ImageIcon size={14} className="text-primary" />}
                 <span>{label}</span>
                 {isImage && (
                     <span className="text-[10px] text-muted font-normal">
@@ -135,7 +158,28 @@ const MediaCaptureField = ({
                 onDrop={handleDrop}
             >
                 {preview ? (
-                    isAudio ? (
+                    isModel3d ? (
+                        <div className="flex items-center gap-3 p-1">
+                            <Box size={20} className="text-primary shrink-0" />
+                            <span className="flex-1 min-w-0 truncate text-xs text-slate-300"
+                                  title={recalledName || pickedName}>
+                                {recalledName || pickedName || '3D model ready'}
+                            </span>
+                            {recalledName && (
+                                <span className="text-[9px] font-semibold text-primary inline-flex items-center gap-1 shrink-0" title={recalledName}>
+                                    <RotateCw size={10} /> Reused
+                                </span>
+                            )}
+                            <button
+                                type="button"
+                                onClick={() => { setError(''); setPickedName(''); onRemove(); }}
+                                className="p-1.5 rounded-full bg-danger text-on-primary hover:scale-110 transition-transform shrink-0"
+                                title="Remove and pick another"
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+                    ) : isAudio ? (
                         <div className="flex items-center gap-3 p-1">
                             <Music size={20} className="text-primary shrink-0" />
                             <audio src={preview} controls className="flex-1 min-w-0 h-9" />
@@ -198,7 +242,7 @@ const MediaCaptureField = ({
                             ref={fileInputRef}
                             type="file"
                             className="hidden"
-                            accept={`${type}/*`}
+                            accept={acceptAttr}
                             onChange={(e) => handleFile(e.target.files?.[0])}
                         />
                     </label>

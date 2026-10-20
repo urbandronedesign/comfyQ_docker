@@ -1,0 +1,1177 @@
+{
+  "id": "3d2remesh-nativedc-v01",
+  "revision": 0,
+  "last_node_id": 16,
+  "last_link_id": 16,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "MarkdownNote",
+      "pos": [
+        56.257075370945245,
+        25.863412720917182
+      ],
+      "size": [
+        440,
+        900
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "📖 Mode d'emploi",
+      "properties": {
+        "Node name for S&R": "MarkdownNote",
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0"
+      },
+      "widgets_values": [
+        "# 3D2Remesh — Remesh d'un GLB (100 % nœuds natifs)\n\n**Ce que fait le workflow**\n1. Charge un fichier 3D (**GLB / GLTF** conseillé, OBJ et STL acceptés).\n2. Le convertit en mesh éditable, affiche ses stats, soude les vertices.\n3. **Manifold auto ON** : reconstruit une surface propre et étanche (*Remesh Mesh — Narrow-Band Dual Contouring*), résolution calculée depuis le poly count.\n   **OFF** : garde la topologie d'origine, simple décimation.\n4. Décime au **poly count cible** (*Decimate Mesh*, QEM), recalcule les normales.\n5. Sortie : **GLB triangulé** + aperçu 3D, dossier `output/3D2Remesh/`.\n\n**Aucun modèle**, aucun nœud API, aucun crédit.\n\n**À régler (groupe 🎛️ CONTRÔLES)**\n- *Poly count cible* : nombre max de **triangles** en sortie (web 5–20k, jeu 20–80k).\n- *Manifold auto* : **ON** = étanche, idéal pour impression 3D, bake, mesh IA/scan sale. OFF = garde la forme exacte et ses ouvertures.\n- *Lissage* : 2 par défaut (efface l'effet « marches d'escalier »). 0 = arêtes plus vives, 4+ = arrondi.\n- *Angle arêtes vives* : 180 = tout lissé (organique). 30–60 = hard-surface.\n\n**⚠️ Échelle (Manifold ON)**\nLe remesh travaille dans un cube fixe de **1 unité centré sur l'origine** (comme les sorties Trellis / Hunyuan3D). Un modèle plus grand ou décentré est **coupé**.\n→ Dans Blender : dimension max = 1 m, origine au centre, *Apply All Transforms*, export glTF. Ou passe Manifold OFF.\n\n**Limites connues**\n- Sortie **triangles uniquement** : le GLB ne stocke pas de quads, et aucun nœud natif ne fait de quad remesh ni de symétrie.\n- **UV et textures perdues** au remesh / décimation (couleurs de sommets conservées). Re-déplier avec *3D2UV_UnwrapMesh_v01*.\n- Scène fusionnée en **un seul mesh**.\n- FBX / USDZ refusés : convertir en GLB.\n- Aperçu 3D vide = souci WebGL du navigateur, pas du WF : récupère le fichier dans **Assets → Generated**.\n"
+      ],
+      "widgets_values_named": {
+        "text": "# 3D2Remesh — Remesh d'un GLB (100 % nœuds natifs)\n\n**Ce que fait le workflow**\n1. Charge un fichier 3D (**GLB / GLTF** conseillé, OBJ et STL acceptés).\n2. Le convertit en mesh éditable, affiche ses stats, soude les vertices.\n3. **Manifold auto ON** : reconstruit une surface propre et étanche (*Remesh Mesh — Narrow-Band Dual Contouring*), résolution calculée depuis le poly count.\n   **OFF** : garde la topologie d'origine, simple décimation.\n4. Décime au **poly count cible** (*Decimate Mesh*, QEM), recalcule les normales.\n5. Sortie : **GLB triangulé** + aperçu 3D, dossier `output/3D2Remesh/`.\n\n**Aucun modèle**, aucun nœud API, aucun crédit.\n\n**À régler (groupe 🎛️ CONTRÔLES)**\n- *Poly count cible* : nombre max de **triangles** en sortie (web 5–20k, jeu 20–80k).\n- *Manifold auto* : **ON** = étanche, idéal pour impression 3D, bake, mesh IA/scan sale. OFF = garde la forme exacte et ses ouvertures.\n- *Lissage* : 2 par défaut (efface l'effet « marches d'escalier »). 0 = arêtes plus vives, 4+ = arrondi.\n- *Angle arêtes vives* : 180 = tout lissé (organique). 30–60 = hard-surface.\n\n**⚠️ Échelle (Manifold ON)**\nLe remesh travaille dans un cube fixe de **1 unité centré sur l'origine** (comme les sorties Trellis / Hunyuan3D). Un modèle plus grand ou décentré est **coupé**.\n→ Dans Blender : dimension max = 1 m, origine au centre, *Apply All Transforms*, export glTF. Ou passe Manifold OFF.\n\n**Limites connues**\n- Sortie **triangles uniquement** : le GLB ne stocke pas de quads, et aucun nœud natif ne fait de quad remesh ni de symétrie.\n- **UV et textures perdues** au remesh / décimation (couleurs de sommets conservées). Re-déplier avec *3D2UV_UnwrapMesh_v01*.\n- Scène fusionnée en **un seul mesh**.\n- FBX / USDZ refusés : convertir en GLB.\n- Aperçu 3D vide = souci WebGL du navigateur, pas du WF : récupère le fichier dans **Assets → Generated**.\n"
+      },
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 2,
+      "type": "PrimitiveInt",
+      "pos": [
+        540,
+        60
+      ],
+      "size": [
+        300,
+        82
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "INT",
+          "type": "INT",
+          "links": [
+            11,
+            15
+          ]
+        }
+      ],
+      "title": "🎛️ Poly count cible (triangles)",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "PrimitiveInt"
+      },
+      "widgets_values": [
+        2000,
+        "fixed"
+      ],
+      "widgets_values_named": {
+        "value": 2000,
+        "fixed": "fixed"
+      },
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 3,
+      "type": "PrimitiveBoolean",
+      "pos": [
+        540,
+        180
+      ],
+      "size": [
+        300,
+        58
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "BOOLEAN",
+          "type": "BOOLEAN",
+          "links": [
+            14
+          ]
+        }
+      ],
+      "title": "🎛️ Manifold auto (remesh étanche)",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "PrimitiveBoolean"
+      },
+      "widgets_values": [
+        true
+      ],
+      "widgets_values_named": {
+        "value": true
+      },
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 4,
+      "type": "PrimitiveInt",
+      "pos": [
+        540,
+        280
+      ],
+      "size": [
+        300,
+        82
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "INT",
+          "type": "INT",
+          "links": [
+            13
+          ]
+        }
+      ],
+      "title": "🎛️ Lissage (itérations, 0–20)",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "PrimitiveInt"
+      },
+      "widgets_values": [
+        2,
+        "fixed"
+      ],
+      "widgets_values_named": {
+        "value": 2,
+        "fixed": "fixed"
+      },
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 5,
+      "type": "PrimitiveFloat",
+      "pos": [
+        540,
+        400
+      ],
+      "size": [
+        300,
+        58
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "FLOAT",
+          "type": "FLOAT",
+          "links": [
+            16
+          ]
+        }
+      ],
+      "title": "🎛️ Angle arêtes vives (°, 180 = lisse)",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "PrimitiveFloat"
+      },
+      "widgets_values": [
+        90
+      ],
+      "widgets_values_named": {
+        "value": 90
+      },
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 6,
+      "type": "Load3DAdvanced",
+      "pos": [
+        920,
+        60
+      ],
+      "size": [
+        340,
+        620
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "model_3d",
+          "type": "FILE_3D",
+          "links": [
+            1
+          ]
+        },
+        {
+          "name": "model_3d_info",
+          "type": "LOAD3D_MODEL_INFO",
+          "links": null
+        },
+        {
+          "name": "camera_info",
+          "type": "LOAD3D_CAMERA",
+          "links": null
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "links": null
+        }
+      ],
+      "title": "📥 Fichier 3D (GLB / GLTF)",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "Load3DAdvanced",
+        "Camera Config": {
+          "cameraType": "perspective",
+          "fov": 35,
+          "state": {
+            "position": {
+              "x": -13.027440973874226,
+              "y": 10.099820389951137,
+              "z": -12.48869524474976
+            },
+            "target": {
+              "x": 0,
+              "y": 2.5,
+              "z": 0
+            },
+            "zoom": 1,
+            "cameraType": "perspective",
+            "quaternion": {
+              "x": 0.07768757337195172,
+              "y": 0.9015837152509917,
+              "z": 0.18209387430400686,
+              "w": -0.3846469371758378
+            },
+            "fov": 35,
+            "aspect": 1,
+            "near": 0.01,
+            "far": 10000,
+            "frustum": {
+              "left": -5,
+              "right": 5,
+              "top": 5,
+              "bottom": -5
+            }
+          }
+        },
+        "Light Config": {
+          "intensity": 3,
+          "hdri": {
+            "enabled": false,
+            "hdriPath": "",
+            "showAsBackground": false,
+            "intensity": 1
+          }
+        },
+        "Resource Folder": "noisy/Block0.4",
+        "Scene Config": {
+          "showGrid": true,
+          "backgroundColor": "#282828",
+          "backgroundImage": "",
+          "backgroundRenderMode": "tiled",
+          "models": [
+            {
+              "position": {
+                "x": 0.0002585343639731619,
+                "y": 2.4395887244927583,
+                "z": -0.003249002821435143
+              },
+              "quaternion": {
+                "x": 0,
+                "y": 0,
+                "z": 0,
+                "w": 1
+              },
+              "scale": {
+                "x": 5.189933434400188,
+                "y": 5.189933434400188,
+                "z": 5.189933434400188
+              }
+            }
+          ]
+        },
+        "Model Config": {
+          "upDirection": "original",
+          "materialMode": "original",
+          "showSkeleton": false,
+          "gizmo": {
+            "enabled": false,
+            "mode": "translate",
+            "position": {
+              "x": 0.0002585343639731619,
+              "y": 2.4395887244927583,
+              "z": -0.003249002821435143
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 5.189933434400188,
+              "y": 5.189933434400188,
+              "z": 5.189933434400188
+            }
+          }
+        }
+      },
+      "widgets_values": [
+        "bench_3d_pixal3d_multi_views_1791799811200_00001.glb [output]",
+        "",
+        1024,
+        1024
+      ],
+      "widgets_values_named": {
+        "model_file": "bench_3d_pixal3d_multi_views_1791799811200_00001.glb [output]",
+        "viewport_state": "",
+        "width": 1024,
+        "height": 1024
+      },
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 7,
+      "type": "Get3DComponents",
+      "pos": [
+        920,
+        710
+      ],
+      "size": [
+        340,
+        50
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model_3d",
+          "type": "FILE_3D_GLB,FILE_3D_GLTF,FILE_3D_OBJ,FILE_3D_STL,FILE_3D",
+          "link": 1
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mesh",
+          "type": "MESH",
+          "links": [
+            2
+          ]
+        }
+      ],
+      "title": "🔧 Fichier → mesh éditable",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "Get3DComponents"
+      },
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 8,
+      "type": "GetMeshInfo",
+      "pos": [
+        920,
+        790
+      ],
+      "size": [
+        340,
+        150
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "mesh",
+          "type": "MESH",
+          "link": 2
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mesh",
+          "type": "MESH",
+          "links": [
+            3
+          ]
+        },
+        {
+          "name": "info",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "ℹ️ Stats AVANT",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "GetMeshInfo"
+      },
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 9,
+      "type": "WeldVertices",
+      "pos": [
+        920,
+        970
+      ],
+      "size": [
+        340,
+        82
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "mesh",
+          "type": "MESH",
+          "link": 3
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mesh",
+          "type": "MESH",
+          "links": [
+            4,
+            5
+          ]
+        }
+      ],
+      "title": "🧲 Souder les vertices",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "WeldVertices"
+      },
+      "widgets_values": [
+        0.00001,
+        0
+      ],
+      "widgets_values_named": {
+        "epsilon_rel": 0.00001,
+        "epsilon_abs": 0
+      },
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 10,
+      "type": "ComfyMathExpression",
+      "pos": [
+        1340,
+        60
+      ],
+      "size": [
+        340,
+        170
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "a",
+          "name": "values.a",
+          "type": "FLOAT,INT,BOOLEAN",
+          "link": 11
+        },
+        {
+          "name": "values.b",
+          "shape": 7,
+          "type": "FLOAT,INT,BOOLEAN",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "FLOAT",
+          "type": "FLOAT",
+          "links": null
+        },
+        {
+          "name": "INT",
+          "type": "INT",
+          "links": [
+            12
+          ]
+        },
+        {
+          "name": "BOOL",
+          "type": "BOOLEAN",
+          "links": null
+        }
+      ],
+      "title": "🧮 Résolution remesh auto",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "ComfyMathExpression"
+      },
+      "widgets_values": [
+        "max(64, min(1024, round(sqrt(a * 2.7) / 32) * 32))"
+      ],
+      "widgets_values_named": {
+        "expression": "max(64, min(1024, round(sqrt(a * 2.7) / 32) * 32))"
+      },
+      "color": "#322",
+      "bgcolor": "#533"
+    },
+    {
+      "id": 11,
+      "type": "RemeshMesh",
+      "pos": [
+        1340,
+        260
+      ],
+      "size": [
+        340,
+        340
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "mesh",
+          "type": "MESH",
+          "link": 4
+        },
+        {
+          "name": "resolution",
+          "type": "INT",
+          "widget": {
+            "name": "resolution"
+          },
+          "link": 12
+        },
+        {
+          "name": "smooth_iters",
+          "type": "INT",
+          "widget": {
+            "name": "smooth_iters"
+          },
+          "link": 13
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mesh",
+          "type": "MESH",
+          "links": [
+            6
+          ]
+        }
+      ],
+      "title": "♻️ Remesh étanche (Dual Contouring)",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "RemeshMesh"
+      },
+      "widgets_values": [
+        256,
+        "udf",
+        false,
+        true,
+        false,
+        1,
+        0,
+        true,
+        2,
+        0.01,
+        20000000
+      ],
+      "widgets_values_named": {
+        "resolution": 256,
+        "sign_mode": "udf",
+        "sign_mode.qef": false,
+        "sign_mode.drop_inverted_components": true,
+        "sign_mode.drop_enclosed_components": false,
+        "band": 1,
+        "project_back": 0,
+        "fix_poles": true,
+        "smooth_iters": 2,
+        "drop_small_components": 0.01,
+        "precluster_max_verts": 20000000
+      },
+      "color": "#322",
+      "bgcolor": "#533"
+    },
+    {
+      "id": 12,
+      "type": "ComfySwitchNode",
+      "pos": [
+        1340,
+        630
+      ],
+      "size": [
+        340,
+        130
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "on_false",
+          "shape": 7,
+          "type": "MESH",
+          "link": 5
+        },
+        {
+          "name": "on_true",
+          "shape": 7,
+          "type": "MESH",
+          "link": 6
+        },
+        {
+          "name": "switch",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "switch"
+          },
+          "link": 14
+        }
+      ],
+      "outputs": [
+        {
+          "name": "output",
+          "type": "MESH",
+          "links": [
+            7
+          ]
+        }
+      ],
+      "title": "🔀 Manifold ON / OFF",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "ComfySwitchNode"
+      },
+      "widgets_values": [
+        true
+      ],
+      "widgets_values_named": {
+        "switch": true
+      },
+      "color": "#322",
+      "bgcolor": "#533"
+    },
+    {
+      "id": 13,
+      "type": "DecimateMesh",
+      "pos": [
+        1340,
+        790
+      ],
+      "size": [
+        340,
+        110
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "mesh",
+          "type": "MESH",
+          "link": 7
+        },
+        {
+          "name": "target_face_count",
+          "type": "INT",
+          "widget": {
+            "name": "target_face_count"
+          },
+          "link": 15
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mesh",
+          "type": "MESH",
+          "links": [
+            8
+          ]
+        }
+      ],
+      "title": "📉 Décimation au poly count",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "DecimateMesh"
+      },
+      "widgets_values": [
+        20000,
+        "midpoint"
+      ],
+      "widgets_values_named": {
+        "target_face_count": 20000,
+        "placement_mode": "midpoint"
+      },
+      "color": "#322",
+      "bgcolor": "#533"
+    },
+    {
+      "id": 14,
+      "type": "MeshSmoothNormals",
+      "pos": [
+        1760,
+        60
+      ],
+      "size": [
+        320,
+        82
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "mesh",
+          "type": "MESH",
+          "link": 8
+        },
+        {
+          "name": "crease_angle",
+          "type": "FLOAT",
+          "widget": {
+            "name": "crease_angle"
+          },
+          "link": 16
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mesh",
+          "type": "MESH",
+          "links": [
+            9
+          ]
+        }
+      ],
+      "title": "✨ Normales lissées",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "MeshSmoothNormals"
+      },
+      "widgets_values": [
+        180
+      ],
+      "widgets_values_named": {
+        "crease_angle": 180
+      },
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 15,
+      "type": "GetMeshInfo",
+      "pos": [
+        1760,
+        180
+      ],
+      "size": [
+        320,
+        150
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "mesh",
+          "type": "MESH",
+          "link": 9
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mesh",
+          "type": "MESH",
+          "links": [
+            10
+          ]
+        },
+        {
+          "name": "info",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "ℹ️ Stats APRÈS",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "GetMeshInfo"
+      },
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 16,
+      "type": "SaveGLB",
+      "pos": [
+        2120,
+        60
+      ],
+      "size": [
+        500,
+        700
+      ],
+      "flags": {},
+      "order": 15,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "mesh",
+          "type": "MESH,FILE_3D_GLB,FILE_3D_GLTF,FILE_3D_OBJ,FILE_3D_FBX,FILE_3D_STL,FILE_3D_USDZ,FILE_3D_PLY,FILE_3D_SPLAT,FILE_3D_SPZ,FILE_3D_KSPLAT,FILE_3D_SPLAT_ANY,FILE_3D_POINT_CLOUD_ANY,FILE_3D",
+          "link": 10
+        }
+      ],
+      "outputs": [],
+      "title": "💾 GLB remeshé + aperçu 3D",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "SaveGLB",
+        "Last Time Model File": "3D2Remesh/remesh_00001_.glb",
+        "Last Time Model Folder": "output",
+        "Camera Config": {
+          "cameraType": "perspective",
+          "fov": 35,
+          "hasCustomUp": false,
+          "state": {
+            "position": {
+              "x": 1.3730917746100884,
+              "y": 0.6713024855847942,
+              "z": 1.4835977046023485
+            },
+            "target": {
+              "x": 0.0005465149879455566,
+              "y": 0.010360553860664368,
+              "z": -0.0012522637844085693
+            },
+            "zoom": 1,
+            "cameraType": "perspective",
+            "quaternion": {
+              "x": -0.14648450794162912,
+              "y": 0.3599269061366106,
+              "z": 0.05733182908498929,
+              "w": 0.9196238212148464
+            },
+            "fov": 35,
+            "aspect": 0.8717948717948718,
+            "near": 0.01,
+            "far": 10000,
+            "frustum": {
+              "left": -5,
+              "right": 5,
+              "top": 5,
+              "bottom": -5
+            }
+          }
+        },
+        "Light Config": {
+          "intensity": 3,
+          "hdri": {
+            "enabled": false,
+            "hdriPath": "",
+            "showAsBackground": false,
+            "intensity": 1
+          }
+        },
+        "Scene Config": {
+          "showGrid": true,
+          "backgroundColor": "#282828",
+          "backgroundImage": "",
+          "backgroundRenderMode": "tiled",
+          "models": [
+            {
+              "position": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "quaternion": {
+                "x": 0,
+                "y": 0,
+                "z": 0,
+                "w": 1
+              },
+              "scale": {
+                "x": 1,
+                "y": 1,
+                "z": 1
+              }
+            }
+          ]
+        },
+        "Model Config": {
+          "upDirection": "original",
+          "materialMode": "wireframe",
+          "showSkeleton": false,
+          "gizmo": {
+            "enabled": false,
+            "mode": "translate",
+            "position": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        }
+      },
+      "widgets_values": [
+        "3D2Remesh/remesh",
+        ""
+      ],
+      "widgets_values_named": {
+        "filename_prefix": "3D2Remesh/remesh",
+        "image": ""
+      },
+      "color": "#233",
+      "bgcolor": "#355"
+    }
+  ],
+  "links": [
+    [
+      1,
+      6,
+      0,
+      7,
+      0,
+      "FILE_3D"
+    ],
+    [
+      2,
+      7,
+      0,
+      8,
+      0,
+      "MESH"
+    ],
+    [
+      3,
+      8,
+      0,
+      9,
+      0,
+      "MESH"
+    ],
+    [
+      5,
+      9,
+      0,
+      12,
+      0,
+      "MESH"
+    ],
+    [
+      6,
+      11,
+      0,
+      12,
+      1,
+      "MESH"
+    ],
+    [
+      8,
+      13,
+      0,
+      14,
+      0,
+      "MESH"
+    ],
+    [
+      9,
+      14,
+      0,
+      15,
+      0,
+      "MESH"
+    ],
+    [
+      10,
+      15,
+      0,
+      16,
+      0,
+      "MESH"
+    ],
+    [
+      14,
+      3,
+      0,
+      12,
+      2,
+      "BOOLEAN"
+    ],
+    [
+      16,
+      5,
+      0,
+      14,
+      1,
+      "FLOAT"
+    ],
+    [
+      11,
+      2,
+      0,
+      10,
+      0,
+      "INT"
+    ],
+    [
+      4,
+      9,
+      0,
+      11,
+      0,
+      "MESH"
+    ],
+    [
+      12,
+      10,
+      1,
+      11,
+      1,
+      "INT"
+    ],
+    [
+      13,
+      4,
+      0,
+      11,
+      2,
+      "INT"
+    ],
+    [
+      7,
+      12,
+      0,
+      13,
+      0,
+      "MESH"
+    ],
+    [
+      15,
+      2,
+      0,
+      13,
+      1,
+      "INT"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "🎛️ CONTRÔLES",
+      "bounding": [
+        510,
+        0,
+        360,
+        500
+      ],
+      "color": "#335",
+      "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "📥 ENTRÉE + NETTOYAGE",
+      "bounding": [
+        900,
+        0,
+        380,
+        1080
+      ],
+      "color": "#353",
+      "flags": {}
+    },
+    {
+      "id": 3,
+      "title": "♻️ REMESH + DÉCIMATION",
+      "bounding": [
+        1320,
+        0,
+        380,
+        930
+      ],
+      "color": "#533",
+      "flags": {}
+    },
+    {
+      "id": 4,
+      "title": "💾 SORTIE",
+      "bounding": [
+        1740,
+        0,
+        900,
+        790
+      ],
+      "color": "#355",
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.495867768595042,
+      "offset": [
+        -31.798794946914306,
+        651.1134179575088
+      ]
+    },
+    "workflow_name": "3D2Remesh_NativeDC_v01",
+    "frontendVersion": "1.55.14",
+    "VHS_latentpreview": false,
+    "VHS_latentpreviewrate": 0,
+    "VHS_MetadataImage": true,
+    "VHS_KeepIntermediate": true
+  },
+  "version": 0.4
+}

@@ -9,7 +9,7 @@
 # Layers run from least to most often changed, so editing ComfyQ's own code
 # rebuilds only the last few: system → torch → ComfyUI → node packs → app.
 
-ARG COMFYUI_VERSION=v0.39.2
+ARG COMFYUI_VERSION=v0.42.1
 ARG NODE_MAJOR=24
 
 # ---- Client build (needs dev dependencies the runtime image does not) --------

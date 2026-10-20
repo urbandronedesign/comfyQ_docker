@@ -16,7 +16,7 @@ on:
     inputs:
       comfyui_version:
         description: ComfyUI release tag to build against
-        default: v0.39.2
+        default: v0.42.1
   push:
     tags:
       - 'docker-v*'
@@ -79,7 +79,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            COMFYUI_VERSION=${{ inputs.comfyui_version || 'v0.39.2' }}
+            COMFYUI_VERSION=${{ inputs.comfyui_version || 'v0.42.1' }}
             COMFYQ_IMAGE_SHA=${{ github.sha }}
           # Layer cache kept in the registry: a change to ComfyQ's own code
           # reuses the torch / ComfyUI / node-pack layers and builds in minutes.

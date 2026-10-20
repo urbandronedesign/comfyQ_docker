@@ -12,7 +12,7 @@ import { acquireIdleHold } from '../utils/idleHold';
 // Param types whose value is an uploaded file (handled via mediaFiles + /upload
 // + recall), as opposed to a plain form value. 'mask' is an image the user
 // paints in-browser (MaskDrawField) but is otherwise an image upload.
-const MEDIA_TYPES = ['image', 'video', 'audio', 'mask'];
+const MEDIA_TYPES = ['image', 'video', 'audio', 'mask', 'model3d'];
 
 /**
  * Booking Dialog Component
@@ -227,7 +227,11 @@ const BookingDialog = ({ isOpen, onClose, initialTime, onConfirm, initialParams 
         const duration = state.benchmark_ms || 30000;
         const endTime = scheduledTime + duration;
 
+        // Only this lane's jobs can be in the way: another lane runs its own
+        // workflow on its own ComfyUI, beside this one (the server applies the
+        // same rule when it books).
         const collision = state.jobs.some(job => {
+            if (workflowId && job.workflow_id && job.workflow_id !== workflowId) return false;
             const jobStart = job.time_slot;
             const jobEnd = jobStart + duration;
             // Check for overlap: (StartA < EndB) and (EndA > StartB)
@@ -235,7 +239,7 @@ const BookingDialog = ({ isOpen, onClose, initialTime, onConfirm, initialParams 
         });
 
         setIsCollision(collision);
-    }, [scheduledTime, state.jobs, state.benchmark_ms]);
+    }, [scheduledTime, state.jobs, state.benchmark_ms, workflowId]);
 
     const resolutions = [
         { label: 'Square (1024x1024)', value: '1024x1024' },

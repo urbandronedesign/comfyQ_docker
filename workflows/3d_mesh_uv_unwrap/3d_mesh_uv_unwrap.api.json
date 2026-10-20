@@ -1,0 +1,220 @@
+{
+  "2": {
+    "inputs": {
+      "value": 2048
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "🎛️ Résolution atlas (px)"
+    }
+  },
+  "3": {
+    "inputs": {
+      "value": 1
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "🎛️ Marge entre îlots (px)"
+    }
+  },
+  "4": {
+    "inputs": {
+      "value": 64
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "🎛️ AO — rayons par texel"
+    }
+  },
+  "5": {
+    "inputs": {
+      "value": 1
+    },
+    "class_type": "PrimitiveFloat",
+    "_meta": {
+      "title": "🎛️ AO — intensité"
+    }
+  },
+  "6": {
+    "inputs": {
+      "model_file": "3d/spot_the_cow.obj",
+      "viewport_state": {
+        "camera_info": {
+          "position": {
+            "x": 8.451817709511737,
+            "y": 5.027122683359661,
+            "z": 6.59093695067776
+          },
+          "target": {
+            "x": 0,
+            "y": 2.4372680076168787,
+            "z": 0
+          },
+          "zoom": 1,
+          "cameraType": "perspective",
+          "quaternion": {
+            "x": -0.1062760260479191,
+            "y": 0.43569951378485416,
+            "z": 0.05189400619629322,
+            "w": 0.8922882673755173
+          },
+          "fov": 35,
+          "aspect": 1,
+          "near": 0.01,
+          "far": 10000,
+          "frustum": {
+            "left": -5,
+            "right": 5,
+            "top": 5,
+            "bottom": -5
+          }
+        },
+        "model_3d_info": [
+          {
+            "position": {
+              "x": -1.8887737476269706e-06,
+              "y": 2.0686588804577224,
+              "z": -0.3658470803683185
+            },
+            "quaternion": {
+              "x": 0,
+              "y": 0,
+              "z": 0,
+              "w": 1
+            },
+            "scale": {
+              "x": 0.06287374035580132,
+              "y": 0.06287374035580132,
+              "z": 0.06287374035580132
+            }
+          }
+        ]
+      },
+      "width": 1024,
+      "height": 1024
+    },
+    "class_type": "Load3DAdvanced",
+    "_meta": {
+      "title": "📥 Fichier 3D (GLB / GLTF)"
+    }
+  },
+  "7": {
+    "inputs": {
+      "model_3d": [
+        "6",
+        0
+      ]
+    },
+    "class_type": "Get3DComponents",
+    "_meta": {
+      "title": "🔧 Fichier → mesh éditable"
+    }
+  },
+  "8": {
+    "inputs": {
+      "segmenter": "pec",
+      "resolution": [
+        "2",
+        0
+      ],
+      "padding": [
+        "3",
+        0
+      ],
+      "weld_distance": 0.0002,
+      "mesh": [
+        "7",
+        0
+      ]
+    },
+    "class_type": "UnwrapMesh",
+    "_meta": {
+      "title": "✂️ Dépliage UV (atlas)"
+    }
+  },
+  "9": {
+    "inputs": {
+      "resolution": [
+        "2",
+        0
+      ],
+      "mesh": [
+        "8",
+        0
+      ]
+    },
+    "class_type": "RenderUVAtlas",
+    "_meta": {
+      "title": "🗺️ Rendu du layout UV"
+    }
+  },
+  "10": {
+    "inputs": {
+      "resolution": [
+        "2",
+        0
+      ],
+      "samples": [
+        "4",
+        0
+      ],
+      "max_distance": 0.5,
+      "strength": [
+        "5",
+        0
+      ],
+      "bias": 0.01,
+      "low_poly": [
+        "8",
+        0
+      ],
+      "high_poly": [
+        "7",
+        0
+      ]
+    },
+    "class_type": "BakeAmbientOcclusion",
+    "_meta": {
+      "title": "🌑 Bake AO dans les UV"
+    }
+  },
+  "11": {
+    "inputs": {
+      "filename_prefix": "3D2UV/mesh_uv",
+      "mesh": [
+        "8",
+        0
+      ]
+    },
+    "class_type": "SaveGLB",
+    "_meta": {
+      "title": "💾 GLB avec UV + aperçu 3D"
+    }
+  },
+  "12": {
+    "inputs": {
+      "filename_prefix": "3D2UV/uv_layout",
+      "images": [
+        "9",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "💾 Layout UV (PNG)"
+    }
+  },
+  "13": {
+    "inputs": {
+      "filename_prefix": "3D2UV/ao",
+      "images": [
+        "10",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "💾 AO (PNG)"
+    }
+  }
+}

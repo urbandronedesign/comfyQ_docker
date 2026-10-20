@@ -30,7 +30,9 @@ const ASSET_EXTS = {
     // sampler, so the timing is valid.
     mask: ['.png', '.jpg', '.jpeg'],
     video: ['.mp4', '.webm', '.mov', '.mkv', '.avi'],
-    audio: ['.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac']
+    audio: ['.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac'],
+    // A 3D mesh input. Geometry only -- textures ride inside a .glb.
+    model3d: ['.glb', '.gltf', '.obj', '.stl', '.ply', '.fbx']
 };
 // Skip tiny thumbnails / depth maps when picking an image so we don't feed a
 // degenerate 12×12 px file into a workflow that derives latent size from it.
@@ -103,7 +105,7 @@ class BenchmarkService {
         return CALIBRATION_IMAGE_NAME;
     }
 
-    // Pick a file from the assets dir matching `type` (image|video|audio).
+    // Pick a file from the assets dir matching `type` (image|video|audio|model3d).
     // Deterministic: smallest video/audio (fastest to decode), smallest image
     // above a size floor (skips depth-map thumbnails). Returns an absolute path
     // or null when the dir is unset/missing or has no file of that type.
@@ -132,6 +134,12 @@ class BenchmarkService {
             const pool = cands.filter(c => c.size >= IMAGE_MIN_BYTES);
             const arr = pool.length ? pool : cands;
             return arr[Math.floor((arr.length - 1) / 2)].full;
+        }
+        if (type === 'model3d') {
+            // NOT the smallest: a mesh tool's cost scales with how dense the
+            // mesh is, so the smallest file on disk would time a decimation
+            // bundle against a twelve-triangle cube. Median, like images.
+            return cands[Math.floor((cands.length - 1) / 2)].full;
         }
         // Smallest video/audio = fastest to decode; content is irrelevant to timing.
         return cands[0].full;
@@ -162,7 +170,7 @@ class BenchmarkService {
         // which is swept away after the run and tells nobody what was fed in.
         this._lastMedia = {};
         for (const p of entry.effective.exposedParameters) {
-            if (!['image', 'video', 'audio', 'mask'].includes(p.type)) continue;
+            if (!['image', 'video', 'audio', 'mask', 'model3d'].includes(p.type)) continue;
             const named = this._namedAsset(paramValues[p.key], p.type);
             if (named) {
                 const rec = this.worker.uploader.copy({

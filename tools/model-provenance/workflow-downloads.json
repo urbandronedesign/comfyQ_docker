@@ -639,6 +639,75 @@
       ],
       "byNodePack": [],
       "problems": 0
+    },
+    "3d_mesh_remesh_decimate": {
+      "files": [],
+      "byNodePack": [],
+      "problems": 0
+    },
+    "3d_mesh_uv_unwrap": {
+      "files": [],
+      "byNodePack": [],
+      "problems": 0
+    },
+    "audio_yue2_music_cover": {
+      "files": [
+        "yue2_3b_int8_convrot.safetensors",
+        "sheetsage2_bf16.safetensors"
+      ],
+      "byNodePack": [],
+      "problems": 0
+    },
+    "image_edit_qwen_2511_multiple_angles": {
+      "files": [
+        "qwen_image_vae.safetensors",
+        "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+        "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
+        "qwen-image-edit-2511-multiple-angles-lora.safetensors",
+        "qwen_image_edit_2511_int8_convrot.safetensors"
+      ],
+      "byNodePack": [],
+      "problems": 0
+    },
+    "image_flux3_klein_t2i": {
+      "files": [
+        "flux2-vae.safetensors",
+        "qwen3vl_4b_int8_convrot.safetensors",
+        "flux3-image-klein-base-int8-convrot.safetensors",
+        "qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors"
+      ],
+      "byNodePack": [],
+      "problems": 0
+    },
+    "image_flux3_klein_distilled_t2i": {
+      "files": [
+        "flux2-vae.safetensors",
+        "qwen3vl_4b_int8_convrot.safetensors",
+        "flux3-image-klein-int8-convrot.safetensors",
+        "qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors"
+      ],
+      "byNodePack": [],
+      "problems": 0
+    },
+    "image_edit_flux3_klein_image_edit": {
+      "files": [
+        "flux2-vae.safetensors",
+        "qwen3vl_4b_int8_convrot.safetensors",
+        "flux3-image-klein-base-int8-convrot.safetensors",
+        "qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors"
+      ],
+      "byNodePack": [],
+      "problems": 0
+    },
+    "image_edit_flux3_klein_distilled_image_edit": {
+      "files": [
+        "flux2-vae.safetensors",
+        "qwen3vl_4b_int8_convrot.safetensors",
+        "flux3-image-klein-int8-convrot.safetensors",
+        "qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors"
+      ],
+      "byNodePack": [],
+      "problems": 0
     }
   },
   "sizes": {
@@ -733,6 +802,14 @@
     "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors": 1226977424,
     "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors": 14294742832,
     "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors": 1226977424,
-    "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors": 14294742832
+    "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors": 14294742832,
+    "yue2_3b_int8_convrot.safetensors": 3960938800,
+    "sheetsage2_bf16.safetensors": 1386868122,
+    "qwen-image-edit-2511-multiple-angles-lora.safetensors": 295140688,
+    "qwen_image_edit_2511_int8_convrot.safetensors": 20499083824,
+    "qwen3vl_4b_int8_convrot.safetensors": 4858559240,
+    "flux3-image-klein-base-int8-convrot.safetensors": 5807427339,
+    "qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors": 6724090780,
+    "flux3-image-klein-int8-convrot.safetensors": 5827874779
   }
 }

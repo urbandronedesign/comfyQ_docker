@@ -26,6 +26,10 @@ function isPrimitive(v) {
 
 function inferType(field, value) {
     const f = field.toLowerCase();
+    // Exact match, not `f.includes('model')`: half the loaders in the library
+    // have a `model`-ish field naming a WEIGHT file, which is infrastructure.
+    // `model_file` is the Load3D / Load3DAdvanced mesh input and nothing else.
+    if (field === 'model_file') return 'model3d';
     if (f.includes('mask')) return 'mask';
     if (f.includes('image')) return 'image';
     if (f.includes('video')) return 'video';
@@ -84,7 +88,7 @@ function parseWorkflow(apiWorkflow) {
                 classType: nodeType,
                 default: value,
                 options: COMMON_OPTIONS[field],
-                required: ['image', 'video', 'audio', 'mask'].includes(type),
+                required: ['image', 'video', 'audio', 'mask', 'model3d'].includes(type),
                 order: order++
             });
         }

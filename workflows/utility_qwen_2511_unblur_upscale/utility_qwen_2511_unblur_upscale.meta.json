@@ -30,14 +30,14 @@
       {
         "type": "clip",
         "file": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
-        "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
-        "source": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI"
+        "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
+        "source": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged"
       },
       {
         "type": "vae",
         "file": "qwen_image_vae.safetensors",
-        "url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/vae/qwen_image_vae.safetensors",
-        "source": "https://huggingface.co/Comfy-Org/Krea-2"
+        "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors",
+        "source": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI"
       },
       {
         "type": "lora",

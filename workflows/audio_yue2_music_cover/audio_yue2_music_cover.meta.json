@@ -1,0 +1,149 @@
+{
+  "schemaVersion": 1,
+  "id": "audio_yue2_music_cover",
+  "name": "YuE2 music cover - re-sing a song in a new style",
+  "description": "Upload a song and get back a cover of it: YuE2 lifts the melody out of your recording as a score, then performs it again as a new piece of music, in whatever style you describe and with whatever lyrics you write.\n\nIt is a COVER tool, not a remix - nothing of the original recording survives into the result. What carries over is the tune. So a piano ballad can come back as a brass-band stomp, and it will still be recognisably the same song.\n\nSTYLE is the production brief, not a genre word: language, genre, the voice you want, the tempo, and the instruments, e.g. 'English, soulful jazz-pop, expressive male vocal, relaxed 88 BPM, Rhodes piano, upright bass, brushed drums'. The more concrete the instrument list, the closer the arrangement lands.\n\nLYRICS are sung as written, and the section tags matter: mark them [Verse], [Chorus], [Bridge] so the model knows where the song lifts.\n\nWHAT TO FOLLOW: 'melody' takes the tune alone and is the recommended setting for covers; 'full' takes the melody and the chords too, which holds the harmony closer but leaves the arrangement less room to change. The one control sets it for both the transcription and the generation, which have to agree - if they disagree the score is read against the wrong expectation.\n\nLENGTH follows the LYRICS and the extracted score, not the length of the song you uploaded - a 20-second reference with three verses of lyrics produced 98 seconds of music. 'Maximum length' is the ceiling, not the target.\n\nResult: one audio file (FLAC). Licence: YuE2 is a research model - check its terms before any commercial use, and only upload music you have the right to work from.",
+  "category": "audio",
+  "tags": [
+    "audio",
+    "music",
+    "cover",
+    "yue2",
+    "song",
+    "singing",
+    "melody"
+  ],
+  "thumbnail": null,
+  "author": "b2renger",
+  "version": "1.0.0",
+  "experimental": true,
+  "workflowFile": "audio_yue2_music_cover.api.json",
+  "apiFormat": true,
+  "requirements": {
+    "minVRAM": 8,
+    "models": [
+      {
+        "type": "checkpoint",
+        "file": "yue2_3b_int8_convrot.safetensors",
+        "url": "https://huggingface.co/Comfy-Org/YuE2/resolve/main/checkpoints/yue2_3b_int8_convrot.safetensors",
+        "source": "https://huggingface.co/Comfy-Org/YuE2"
+      },
+      {
+        "type": "other",
+        "file": "sheetsage2_bf16.safetensors",
+        "url": "https://huggingface.co/Comfy-Org/YuE2/resolve/main/audio_encoders/sheetsage2_bf16.safetensors",
+        "source": "https://huggingface.co/Comfy-Org/YuE2"
+      }
+    ]
+  },
+  "promptGuides": [
+    {
+      "label": "YuE - writing covers (style & lyrics)",
+      "url": "https://github.com/multimodal-art-projection/YuE/blob/main/docs/covers.md",
+      "tip": "Style is a production brief: language, genre, voice, tempo, instruments. Tag lyric sections [Verse] / [Chorus] / [Bridge]."
+    },
+    {
+      "label": "YuE2 - generation and covers reference",
+      "url": "https://github.com/multimodal-art-projection/YuE/blob/main/skills/yue2-music/references/generation-and-covers.md"
+    }
+  ],
+  "estimatedDurationSec": 110,
+  "warmupParams": {
+    "loadaudio_audio_45": "asset:stable_audio_tropical_house.mp3"
+  },
+  "exposedParameters": [
+    {
+      "key": "loadaudio_audio_45",
+      "nodeId": "45",
+      "field": "audio",
+      "type": "audio",
+      "label": "Reference song (the tune to cover)",
+      "default": "",
+      "required": true,
+      "order": 0
+    },
+    {
+      "key": "yue2generatemusic_style_33_25",
+      "nodeId": "33:25",
+      "field": "style",
+      "type": "textarea",
+      "label": "Style - language, genre, voice, tempo, instruments",
+      "default": "English, soulful jazz-pop, expressive male vocal, relaxed 88 BPM, Rhodes piano, upright bass, brushed drums, warm saxophone, subtle strings, intimate late-night atmosphere, rich and organic live-band production",
+      "required": false,
+      "order": 1
+    },
+    {
+      "key": "yue2generatemusic_lyrics_33_25",
+      "nodeId": "33:25",
+      "field": "lyrics",
+      "type": "textarea",
+      "label": "Lyrics (tag sections [Verse] / [Chorus] / [Bridge])",
+      "default": "[Verse]\nStreetlights shimmer on the pavement\nMidnight breathing soft and slow\nEvery corner holds a memory\nOf the places we used to know\n\n[Chorus]\nStay with me until the morning\nLet the city fade away\nWe don't need to chase tomorrow\nAll I need is here today\n\n[Verse]\nOld café beneath the neon\nRain is falling on the glass\nEvery song becomes a story\nEvery moment moves too fast\n\n[Chorus]\nStay with me until the morning\nLet the city fade away\nWe don't need to chase tomorrow\nAll I need is here today\n\n[Bridge]\nMaybe time will keep on turning\nMaybe everything will change\nBut tonight the music holds us\nLike a fire inside the rain\n\n[Chorus]\nStay with me until the morning\nLet the city fade away\nWe don't need to chase tomorrow\nAll I need is here today",
+      "required": false,
+      "order": 2
+    },
+    {
+      "key": "sheetsage2audiotoabc_mode_33_41",
+      "nodeId": "33:41",
+      "field": "mode",
+      "type": "select",
+      "label": "What to follow from the song",
+      "default": "melody",
+      "options": [
+        "melody",
+        "full"
+      ],
+      "linkedValues": [
+        {
+          "nodeId": "33:25",
+          "field": "mode",
+          "map": {
+            "melody": "melody",
+            "full": "full"
+          }
+        }
+      ],
+      "required": false,
+      "order": 3
+    },
+    {
+      "key": "yue2generatemusic_max_duration_33_25",
+      "nodeId": "33:25",
+      "field": "max_duration",
+      "type": "number",
+      "label": "Maximum length (seconds)",
+      "default": 360,
+      "min": 10,
+      "max": 900,
+      "step": 1,
+      "required": false,
+      "order": 4
+    },
+    {
+      "key": "yue2generatemusic_temperature_33_25",
+      "nodeId": "33:25",
+      "field": "temperature",
+      "type": "number",
+      "label": "Temperature (higher = more adventurous)",
+      "default": 1,
+      "min": 0,
+      "max": 5,
+      "step": 0.05,
+      "required": false,
+      "order": 5
+    },
+    {
+      "key": "seednode_seed_33_34",
+      "nodeId": "33:34",
+      "field": "seed",
+      "type": "number",
+      "label": "Seed",
+      "default": 0,
+      "min": 0,
+      "max": 2147483647,
+      "step": 1,
+      "required": false,
+      "order": 6
+    }
+  ]
+}

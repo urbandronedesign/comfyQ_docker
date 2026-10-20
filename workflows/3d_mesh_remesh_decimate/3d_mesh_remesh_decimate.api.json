@@ -1,0 +1,259 @@
+{
+  "2": {
+    "inputs": {
+      "value": 2000
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "🎛️ Poly count cible (triangles)"
+    }
+  },
+  "3": {
+    "inputs": {
+      "value": true
+    },
+    "class_type": "PrimitiveBoolean",
+    "_meta": {
+      "title": "🎛️ Manifold auto (remesh étanche)"
+    }
+  },
+  "4": {
+    "inputs": {
+      "value": 2
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "🎛️ Lissage (itérations, 0–20)"
+    }
+  },
+  "5": {
+    "inputs": {
+      "value": 90
+    },
+    "class_type": "PrimitiveFloat",
+    "_meta": {
+      "title": "🎛️ Angle arêtes vives (°, 180 = lisse)"
+    }
+  },
+  "6": {
+    "inputs": {
+      "model_file": "3d/spot_the_cow.obj",
+      "viewport_state": {
+        "camera_info": {
+          "position": {
+            "x": -13.023271037628481,
+            "y": 10.10080233062694,
+            "z": -12.492446222206945
+          },
+          "target": {
+            "x": 0,
+            "y": 2.5,
+            "z": 0
+          },
+          "zoom": 1,
+          "cameraType": "perspective",
+          "quaternion": {
+            "x": 0.07766981329756675,
+            "y": 0.9016383603678221,
+            "z": 0.18213044171979154,
+            "w": -0.38450509673410077
+          },
+          "fov": 35,
+          "aspect": 1,
+          "near": 0.01,
+          "far": 10000,
+          "frustum": {
+            "left": -5,
+            "right": 5,
+            "top": 5,
+            "bottom": -5
+          }
+        },
+        "model_3d_info": [
+          {
+            "position": {
+              "x": 0.0002585343639731619,
+              "y": 2.4395887244927583,
+              "z": -0.003249002821435143
+            },
+            "quaternion": {
+              "x": 0,
+              "y": 0,
+              "z": 0,
+              "w": 1
+            },
+            "scale": {
+              "x": 5.189933434400188,
+              "y": 5.189933434400188,
+              "z": 5.189933434400188
+            }
+          }
+        ]
+      },
+      "width": 1024,
+      "height": 1024
+    },
+    "class_type": "Load3DAdvanced",
+    "_meta": {
+      "title": "📥 Fichier 3D (GLB / GLTF)"
+    }
+  },
+  "7": {
+    "inputs": {
+      "model_3d": [
+        "6",
+        0
+      ]
+    },
+    "class_type": "Get3DComponents",
+    "_meta": {
+      "title": "🔧 Fichier → mesh éditable"
+    }
+  },
+  "8": {
+    "inputs": {
+      "mesh": [
+        "7",
+        0
+      ]
+    },
+    "class_type": "GetMeshInfo",
+    "_meta": {
+      "title": "ℹ️ Stats AVANT"
+    }
+  },
+  "9": {
+    "inputs": {
+      "epsilon_rel": 1e-05,
+      "epsilon_abs": 0,
+      "mesh": [
+        "8",
+        0
+      ]
+    },
+    "class_type": "WeldVertices",
+    "_meta": {
+      "title": "🧲 Souder les vertices"
+    }
+  },
+  "10": {
+    "inputs": {
+      "expression": "max(64, min(1024, round(sqrt(a * 2.7) / 32) * 32))",
+      "values.a": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "ComfyMathExpression",
+    "_meta": {
+      "title": "🧮 Résolution remesh auto"
+    }
+  },
+  "11": {
+    "inputs": {
+      "resolution": [
+        "10",
+        1
+      ],
+      "sign_mode": "udf",
+      "sign_mode.qef": false,
+      "sign_mode.drop_inverted_components": true,
+      "sign_mode.drop_enclosed_components": false,
+      "band": 1,
+      "project_back": 0,
+      "fix_poles": true,
+      "smooth_iters": [
+        "4",
+        0
+      ],
+      "drop_small_components": 0.01,
+      "precluster_max_verts": 20000000,
+      "mesh": [
+        "9",
+        0
+      ]
+    },
+    "class_type": "RemeshMesh",
+    "_meta": {
+      "title": "♻️ Remesh étanche (Dual Contouring)"
+    }
+  },
+  "12": {
+    "inputs": {
+      "switch": [
+        "3",
+        0
+      ],
+      "on_false": [
+        "9",
+        0
+      ],
+      "on_true": [
+        "11",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "🔀 Manifold ON / OFF"
+    }
+  },
+  "13": {
+    "inputs": {
+      "target_face_count": [
+        "2",
+        0
+      ],
+      "placement_mode": "midpoint",
+      "mesh": [
+        "12",
+        0
+      ]
+    },
+    "class_type": "DecimateMesh",
+    "_meta": {
+      "title": "📉 Décimation au poly count"
+    }
+  },
+  "14": {
+    "inputs": {
+      "crease_angle": [
+        "5",
+        0
+      ],
+      "mesh": [
+        "13",
+        0
+      ]
+    },
+    "class_type": "MeshSmoothNormals",
+    "_meta": {
+      "title": "✨ Normales lissées"
+    }
+  },
+  "15": {
+    "inputs": {
+      "mesh": [
+        "14",
+        0
+      ]
+    },
+    "class_type": "GetMeshInfo",
+    "_meta": {
+      "title": "ℹ️ Stats APRÈS"
+    }
+  },
+  "16": {
+    "inputs": {
+      "filename_prefix": "3D2Remesh/remesh",
+      "mesh": [
+        "15",
+        0
+      ]
+    },
+    "class_type": "SaveGLB",
+    "_meta": {
+      "title": "💾 GLB remeshé + aperçu 3D"
+    }
+  }
+}

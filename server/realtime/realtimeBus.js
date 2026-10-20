@@ -501,6 +501,7 @@ class RealtimeBus {
                 maxInputEdge: p.maxInputEdge,
                 disabledWhen: p.disabledWhen,
                 format: p.format,
+                camera: p.camera,
                 required: p.required
             };
             // A `lora` param's dropdown is filled at broadcast time by scanning

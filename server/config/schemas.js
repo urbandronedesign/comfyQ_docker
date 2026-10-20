@@ -15,7 +15,21 @@ const ParamType = z.enum([
     // so incompatible LoRAs don't show. The wire value is just the `.safetensors`
     // filename fed to a LoraLoader field, so materialize/recall/calibration treat
     // it like a plain string; only the widget (a dynamic dropdown) differs.
-    'lora'
+    'lora',
+    // 'model3d' is a 3D MESH upload (.glb/.gltf/.obj/.stl/.ply/.fbx) feeding a
+    // Load3D/Load3DAdvanced `model_file` field. The wire value is the staged
+    // filename in ComfyUI/input, exactly like 'image' -- ComfyUI resolves it
+    // with get_annotated_filepath, so a flat name in the input dir is enough
+    // and the `3d/` subfolder the node's own dropdown lists is not required.
+    // Only the BookingDialog widget differs (no resize, no visual preview).
+    'model3d',
+    // 'camera' is a camera POSITION -- azimuth, elevation and zoom, placed on an
+    // orbit widget instead of typed. Its wire value is a small JSON string, and
+    // `camera.targets` says how THIS graph spells a position: either raw numbers
+    // into a CameraAngle node, or the nearest label from a list the meta
+    // supplies (the 2.1 bundle's 12 compass points). One control, two
+    // vocabularies -- see server/workers/cameraAngle.js.
+    'camera'
 ]);
 
 const ExposedParameter = z.object({
@@ -32,6 +46,28 @@ const ExposedParameter = z.object({
     // list is built at booking time by the server, never stored in the meta.
     optionsDir: z.string().optional(),
     optionsFilter: z.string().optional(),
+    // For `camera` params: the axes the widget offers and how this graph is
+    // told about them. A target without `sectors`/`terms` gets the number.
+    camera: z.object({
+        axes: z.record(z.object({
+            min: z.number().optional(), max: z.number().optional(), step: z.number().optional(),
+            default: z.number().optional(), wrap: z.boolean().optional()
+        })).optional(),
+        targets: z.array(z.object({ nodeId: z.string().optional(), field: z.string(),
+            axis: z.string(),
+            sectors: z.array(z.string()).optional(),
+            terms: z.array(z.string()).optional(),
+            thresholds: z.array(z.number()).optional(),
+            suffixWhen: z.object({ nodeId: z.string().optional(), field: z.string(), axis: z.string(), min: z.number(), suffix: z.string() }).optional()
+        })).optional(),
+        phrase: z.array(z.object({
+            axis: z.string(),
+            sectors: z.array(z.string()).optional(),
+            terms: z.array(z.string()).optional(),
+            thresholds: z.array(z.number()).optional(),
+            suffixWhen: z.object({ axis: z.string(), min: z.number(), suffix: z.string() }).optional()
+        })).optional()
+    }).optional(),
     min: z.number().optional(),
     max: z.number().optional(),
     step: z.number().optional(),

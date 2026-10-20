@@ -15,7 +15,7 @@ volume mounted at `/workspace`.
 | CUDA runtime | 12.8 (Ubuntu 24.04), so Blackwell cards (RTX 5090) work |
 | Python | 3.12, in `/opt/venv` |
 | torch | 2.8.0+cu128, the same build as the Windows rigs |
-| ComfyUI | `v0.39.2` by default (`COMFYUI_VERSION` build argument), in `/opt/ComfyUI` |
+| ComfyUI | `v0.42.1` by default (`COMFYUI_VERSION` build argument), in `/opt/ComfyUI` |
 | Node packs | the list in [custom-nodes.txt](custom-nodes.txt) |
 | ComfyQ | this repo, in `/app`, with the client prebuilt and served on port 3000 |
 

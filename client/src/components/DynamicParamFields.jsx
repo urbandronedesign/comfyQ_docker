@@ -2,6 +2,7 @@ import React from 'react';
 import { Dices } from 'lucide-react';
 import MediaCaptureField from './capture/MediaCaptureField';
 import MaskDrawField from './capture/MaskDrawField';
+import CameraAngleField from './capture/CameraAngleField';
 import { IdeogramPromptTools } from './capture/IdeogramComposer';
 
 // A param qualifies as a "seed" if its key or field looks like one. Catches
@@ -136,6 +137,12 @@ const DynamicParamFields = ({
     const sortedParams = Object.entries(paramMap)
         .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0));
 
+    // A camera widget shows the subject it is orbiting, which is whatever
+    // picture this form uploaded — there is exactly one on these bundles.
+    const subjectPreview = sortedParams
+        .filter(([k, c]) => (c.type === 'image' || c.type === 'mask') && mediaPreviews[k])
+        .map(([k]) => mediaPreviews[k])[0] || null;
+
     return (
         <div className="space-y-4">
             {sortedParams.map(([key, config]) => {
@@ -176,7 +183,7 @@ const DynamicParamFields = ({
                 // Image / video / audio input — delegated to MediaCaptureField,
                 // which renders the file-upload widget (click + drag-and-drop),
                 // then applies maxInputEdge resizing for images.
-                if (type === 'image' || type === 'video' || type === 'audio') {
+                if (type === 'image' || type === 'video' || type === 'audio' || type === 'model3d') {
                     const field = (
                         <MediaCaptureField
                             key={key}
@@ -198,6 +205,24 @@ const DynamicParamFields = ({
                                 Not used right now — change “{ctrlLabel}” to add one
                             </p>
                         </div>
+                    );
+                }
+
+                // Camera position — one control writing several graph fields
+                // (three numbers on a CameraAngle node, or the nearest label in
+                // this bundle's own angle dropdowns). See utils/cameraAngle.js.
+                if (type === 'camera') {
+                    return (
+                        <CameraAngleField
+                            key={key}
+                            paramKey={key}
+                            label={label}
+                            config={config}
+                            value={values[key]}
+                            previewUrl={subjectPreview}
+                            disabled={disabled}
+                            onChange={(v) => setVal(key, v)}
+                        />
                     );
                 }
 

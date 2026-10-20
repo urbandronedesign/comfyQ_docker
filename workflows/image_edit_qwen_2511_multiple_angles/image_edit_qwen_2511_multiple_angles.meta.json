@@ -1,0 +1,207 @@
+{
+  "schemaVersion": 1,
+  "id": "image_edit_qwen_2511_multiple_angles",
+  "name": "Qwen Image-Edit 2511 - reshoot from another angle (place the camera)",
+  "description": "Upload one photo and reshoot the same subject from somewhere else: walk the camera round it, raise or lower it, and come in closer.\n\nPLACE THE CAMERA, don't describe it. Drag the stage to orbit, scroll to zoom, or use the three sliders. The subject stays put and the camera moves, so what you see in the little scene is where the shot is taken from.\n\nWHAT THE MODEL ACTUALLY RECEIVES is the line of chips under the stage - something like 'right side view / elevated shot / medium shot'. That is the whole instruction, and it is worth understanding because the control is coarser than it looks: there are 8 positions around the subject, 4 heights and 3 framings - 96 shots in all. Nudging the slider a few degrees usually changes nothing, and the chips are what tell you when it does. Move until a chip changes.\n\nFAST MODE (on by default) runs the 4-step Lightning adapter: a few seconds a shot, which is what makes it practical to try a dozen angles. Turn it off for the slow 40-step path if a particular shot is worth the wait.\n\nWHAT TO EXPECT: it invents the side of the subject it has never seen, so a back view is a plausible back rather than the truth. Keep the seed fixed while you move the camera and the invented details stay consistent from shot to shot, which is what makes a usable turnaround. The result comes back at about 1 megapixel whatever you upload.\n\nLicence: the Qwen-Image-Edit base is Qwen Research - research and evaluation, not commercial work.",
+  "category": "image-edit",
+  "tags": [
+    "qwen",
+    "image-edit",
+    "camera",
+    "multiple-angles",
+    "turnaround",
+    "2511"
+  ],
+  "thumbnail": null,
+  "author": "b2renger",
+  "version": "1.0.0",
+  "workflowFile": "image_edit_qwen_2511_multiple_angles.api.json",
+  "apiFormat": true,
+  "requirements": {
+    "minVRAM": 24,
+    "models": [
+      {
+        "type": "unet",
+        "file": "qwen_image_edit_2511_int8_convrot.safetensors",
+        "url": "https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_edit_2511_int8_convrot.safetensors",
+        "source": "https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI"
+      },
+      {
+        "type": "clip",
+        "file": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+        "url": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
+        "source": "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged"
+      },
+      {
+        "type": "vae",
+        "file": "qwen_image_vae.safetensors",
+        "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors",
+        "source": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI"
+      },
+      {
+        "type": "lora",
+        "file": "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
+        "url": "https://huggingface.co/lightx2v/Qwen-Image-Edit-2511-Lightning/resolve/main/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
+        "source": "https://huggingface.co/lightx2v/Qwen-Image-Edit-2511-Lightning",
+        "note": "The 2511 Lightning repo, not Qwen-Image-Lightning (2509 only); verified 2026-10-20."
+      },
+      {
+        "type": "lora",
+        "file": "qwen-image-edit-2511-multiple-angles-lora.safetensors",
+        "url": "https://huggingface.co/fal/Qwen-Image-Edit-2511-Multiple-Angles-LoRA/resolve/main/qwen-image-edit-2511-multiple-angles-lora.safetensors",
+        "source": "https://huggingface.co/fal/Qwen-Image-Edit-2511-Multiple-Angles-LoRA"
+      }
+    ],
+    "disabledPerfFlags": [
+      "use_sage_attention"
+    ]
+  },
+  "promptGuides": [
+    {
+      "label": "The adapter's own model card (fal) - what it was trained to do",
+      "url": "https://huggingface.co/fal/Qwen-Image-Edit-2511-Multiple-Angles-LoRA",
+      "tip": "There is nothing to write: placing the camera IS the prompt. The chips under the stage are the exact words the model receives."
+    }
+  ],
+  "estimatedDurationSec": 12,
+  "warmupParams": {
+    "loadimage_image_1": "asset:Woman.png",
+    "cameraangle_221": "{\"horizontal\": 180, \"vertical\": 0, \"zoom\": 5}"
+  },
+  "exposedParameters": [
+    {
+      "key": "loadimage_image_1",
+      "nodeId": "1",
+      "field": "image",
+      "type": "image",
+      "label": "The subject to reshoot - one clear photo",
+      "default": "",
+      "required": true,
+      "order": 0
+    },
+    {
+      "key": "cameraangle_221",
+      "nodeId": "221",
+      "field": "horizontal_angle",
+      "type": "camera",
+      "label": "Where the camera stands",
+      "default": "{\"horizontal\": 180, \"vertical\": 0, \"zoom\": 5}",
+      "camera": {
+        "axes": {
+          "horizontal": {
+            "min": 0,
+            "max": 360,
+            "step": 1,
+            "default": 180,
+            "wrap": true
+          },
+          "vertical": {
+            "min": -30,
+            "max": 60,
+            "step": 1,
+            "default": 0
+          },
+          "zoom": {
+            "min": 0,
+            "max": 10,
+            "step": 0.1,
+            "default": 5
+          }
+        },
+        "targets": [
+          {
+            "field": "horizontal_angle",
+            "axis": "horizontal"
+          },
+          {
+            "field": "vertical_angle",
+            "axis": "vertical"
+          },
+          {
+            "field": "zoom",
+            "axis": "zoom"
+          }
+        ],
+        "phrase": [
+          {
+            "axis": "horizontal",
+            "sectors": [
+              "front view",
+              "front-right quarter view",
+              "right side view",
+              "back-right quarter view",
+              "back view",
+              "back-left quarter view",
+              "left side view",
+              "front-left quarter view"
+            ]
+          },
+          {
+            "axis": "vertical",
+            "thresholds": [
+              -15,
+              15,
+              45
+            ],
+            "terms": [
+              "low-angle shot",
+              "eye-level shot",
+              "elevated shot",
+              "high-angle shot"
+            ]
+          },
+          {
+            "axis": "zoom",
+            "thresholds": [
+              2,
+              6
+            ],
+            "terms": [
+              "wide shot",
+              "medium shot",
+              "close-up"
+            ]
+          }
+        ]
+      },
+      "required": false,
+      "order": 1
+    },
+    {
+      "key": "primitiveboolean_value_219_168",
+      "nodeId": "219:168",
+      "field": "value",
+      "type": "checkbox",
+      "label": "Fast mode (4-step adapter - seconds instead of a minute)",
+      "default": true,
+      "required": false,
+      "order": 2
+    },
+    {
+      "key": "loraloadermodelonly_strength_model_219_220",
+      "nodeId": "219:220",
+      "field": "strength_model",
+      "type": "number",
+      "label": "Adapter strength (lower it if the subject drifts)",
+      "default": 1,
+      "min": 0,
+      "max": 1.5,
+      "step": 0.05,
+      "required": false,
+      "order": 3
+    },
+    {
+      "key": "ksampler_seed_219_169",
+      "nodeId": "219:169",
+      "field": "seed",
+      "type": "number",
+      "label": "Seed - keep it fixed across angles to build a consistent turnaround",
+      "default": 0,
+      "min": 0,
+      "max": 2147483647,
+      "step": 1,
+      "required": false,
+      "order": 4
+    }
+  ]
+}

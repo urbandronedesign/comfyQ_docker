@@ -8,6 +8,7 @@ const { ModelLifecycle } = require('./modelLifecycle');
 const { humanizeFailure, humanizeSubmitRejection } = require('../executor/errorMessages');
 const { validateSelects } = require('./selectValidation');
 const { fillOptionalImages, unlinkEmptyMedia, applyWhenEmptySet } = require('./optionalMedia');
+const { applyCamera } = require('./cameraAngle');
 const { formatPromptValue } = require('./promptFormat');
 
 const CLIENT_ID_PREFIX = 'comfyq';
@@ -371,6 +372,11 @@ class LocalComfyUIWorker extends Worker {
             if (paramValues == null) continue;
             const raw = paramValues[p.key];
             if (raw === undefined || raw === null || raw === '') continue;
+            // A camera POSITION is one control over several fields — three
+            // numbers on a CameraAngle node, or the nearest label in two
+            // dropdowns — so it writes its own targets and skips the
+            // single-field write below.
+            if (p.type === 'camera') { applyCamera(wf, p, raw); continue; }
             const node = wf[p.nodeId];
             if (!node) continue;
             const clamped = clampParamValue(raw, p);

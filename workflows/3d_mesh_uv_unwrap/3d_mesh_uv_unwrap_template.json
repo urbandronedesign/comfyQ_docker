@@ -1,0 +1,977 @@
+{
+  "id": "3d2uv-unwrapmesh-v01",
+  "revision": 0,
+  "last_node_id": 13,
+  "last_link_id": 14,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "MarkdownNote",
+      "pos": [
+        40,
+        40
+      ],
+      "size": [
+        440,
+        760
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "📖 Mode d'emploi",
+      "properties": {
+        "Node name for S&R": "MarkdownNote",
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0"
+      },
+      "widgets_values": [
+        "# 3D2UV — Dépliage UV automatique (100 % nœuds natifs)\n\n**Ce que fait le workflow**\n1. Charge un fichier 3D (**GLB / GLTF** conseillé, OBJ et STL acceptés).\n2. Le convertit en mesh éditable (*Get 3D Components*).\n3. Crée un atlas UV automatique (*Unwrap Mesh UVs* : découpe en îlots, aplatissement, packing en [0,1]).\n4. Sorties : **GLB avec UV**, **PNG du layout UV** (une couleur par îlot), **carte d'AO** cuite dans ces UV, **aperçu 3D** dans le nœud de sauvegarde.\n\n**Aucun modèle à télécharger**, aucun nœud API, aucun crédit consommé.\n\n**Utilisation**\n- Dans *📥 Fichier 3D*, clique sur le champ **model_file** → **upload** (ou glisse le fichier sur le nœud), vérifie qu'il s'affiche dans le viewport, puis *Run*.\n- Fichiers de sortie : dossier `output/3D2UV/`.\n\n**À régler en premier (groupe 🎛️ CONTRÔLES)**\n- *Résolution atlas* : 1024 / **2048** / 4096. Pilote le dépliage, le rendu du layout et l'AO. **Max 4096** (limite du rendu du layout).\n- *Marge entre îlots* : ~2 px à 1024, **4 px à 2048**, 8 px à 4096 (évite les bavures au mipmapping).\n- *AO — rayons par texel* : 64 = rapide, 128–256 = propre.\n- *AO — intensité* : 1.0 neutre, >1 assombrit.\n\n**Réglages sur les nœuds**\n- *Unwrap* → `segmenter` : **pec** (GPU, rapide) ou **adaptive** (CPU, plus lent, parfois des îlots plus propres).\n- *Unwrap* → `weld_distance` : laisse 0.0002. Si tu obtiens un îlot par triangle (mesh « soupe de triangles »), monte à 0.001.\n- *Bake AO* → `max_distance` : 0.5 = occlusion large, 0.1–0.2 = plus local.\n- Pas besoin d'AO ? Sélectionne *🌑 Bake AO* + *💾 AO* et **Ctrl+B** (bypass).\n\n**Limites connues**\n- **FBX / USDZ non supportés** : convertir en GLB avant (Blender → Export glTF 2.0).\n- Toute la scène est fusionnée en **un seul mesh** ; seul le **1er matériau** est conservé.\n- Les **UV existantes sont remplacées**.\n- Les vertices sur les coutures sont dupliqués : le nombre de vertices augmente (normal).\n- Dépliage algorithmique : pas de coutures « artistiques » ; pour un perso hero, retouche les seams dans Blender / RizomUV.\n- Nœuds marqués *expérimentaux* dans ComfyUI : il faut une version récente (Comfy Cloud à jour).\n"
+      ],
+      "widgets_values_named": {
+        "text": "# 3D2UV — Dépliage UV automatique (100 % nœuds natifs)\n\n**Ce que fait le workflow**\n1. Charge un fichier 3D (**GLB / GLTF** conseillé, OBJ et STL acceptés).\n2. Le convertit en mesh éditable (*Get 3D Components*).\n3. Crée un atlas UV automatique (*Unwrap Mesh UVs* : découpe en îlots, aplatissement, packing en [0,1]).\n4. Sorties : **GLB avec UV**, **PNG du layout UV** (une couleur par îlot), **carte d'AO** cuite dans ces UV, **aperçu 3D** dans le nœud de sauvegarde.\n\n**Aucun modèle à télécharger**, aucun nœud API, aucun crédit consommé.\n\n**Utilisation**\n- Dans *📥 Fichier 3D*, clique sur le champ **model_file** → **upload** (ou glisse le fichier sur le nœud), vérifie qu'il s'affiche dans le viewport, puis *Run*.\n- Fichiers de sortie : dossier `output/3D2UV/`.\n\n**À régler en premier (groupe 🎛️ CONTRÔLES)**\n- *Résolution atlas* : 1024 / **2048** / 4096. Pilote le dépliage, le rendu du layout et l'AO. **Max 4096** (limite du rendu du layout).\n- *Marge entre îlots* : ~2 px à 1024, **4 px à 2048**, 8 px à 4096 (évite les bavures au mipmapping).\n- *AO — rayons par texel* : 64 = rapide, 128–256 = propre.\n- *AO — intensité* : 1.0 neutre, >1 assombrit.\n\n**Réglages sur les nœuds**\n- *Unwrap* → `segmenter` : **pec** (GPU, rapide) ou **adaptive** (CPU, plus lent, parfois des îlots plus propres).\n- *Unwrap* → `weld_distance` : laisse 0.0002. Si tu obtiens un îlot par triangle (mesh « soupe de triangles »), monte à 0.001.\n- *Bake AO* → `max_distance` : 0.5 = occlusion large, 0.1–0.2 = plus local.\n- Pas besoin d'AO ? Sélectionne *🌑 Bake AO* + *💾 AO* et **Ctrl+B** (bypass).\n\n**Limites connues**\n- **FBX / USDZ non supportés** : convertir en GLB avant (Blender → Export glTF 2.0).\n- Toute la scène est fusionnée en **un seul mesh** ; seul le **1er matériau** est conservé.\n- Les **UV existantes sont remplacées**.\n- Les vertices sur les coutures sont dupliqués : le nombre de vertices augmente (normal).\n- Dépliage algorithmique : pas de coutures « artistiques » ; pour un perso hero, retouche les seams dans Blender / RizomUV.\n- Nœuds marqués *expérimentaux* dans ComfyUI : il faut une version récente (Comfy Cloud à jour).\n"
+      },
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 2,
+      "type": "PrimitiveInt",
+      "pos": [
+        540,
+        60
+      ],
+      "size": [
+        300,
+        82
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "INT",
+          "type": "INT",
+          "links": [
+            9,
+            10,
+            11
+          ]
+        }
+      ],
+      "title": "🎛️ Résolution atlas (px)",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "PrimitiveInt"
+      },
+      "widgets_values": [
+        2048,
+        "fixed"
+      ],
+      "widgets_values_named": {
+        "value": 2048,
+        "fixed": "fixed"
+      },
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 3,
+      "type": "PrimitiveInt",
+      "pos": [
+        540,
+        180
+      ],
+      "size": [
+        300,
+        82
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "INT",
+          "type": "INT",
+          "links": [
+            12
+          ]
+        }
+      ],
+      "title": "🎛️ Marge entre îlots (px)",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "PrimitiveInt"
+      },
+      "widgets_values": [
+        1,
+        "fixed"
+      ],
+      "widgets_values_named": {
+        "value": 1,
+        "fixed": "fixed"
+      },
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 4,
+      "type": "PrimitiveInt",
+      "pos": [
+        540,
+        300
+      ],
+      "size": [
+        300,
+        82
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "INT",
+          "type": "INT",
+          "links": [
+            13
+          ]
+        }
+      ],
+      "title": "🎛️ AO — rayons par texel",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "PrimitiveInt"
+      },
+      "widgets_values": [
+        64,
+        "fixed"
+      ],
+      "widgets_values_named": {
+        "value": 64,
+        "fixed": "fixed"
+      },
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 5,
+      "type": "PrimitiveFloat",
+      "pos": [
+        540,
+        420
+      ],
+      "size": [
+        300,
+        58
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "FLOAT",
+          "type": "FLOAT",
+          "links": [
+            14
+          ]
+        }
+      ],
+      "title": "🎛️ AO — intensité",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "PrimitiveFloat"
+      },
+      "widgets_values": [
+        1
+      ],
+      "widgets_values_named": {
+        "value": 1
+      },
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 6,
+      "type": "Load3DAdvanced",
+      "pos": [
+        920,
+        60
+      ],
+      "size": [
+        340,
+        620
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "model_3d",
+          "type": "FILE_3D",
+          "links": [
+            1
+          ]
+        },
+        {
+          "name": "model_3d_info",
+          "type": "LOAD3D_MODEL_INFO",
+          "links": null
+        },
+        {
+          "name": "camera_info",
+          "type": "LOAD3D_CAMERA",
+          "links": null
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "links": null
+        }
+      ],
+      "title": "📥 Fichier 3D (GLB / GLTF)",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "Load3DAdvanced",
+        "Camera Config": {
+          "cameraType": "perspective",
+          "fov": 35,
+          "state": {
+            "position": {
+              "x": 8.451817709510433,
+              "y": 5.027122683356797,
+              "z": 6.590936950680551
+            },
+            "target": {
+              "x": 0,
+              "y": 2.4372680076168787,
+              "z": 0
+            },
+            "zoom": 1,
+            "cameraType": "perspective",
+            "quaternion": {
+              "x": -0.10627602604780723,
+              "y": 0.43569951378473604,
+              "z": 0.05189400619622015,
+              "w": 0.8922882673755926
+            },
+            "fov": 35,
+            "aspect": 1,
+            "near": 0.01,
+            "far": 10000,
+            "frustum": {
+              "left": -5,
+              "right": 5,
+              "top": 5,
+              "bottom": -5
+            }
+          }
+        },
+        "Light Config": {
+          "intensity": 3,
+          "hdri": {
+            "enabled": false,
+            "hdriPath": "",
+            "showAsBackground": false,
+            "intensity": 1
+          }
+        },
+        "Scene Config": {
+          "showGrid": true,
+          "backgroundColor": "#282828",
+          "backgroundImage": "",
+          "backgroundRenderMode": "tiled",
+          "models": [
+            {
+              "position": {
+                "x": -0.0000018887737476269706,
+                "y": 2.0686588804577224,
+                "z": -0.3658470803683185
+              },
+              "quaternion": {
+                "x": 0,
+                "y": 0,
+                "z": 0,
+                "w": 1
+              },
+              "scale": {
+                "x": 0.06287374035580132,
+                "y": 0.06287374035580132,
+                "z": 0.06287374035580132
+              }
+            }
+          ]
+        },
+        "Model Config": {
+          "upDirection": "original",
+          "materialMode": "original",
+          "showSkeleton": false,
+          "gizmo": {
+            "enabled": false,
+            "mode": "translate",
+            "position": {
+              "x": -0.0000018887737476269706,
+              "y": 2.0686588804577224,
+              "z": -0.3658470803683185
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 0.06287374035580132,
+              "y": 0.06287374035580132,
+              "z": 0.06287374035580132
+            }
+          }
+        }
+      },
+      "widgets_values": [
+        "3d/camel_b.obj",
+        "",
+        1024,
+        1024
+      ],
+      "widgets_values_named": {
+        "model_file": "3d/camel_b.obj",
+        "viewport_state": "",
+        "width": 1024,
+        "height": 1024
+      },
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 7,
+      "type": "Get3DComponents",
+      "pos": [
+        920,
+        710
+      ],
+      "size": [
+        340,
+        50
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model_3d",
+          "type": "FILE_3D_GLB,FILE_3D_GLTF,FILE_3D_OBJ,FILE_3D_STL,FILE_3D",
+          "link": 1
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mesh",
+          "type": "MESH",
+          "links": [
+            2,
+            3
+          ]
+        }
+      ],
+      "title": "🔧 Fichier → mesh éditable",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "Get3DComponents"
+      },
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 8,
+      "type": "UnwrapMesh",
+      "pos": [
+        1340,
+        60
+      ],
+      "size": [
+        300,
+        180
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "mesh",
+          "type": "MESH",
+          "link": 2
+        },
+        {
+          "name": "resolution",
+          "type": "INT",
+          "widget": {
+            "name": "resolution"
+          },
+          "link": 9
+        },
+        {
+          "name": "padding",
+          "type": "INT",
+          "widget": {
+            "name": "padding"
+          },
+          "link": 12
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mesh",
+          "type": "MESH",
+          "links": [
+            4,
+            5,
+            6
+          ]
+        }
+      ],
+      "title": "✂️ Dépliage UV (atlas)",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "UnwrapMesh"
+      },
+      "widgets_values": [
+        "pec",
+        2048,
+        4,
+        0.0002
+      ],
+      "widgets_values_named": {
+        "segmenter": "pec",
+        "resolution": 2048,
+        "padding": 4,
+        "weld_distance": 0.0002
+      },
+      "color": "#322",
+      "bgcolor": "#533"
+    },
+    {
+      "id": 9,
+      "type": "RenderUVAtlas",
+      "pos": [
+        1340,
+        290
+      ],
+      "size": [
+        300,
+        82
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "mesh",
+          "type": "MESH",
+          "link": 4
+        },
+        {
+          "name": "resolution",
+          "type": "INT",
+          "widget": {
+            "name": "resolution"
+          },
+          "link": 10
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": [
+            7
+          ]
+        }
+      ],
+      "title": "🗺️ Rendu du layout UV",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "RenderUVAtlas"
+      },
+      "widgets_values": [
+        2048
+      ],
+      "widgets_values_named": {
+        "resolution": 2048
+      },
+      "color": "#322",
+      "bgcolor": "#533"
+    },
+    {
+      "id": 10,
+      "type": "BakeAmbientOcclusion",
+      "pos": [
+        1340,
+        420
+      ],
+      "size": [
+        300,
+        230
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "low_poly",
+          "type": "MESH",
+          "link": 5
+        },
+        {
+          "name": "high_poly",
+          "type": "MESH",
+          "link": 3
+        },
+        {
+          "name": "resolution",
+          "type": "INT",
+          "widget": {
+            "name": "resolution"
+          },
+          "link": 11
+        },
+        {
+          "name": "samples",
+          "type": "INT",
+          "widget": {
+            "name": "samples"
+          },
+          "link": 13
+        },
+        {
+          "name": "strength",
+          "type": "FLOAT",
+          "widget": {
+            "name": "strength"
+          },
+          "link": 14
+        }
+      ],
+      "outputs": [
+        {
+          "name": "occlusion",
+          "type": "IMAGE",
+          "links": [
+            8
+          ]
+        }
+      ],
+      "title": "🌑 Bake AO dans les UV",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "BakeAmbientOcclusion"
+      },
+      "widgets_values": [
+        2048,
+        64,
+        0.5,
+        1,
+        0.01
+      ],
+      "widgets_values_named": {
+        "resolution": 2048,
+        "samples": 64,
+        "max_distance": 0.5,
+        "strength": 1,
+        "bias": 0.01
+      },
+      "color": "#322",
+      "bgcolor": "#533"
+    },
+    {
+      "id": 11,
+      "type": "SaveGLB",
+      "pos": [
+        1720,
+        60
+      ],
+      "size": [
+        500,
+        700
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "mesh",
+          "type": "MESH,FILE_3D_GLB,FILE_3D_GLTF,FILE_3D_OBJ,FILE_3D_FBX,FILE_3D_STL,FILE_3D_USDZ,FILE_3D_PLY,FILE_3D_SPLAT,FILE_3D_SPZ,FILE_3D_KSPLAT,FILE_3D_SPLAT_ANY,FILE_3D_POINT_CLOUD_ANY,FILE_3D",
+          "link": 6
+        }
+      ],
+      "outputs": [],
+      "title": "💾 GLB avec UV + aperçu 3D",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "SaveGLB",
+        "Last Time Model File": "3D2UV/mesh_uv_00002_.glb",
+        "Last Time Model Folder": "output",
+        "Camera Config": {
+          "cameraType": "perspective",
+          "fov": 35,
+          "hasCustomUp": false
+        },
+        "Light Config": {
+          "intensity": 3,
+          "hdri": {
+            "enabled": false,
+            "hdriPath": "",
+            "showAsBackground": false,
+            "intensity": 1
+          }
+        },
+        "Scene Config": {
+          "showGrid": true,
+          "backgroundColor": "#282828",
+          "backgroundImage": "",
+          "backgroundRenderMode": "tiled",
+          "models": [
+            {
+              "position": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "quaternion": {
+                "x": 0,
+                "y": 0,
+                "z": 0,
+                "w": 1
+              },
+              "scale": {
+                "x": 1,
+                "y": 1,
+                "z": 1
+              }
+            }
+          ]
+        },
+        "Model Config": {
+          "upDirection": "original",
+          "materialMode": "original",
+          "showSkeleton": false,
+          "gizmo": {
+            "enabled": false,
+            "mode": "translate",
+            "position": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            }
+          }
+        }
+      },
+      "widgets_values": [
+        "3D2UV/mesh_uv",
+        ""
+      ],
+      "widgets_values_named": {
+        "filename_prefix": "3D2UV/mesh_uv",
+        "image": ""
+      },
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 12,
+      "type": "SaveImage",
+      "pos": [
+        2260,
+        60
+      ],
+      "size": [
+        440,
+        340
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "links": null
+        }
+      ],
+      "title": "💾 Layout UV (PNG)",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "SaveImage"
+      },
+      "widgets_values": [
+        "3D2UV/uv_layout"
+      ],
+      "widgets_values_named": {
+        "filename_prefix": "3D2UV/uv_layout"
+      },
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 13,
+      "type": "SaveImage",
+      "pos": [
+        2260,
+        450
+      ],
+      "size": [
+        440,
+        320
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 8
+        }
+      ],
+      "outputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "links": null
+        }
+      ],
+      "title": "💾 AO (PNG)",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "SaveImage"
+      },
+      "widgets_values": [
+        "3D2UV/ao"
+      ],
+      "widgets_values_named": {
+        "filename_prefix": "3D2UV/ao"
+      },
+      "color": "#233",
+      "bgcolor": "#355"
+    }
+  ],
+  "links": [
+    [
+      1,
+      6,
+      0,
+      7,
+      0,
+      "FILE_3D"
+    ],
+    [
+      2,
+      7,
+      0,
+      8,
+      0,
+      "MESH"
+    ],
+    [
+      3,
+      7,
+      0,
+      10,
+      1,
+      "MESH"
+    ],
+    [
+      4,
+      8,
+      0,
+      9,
+      0,
+      "MESH"
+    ],
+    [
+      5,
+      8,
+      0,
+      10,
+      0,
+      "MESH"
+    ],
+    [
+      6,
+      8,
+      0,
+      11,
+      0,
+      "MESH"
+    ],
+    [
+      7,
+      9,
+      0,
+      12,
+      0,
+      "IMAGE"
+    ],
+    [
+      8,
+      10,
+      0,
+      13,
+      0,
+      "IMAGE"
+    ],
+    [
+      10,
+      2,
+      0,
+      9,
+      1,
+      "INT"
+    ],
+    [
+      11,
+      2,
+      0,
+      10,
+      2,
+      "INT"
+    ],
+    [
+      13,
+      4,
+      0,
+      10,
+      3,
+      "INT"
+    ],
+    [
+      9,
+      2,
+      0,
+      8,
+      1,
+      "INT"
+    ],
+    [
+      12,
+      3,
+      0,
+      8,
+      2,
+      "INT"
+    ],
+    [
+      14,
+      5,
+      0,
+      10,
+      4,
+      "FLOAT"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "🎛️ CONTRÔLES",
+      "bounding": [
+        510,
+        0,
+        360,
+        520
+      ],
+      "color": "#335",
+      "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "📥 ENTRÉE (fichier 3D)",
+      "bounding": [
+        900,
+        0,
+        380,
+        790
+      ],
+      "color": "#353",
+      "flags": {}
+    },
+    {
+      "id": 3,
+      "title": "✂️ DÉPLIAGE UV",
+      "bounding": [
+        1320,
+        0,
+        340,
+        790
+      ],
+      "color": "#533",
+      "flags": {}
+    },
+    {
+      "id": 4,
+      "title": "💾 SORTIES",
+      "bounding": [
+        1700,
+        0,
+        1020,
+        790
+      ],
+      "color": "#355",
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.4958677685950424,
+      "offset": [
+        93.73677638487086,
+        826.1877779165302
+      ]
+    },
+    "workflow_name": "3D2UV_UnwrapMesh_v01",
+    "frontendVersion": "1.55.14",
+    "VHS_latentpreview": false,
+    "VHS_latentpreviewrate": 0,
+    "VHS_MetadataImage": true,
+    "VHS_KeepIntermediate": true
+  },
+  "version": 0.4
+}

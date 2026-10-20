@@ -990,7 +990,7 @@ function makeRouter({ configManager, registry, adminGate, exitForRestart, runtim
                 let media = 0;
                 try {
                     for (const f of fs.readdirSync(assets_dir)) {
-                        if (/\.(png|jpe?g|webp|bmp|gif|mp4|webm|mov|mkv|avi|wav|mp3|flac|ogg|aac|m4a)$/i.test(f)) media++;
+                        if (/\.(png|jpe?g|webp|bmp|gif|mp4|webm|mov|mkv|avi|wav|mp3|flac|ogg|aac|m4a|glb|gltf|obj|stl|ply|fbx)$/i.test(f)) media++;
                     }
                 } catch { /* unreadable — leave media at 0 */ }
                 checks.push({
@@ -998,7 +998,7 @@ function makeRouter({ configManager, registry, adminGate, exitForRestart, runtim
                     ok: media > 0,
                     detail: media > 0
                         ? `${assets_dir} (${media} media file${media === 1 ? '' : 's'} for calibration)`
-                        : `${assets_dir} — no image/video/audio files found; calibration won't find inputs here`
+                        : `${assets_dir} — no image/video/audio/3D files found; calibration won't find inputs here`
                 });
             }
         }

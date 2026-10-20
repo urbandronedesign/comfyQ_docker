@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "id": "3d_mesh_remesh_decimate",
+  "name": "Remesh & decimate - 3D model to clean low-poly",
+  "description": "Upload a 3D model and get back a clean, low-poly version at the triangle count you ask for. This is the step between a generated or scanned mesh and something you can actually use in a game engine, a real-time viewer or a 3D print.\n\nWATERTIGHT REMESH (on by default) rebuilds the surface from scratch as one closed shell. It removes holes, duplicate faces and interior junk, and it lets the decimator land almost exactly on your target. Turn it OFF to keep the original surface and merely weld and simplify it - that keeps any UVs the model already had, and it is the fallback when the remesh comes back empty.\n\nWHEN IT COMES BACK EMPTY - measured on this rig, not guessed: the watertight remesh only works on a model at a sane scale, roughly a few units across. A mesh exported in millimetres (hundreds of units across) comes back EMPTY, with no error and no 3D file. Two of nine test meshes failed this way, the Stanford Bunny among them, and the same mesh scaled down 50x then worked. The giveaway is the second stat panel reading 'Faces: 0'. Fix it by turning Watertight remesh off, or by rescaling the model before you upload it.\n\nRESULTS: the remeshed .glb, plus two text panels - your model's vertex and face count BEFORE, then the result's AFTER, so you can see exactly what the reduction cost you.",
+  "category": "3d",
+  "tags": [
+    "3d",
+    "mesh",
+    "remesh",
+    "decimate",
+    "retopology",
+    "low-poly",
+    "game-ready"
+  ],
+  "thumbnail": null,
+  "author": "b2renger",
+  "version": "1.0.0",
+  "experimental": true,
+  "workflowFile": "3d_mesh_remesh_decimate.api.json",
+  "apiFormat": true,
+  "requirements": {
+    "minVRAM": 2,
+    "models": []
+  },
+  "estimatedDurationSec": 10,
+  "warmupParams": {
+    "load3dadvanced_model_file_6": "asset:pixal3d_multi_views_mesh.glb"
+  },
+  "exposedParameters": [
+    {
+      "key": "load3dadvanced_model_file_6",
+      "nodeId": "6",
+      "field": "model_file",
+      "type": "model3d",
+      "label": "3D model (GLB, GLTF, OBJ, STL, PLY, FBX)",
+      "default": "",
+      "required": true,
+      "order": 0
+    },
+    {
+      "key": "primitiveint_value_2",
+      "nodeId": "2",
+      "field": "value",
+      "type": "number",
+      "label": "Target triangle count",
+      "default": 2000,
+      "min": 100,
+      "max": 500000,
+      "step": 100,
+      "required": false,
+      "order": 1
+    },
+    {
+      "key": "primitiveboolean_value_3",
+      "nodeId": "3",
+      "field": "value",
+      "type": "checkbox",
+      "label": "Watertight remesh (rebuild as one closed shell)",
+      "default": true,
+      "required": false,
+      "order": 2
+    },
+    {
+      "key": "primitiveint_value_4",
+      "nodeId": "4",
+      "field": "value",
+      "type": "number",
+      "label": "Smoothing passes",
+      "default": 2,
+      "min": 0,
+      "max": 20,
+      "step": 1,
+      "required": false,
+      "order": 3
+    },
+    {
+      "key": "primitivefloat_value_5",
+      "nodeId": "5",
+      "field": "value",
+      "type": "number",
+      "label": "Sharp-edge angle (degrees, 180 = fully smooth)",
+      "default": 90,
+      "min": 0,
+      "max": 180,
+      "step": 1,
+      "required": false,
+      "order": 4
+    }
+  ]
+}

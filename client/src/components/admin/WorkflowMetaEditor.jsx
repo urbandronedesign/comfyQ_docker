@@ -19,7 +19,7 @@ const CATEGORIES = [
     { value: 'other', label: 'Other' }
 ];
 
-const PARAM_TYPES = ['text', 'textarea', 'number', 'select', 'checkbox', 'image', 'video', 'audio', 'mask', 'lora'];
+const PARAM_TYPES = ['text', 'textarea', 'number', 'select', 'checkbox', 'image', 'video', 'audio', 'mask', 'model3d', 'lora', 'camera'];
 
 // Field names that are usually infrastructure, not student-facing.
 const INFRASTRUCTURE_FIELDS = new Set([
@@ -173,6 +173,10 @@ const WorkflowMetaEditor = ({ workflowId, adminPassword, onClose, onSaved }) => 
                     // through a re-save or the dropdown loses its filter.
                     optionsDir: p.type === 'lora' ? (p.optionsDir || undefined) : undefined,
                     optionsFilter: p.type === 'lora' ? (p.optionsFilter || undefined) : undefined,
+                    // A `camera` param's axes + targets say how THIS graph is
+                    // told a camera position. Dropping them on a re-save would
+                    // leave a widget that writes nothing.
+                    camera: p.type === 'camera' ? (p.camera || undefined) : undefined,
                     min: p.min,
                     max: p.max,
                     step: p.step,

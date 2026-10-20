@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "id": "image_edit_flux3_klein_distilled_image_edit",
+  "name": "FLUX.3 Klein distilled — fast picture edit",
+  "description": "Edit a picture by describing the change, with Black Forest Labs' FLUX.3 Image Klein distilled build (16 steps, about 14 s). Refer to your picture as <ref_image_0>, and say what must stay the same as well as what changes — or, as Black Forest Labs recommend, describe the finished picture in full with the edit folded in. Ticking \"Improve the instruction with AI\" lets a Qwen 3.5 model look at the picture and write that caption for you, but on this machine it adds about 2–3 minutes. The result keeps the shape of your picture. Placing the change with boxes (FLUX.3 layout prompts) is not offered on this card yet. Experimental.",
+  "category": "image-edit",
+  "experimental": true,
+  "tags": [
+    "flux3",
+    "klein",
+    "distilled",
+    "image-edit"
+  ],
+  "thumbnail": null,
+  "author": "Template - ComfyUI (FLUX.3 Image Klein)",
+  "version": "1.0.0",
+  "workflowFile": "image_edit_flux3_klein_distilled_image_edit.api.json",
+  "apiFormat": true,
+  "requirements": {
+    "minVRAM": 16,
+    "models": [
+      {
+        "type": "unet",
+        "file": "flux3-image-klein-int8-convrot.safetensors",
+        "url": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/diffusion_models/flux3-image-klein-int8-convrot.safetensors",
+        "source": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy",
+        "note": "Klein distilled (16 steps, no guidance). GATED: accept the FLUX.3 Klein licence on this repo with the account whose HuggingFace token is set. BFL renamed the files on 2026-10-17 (underscores to hyphens); verified 2026-10-20 against the repo listing."
+      },
+      {
+        "type": "clip",
+        "file": "qwen3vl_4b_int8_convrot.safetensors",
+        "url": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/text_encoders/qwen3vl_4b_int8_convrot.safetensors",
+        "source": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy",
+        "note": "GATED: accept the FLUX.3 Klein licence on this repo with the account whose HuggingFace token is set. BFL renamed the files on 2026-10-17 (underscores to hyphens); verified 2026-10-20 against the repo listing."
+      },
+      {
+        "type": "clip",
+        "file": "qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors",
+        "url": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy/resolve/main/text_encoders/qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors",
+        "source": "https://huggingface.co/black-forest-labs/flux-3-image-klein-comfy",
+        "note": "GATED: accept the FLUX.3 Klein licence on this repo with the account whose HuggingFace token is set. BFL renamed the files on 2026-10-17 (underscores to hyphens); verified 2026-10-20 against the repo listing."
+      },
+      {
+        "type": "vae",
+        "file": "flux2-vae.safetensors",
+        "url": "https://huggingface.co/VAST-AI/TripoSplat/resolve/main/vae/flux2-vae.safetensors",
+        "source": "https://huggingface.co/VAST-AI/TripoSplat"
+      }
+    ]
+  },
+  "estimatedDurationSec": 14,
+  "warmupParams": {
+    "image": "asset:Woman.png"
+  },
+  "exposedParameters": [
+    {
+      "key": "image",
+      "nodeId": "11",
+      "field": "image",
+      "type": "image",
+      "label": "Picture to edit",
+      "required": true,
+      "order": 0
+    },
+    {
+      "key": "prompt",
+      "nodeId": "49",
+      "field": "prompt",
+      "type": "textarea",
+      "label": "What to change",
+      "required": true,
+      "order": 1,
+      "default": "In <ref_image_0>, give her a pair of large gold hoop earrings; keep her face, hair, clothes, pose and the background exactly the same."
+    },
+    {
+      "key": "improve_prompt",
+      "nodeId": "51",
+      "field": "switch",
+      "type": "checkbox",
+      "order": 2,
+      "label": "Improve the instruction with AI first (a Qwen 3.5 model looks at the picture and writes a full caption of the result) — slow: adds about 2–3 minutes",
+      "default": false
+    },
+    {
+      "key": "megapixels",
+      "nodeId": "17",
+      "field": "resolution.megapixels",
+      "type": "number",
+      "order": 3,
+      "label": "Working size (megapixels) — the result takes the picture's shape at this size",
+      "min": 0.25,
+      "max": 4,
+      "step": 0.25,
+      "default": 1
+    },
+    {
+      "key": "steps",
+      "nodeId": "7",
+      "field": "steps",
+      "type": "number",
+      "label": "Steps",
+      "order": 4,
+      "min": 4,
+      "max": 32,
+      "step": 1,
+      "default": 16
+    },
+    {
+      "key": "seed",
+      "nodeId": "7",
+      "field": "seed",
+      "type": "number",
+      "label": "Seed",
+      "default": 42,
+      "order": 6
+    }
+  ]
+}

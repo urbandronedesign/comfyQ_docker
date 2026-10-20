@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "id": "3d_mesh_uv_unwrap",
+  "name": "UV unwrap & bake AO - prepare a model for texturing",
+  "description": "Upload a 3D model and get back the same model with a clean UV layout, plus the two maps that layout makes possible. This is what lets you paint or bake textures onto a mesh that arrived without usable UVs - which most generated and scanned meshes do.\n\nIt cuts the surface into islands, packs them into one square atlas, and bakes an ambient-occlusion map from the ORIGINAL geometry: the soft contact shadows in creases and crevices that make a model read as solid rather than flat.\n\nRESULTS: the .glb carrying the new UVs, a UV layout PNG (each island in its own colour, so you can see how the surface was cut and packed), and the AO map PNG.\n\nAtlas resolution drives all three stages at once - the unwrap, the layout render and the AO bake. Rays per texel trades AO quality against time. Island splitting: 'pec' is the general-purpose cut, 'adaptive' sizes islands by how much detail the surface carries there.\n\nTime scales with how dense the model is, not with the atlas size: about 15 s for a few thousand triangles, about 45 s for half a million. Unlike the remesh bundle this one is not fussy about the model's scale - it was checked on the same mesh at 50x difference and produced the same atlas and the same AO.",
+  "category": "3d",
+  "tags": [
+    "3d",
+    "mesh",
+    "uv",
+    "unwrap",
+    "ambient-occlusion",
+    "texturing",
+    "atlas"
+  ],
+  "thumbnail": null,
+  "author": "b2renger",
+  "version": "1.0.0",
+  "experimental": true,
+  "workflowFile": "3d_mesh_uv_unwrap.api.json",
+  "apiFormat": true,
+  "requirements": {
+    "minVRAM": 2,
+    "models": []
+  },
+  "estimatedDurationSec": 45,
+  "warmupParams": {
+    "load3dadvanced_model_file_6": "asset:trellis2_mesh.glb"
+  },
+  "exposedParameters": [
+    {
+      "key": "load3dadvanced_model_file_6",
+      "nodeId": "6",
+      "field": "model_file",
+      "type": "model3d",
+      "label": "3D model (GLB, GLTF, OBJ, STL, PLY, FBX)",
+      "default": "",
+      "required": true,
+      "order": 0
+    },
+    {
+      "key": "primitiveint_value_2",
+      "nodeId": "2",
+      "field": "value",
+      "type": "number",
+      "label": "Atlas resolution (px)",
+      "default": 2048,
+      "min": 256,
+      "max": 4096,
+      "step": 256,
+      "required": false,
+      "order": 1
+    },
+    {
+      "key": "unwrapmesh_segmenter_8",
+      "nodeId": "8",
+      "field": "segmenter",
+      "type": "select",
+      "label": "Island splitting",
+      "default": "pec",
+      "options": [
+        "pec",
+        "adaptive"
+      ],
+      "required": false,
+      "order": 2
+    },
+    {
+      "key": "primitiveint_value_3",
+      "nodeId": "3",
+      "field": "value",
+      "type": "number",
+      "label": "Padding between islands (px)",
+      "default": 1,
+      "min": 0,
+      "max": 16,
+      "step": 1,
+      "required": false,
+      "order": 3
+    },
+    {
+      "key": "primitiveint_value_4",
+      "nodeId": "4",
+      "field": "value",
+      "type": "number",
+      "label": "AO rays per texel",
+      "default": 64,
+      "min": 4,
+      "max": 1024,
+      "step": 4,
+      "required": false,
+      "order": 4
+    },
+    {
+      "key": "primitivefloat_value_5",
+      "nodeId": "5",
+      "field": "value",
+      "type": "number",
+      "label": "AO strength",
+      "default": 1,
+      "min": 0,
+      "max": 2,
+      "step": 0.05,
+      "required": false,
+      "order": 5
+    }
+  ]
+}
