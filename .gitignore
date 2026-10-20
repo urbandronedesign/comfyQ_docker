@@ -254,3 +254,4 @@ tools/maintenance/model-audit/*.decisions-*.csv
 !console-app/package-lock.json
 console-app/node_modules/
 console-app/dist/
+console-app/build/

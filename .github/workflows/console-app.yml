@@ -1,0 +1,58 @@
+name: Release console app
+
+# Cut a release from the console app:
+#   cd console-app && npm run release:patch   (bumps the version, tags console-vX.Y.Z, pushes)
+# This builds the Windows installer and publishes it, with latest.yml, as a
+# GitHub Release of this repo. Installed apps update from there (electron-updater).
+#
+# ★ The tag is console-v*: v* tags start the Discovery release (release.yml) and
+# docker-v* the image build (docker.yml).
+
+on:
+  push:
+    tags:
+      - 'console-v*'
+
+permissions:
+  contents: write          # to create the GitHub Release and upload the installer
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install
+        working-directory: console-app
+        run: npm ci
+
+      - name: Test the warning rules
+        working-directory: console-app
+        run: node test/watch.test.js
+
+      - name: The tag matches the app's version
+        working-directory: console-app
+        shell: bash
+        run: |
+          v=$(node -p "require('./package.json').version")
+          test "console-v$v" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} is not console-v$v"; exit 1; }
+
+      - name: Build the installer
+        working-directory: console-app
+        run: npm run dist
+
+      - name: Publish the GitHub Release
+        working-directory: console-app
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          v=$(node -p "require('./package.json').version")
+          gh release create "${GITHUB_REF_NAME}" \
+            "dist/ComfyQ-Console-Setup-$v.exe" "dist/ComfyQ-Console-Setup-$v.exe.blockmap" dist/latest.yml \
+            --title "ComfyQ Console $v" \
+            --notes "Windows installer for the ComfyQ Console desktop app. Download ComfyQ-Console-Setup-$v.exe and run it (Windows SmartScreen: More info → Run anyway; the app is not code-signed). Installed apps update themselves from here."

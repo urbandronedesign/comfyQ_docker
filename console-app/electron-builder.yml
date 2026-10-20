@@ -1,0 +1,36 @@
+appId: com.comfyq.console
+productName: ComfyQ Console
+# `npm run dist` builds the Windows installer here (no upload). Releases are
+# cut by CI on a `console-v*` tag (.github/workflows/console-app.yml), which
+# creates the GitHub Release itself; installed apps update from it.
+files:
+  - main.js
+  - preload.js
+  - secrets.js
+  - workflows.js
+  - watch.js
+  - assets/**
+  - package.json
+# The console itself and the shipped workflow list, as plain files beside the
+# app (resources/comfyq): its server runs as a child process from disk.
+# Filled by scripts/prepare.cjs.
+extraResources:
+  - from: build/comfyq
+    to: comfyq
+directories:
+  output: dist
+# Where electron-updater looks for new versions (public repo: no token).
+publish:
+  provider: github
+  owner: urbandronedesign
+  repo: comfyQ_docker
+  releaseType: release
+win:
+  target: nsis
+  icon: assets/icon.png
+  artifactName: ComfyQ-Console-Setup-${version}.${ext}
+nsis:
+  oneClick: true
+  perMachine: false          # per-user install: updates need no admin prompt
+  deleteAppDataOnUninstall: false
+  shortcutName: ComfyQ Console

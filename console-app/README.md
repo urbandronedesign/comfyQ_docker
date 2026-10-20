@@ -14,7 +14,20 @@ What the app adds over the browser:
   - a balance covers less than 4 hours at the current rate (RunPod stops a Pod at zero).
   What is already true when the app starts is not announced. The rules are in [watch.js](watch.js), each tested in `test/watch.test.js`.
 - **Quitting while something bills asks first**, naming each machine and the total per hour: quitting does not stop them, and nothing warns about them any more.
-- Next phase: an installer that updates itself.
+- **An installer that updates itself.** A one-click, per-user Windows installer (no admin prompt). The installed app checks this repo's GitHub Releases at start and every 6 hours, downloads a new version in the background, says so, and installs it when you quit. The tray menu shows the version and has *Check for updates*. Not code-signed: the first install asks *More info → Run anyway* in Windows SmartScreen.
+
+## Install
+
+Download `ComfyQ-Console-Setup-<version>.exe` from the repo's [Releases](https://github.com/urbandronedesign/comfyQ_docker/releases) and run it. It lands in *Start → ComfyQ Console*. ⚠ Its first start moves your keys out of `~/.comfyq/runpod-console.json` into Windows protected storage, after which `RunPod-Console.bat` no longer sees them.
+
+## Release a new version
+
+```bash
+cd console-app
+npm run release:patch    # or :minor / :major — bumps, commits, tags console-vX.Y.Z, pushes
+```
+
+The tag starts `.github/workflows/console-app.yml`: it tests the warning rules, builds the installer on Windows and publishes it with `latest.yml`. ★ Tags are `console-v…`, never `v…` (that starts the Discovery release). The updater takes the repo's **latest** release, so a release of something else in this repo would hide the app's: keep releases here for the app only. `npm run dist` builds the same installer locally into `dist/` without publishing, and `COMFYQ_APP_EXE="dist/win-unpacked/ComfyQ Console.exe" npm test` runs the app test against it.
 
 ## Run it from the repo
 
@@ -41,6 +54,6 @@ npm test             # the warning rules (24 checks), then the real app started 
 | 1 | Window + embedded server + per-start token; runs from source | done |
 | 2 | Keys in Windows' protected storage; workflow list fetched from GitHub with a bundled copy; `ssh` check | done |
 | 3 | Tray with $/hour, notifications (setup done/failed, machine on > 3 h, budget passed, balance < 4 h), confirmation on quit while billing | done |
-| 4 | Installer + auto-update from GitHub Releases on a `console-v*` tag | |
+| 4 | Installer + auto-update from GitHub Releases on a `console-v*` tag | done |
 
 Test hooks: `COMFYQ_APP_EVENTS_FILE` records what the app announces (and lets the test close the window, which a page cannot do to its own top-level window); `COMFYQ_APP_WATCH_MS` reads more often than every 30 s; `COMFYQ_APP_SERVER_HOME` gives the server alone another data folder (Electron itself crashes on a made-up Windows profile, so the test cannot just change `USERPROFILE`).

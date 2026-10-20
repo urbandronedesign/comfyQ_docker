@@ -236,6 +236,9 @@ function updateTray() {
         { label: lastSpend ? `Now ${money(lastSpend.ratePerHr)}/h · today ${money(lastSpend.today)}` : 'Reading what you spend…', enabled: false },
         ...ms.map(m => ({ label: `${m.provider === 'thunder' ? 'Thunder' : 'RunPod'} · ${m.name || m.id} · ${money(m.ratePerHr)}/h`, enabled: false })),
         { type: 'separator' },
+        { label: `Version ${app.getVersion()}${app.isPackaged ? '' : ' (from the repo)'}`, enabled: false },
+        ...(updateState ? [{ label: updateState, enabled: false }] : []),
+        ...(updater ? [{ label: 'Check for updates', click: () => updater.checkForUpdates().catch((e) => notify('ComfyQ Console', `Could not check for updates: ${e.message}`)) }] : []),
         { label: 'Quit', click: () => app.quit() },
     ]));
     record({ type: 'tray', tooltip: line });
@@ -249,6 +252,32 @@ async function tick() {
     const r = watch.decide(watchState, { spend: lastSpend, machines }, Date.now());
     watchState = r.state;
     for (const ev of r.events) notify(ev.title, ev.body);
+}
+
+// ---- updates (installed app only) ----
+// New versions come from this repo's GitHub Releases (tags console-v*). One is
+// downloaded in the background and installed when the app quits; the quit
+// question still comes first if a machine is billing.
+let updater = null;
+let updateState = '';       // shown in the tray menu
+function setupUpdates() {
+    if (!app.isPackaged) return;
+    // Required here, not at the top: electron-updater reads app details as soon
+    // as it is loaded, which is only meaningful in the installed app.
+    ({ autoUpdater: updater } = require('electron-updater'));
+    updater.autoDownload = true;
+    updater.autoInstallOnAppQuit = true;
+    updater.on('update-available', (i) => { updateState = `Downloading version ${i.version}…`; updateTray(); });
+    updater.on('update-not-available', () => { updateState = ''; updateTray(); });
+    updater.on('error', (e) => { updateState = ''; record({ type: 'update-error', message: String(e?.message || e) }); updateTray(); });
+    updater.on('update-downloaded', (i) => {
+        updateState = `Version ${i.version} installs when you quit`;
+        notify('ComfyQ Console update ready', `Version ${i.version} is downloaded and installs the next time you quit the app.`);
+        updateTray();
+    });
+    const check = () => updater.checkForUpdates().catch(() => { /* offline: try again later */ });
+    setTimeout(check, 10_000);
+    setInterval(check, 6 * 3600_000);
 }
 
 function startWatching() {
@@ -273,6 +302,7 @@ app.whenReady().then(async () => {
     catch (e) { dialog.showErrorBox('ComfyQ Console', e.message); app.quit(); return; }
     createWindow();
     startWatching();
+    setupUpdates();
 });
 
 // Quitting while a machine bills asks first: the machines keep billing after

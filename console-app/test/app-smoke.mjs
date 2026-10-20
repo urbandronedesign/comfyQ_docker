@@ -38,7 +38,11 @@ async function launch() {
     const env = { ...process.env, COMFYQ_APP_SERVER_HOME: home, COMFYQ_APP_GITHUB_WORKFLOWS: '1', COMFYQ_APP_EVENTS_FILE: eventsFile, COMFYQ_APP_WATCH_MS: '2000' };
     delete env.ELECTRON_RUN_AS_NODE;   // set in some shells: it would run Electron as plain Node
     const port = debugPort++;
-    const child = spawn(ELECTRON, [APP, `--remote-debugging-port=${port}`], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    // COMFYQ_APP_EXE=<path to "ComfyQ Console.exe"> checks the packaged app
+    // (npm run dist → dist/win-unpacked) instead of the repo's copy.
+    const child = process.env.COMFYQ_APP_EXE
+        ? spawn(process.env.COMFYQ_APP_EXE, [`--remote-debugging-port=${port}`], { env, stdio: ['ignore', 'pipe', 'pipe'] })
+        : spawn(ELECTRON, [APP, `--remote-debugging-port=${port}`], { env, stdio: ['ignore', 'pipe', 'pipe'] });
     const log = [];
     child.stdout.on('data', d => log.push(String(d)));
     child.stderr.on('data', d => log.push(String(d)));
