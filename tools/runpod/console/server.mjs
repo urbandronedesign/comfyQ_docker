@@ -105,7 +105,7 @@ const secretsOf = (s) => ({ adminPassword: s.adminPassword, accessPassword: s.ac
 
 function apiKey() {
     const k = loadSettings().runpodApiKey || process.env.RUNPOD_API_KEY;
-    if (!k) throw new RunPodError('enter your RunPod API key under Credentials first', 400);
+    if (!k) throw new RunPodError('enter your RunPod API key in Settings (top right) first', 400);
     return k;
 }
 
@@ -145,7 +145,7 @@ route('POST', '/api/test-key', async () => {
 // account's instances (read only); prices and stock need no key.
 function thunderKey() {
     const k = loadSettings().thunderApiKey || process.env.THUNDER_API_KEY;
-    if (!k) throw new RunPodError('enter your Thunder Compute API key under Credentials first', 400);
+    if (!k) throw new RunPodError('enter your Thunder Compute API key in Settings (top right) first', 400);
     return k;
 }
 
@@ -211,7 +211,7 @@ route('POST', '/api/launch', async ({ body }) => {
     if (plans.some(p => !p.gpuTypeIds.length)) throw new RunPodError('pick a GPU for every Pod', 400);
     const missing = missingSecrets(secretsOf(s));
     if (plans.some(p => p.serve.length) && missing.length && !body.allowOpen) {
-        throw new RunPodError('set the admin password under Credentials first: a Pod is reachable by anyone who has its URL, admin panel included', 400);
+        throw new RunPodError('set the admin password in Settings (top right) first: a Pod is reachable by anyone who has its URL, admin panel included', 400);
     }
     // volumeId "none": no network volume, so RunPod may use any data centre
     // with the GPU free (the fallback when the volume's own has none).
@@ -627,7 +627,7 @@ route('POST', '/api/thunder/launch', async ({ body }) => {
     const s = loadSettings();
     const secrets = secretsOf(s);
     const miss = missingSecrets(secrets);
-    if (miss.length) throw new RunPodError(`save the ${miss.join(' and ')} under Credentials first`, 400);
+    if (miss.length) throw new RunPodError(`save the ${miss.join(' and ')} in Settings (top right) first`, 400);
     const ids = Array.isArray(body.workflows) ? body.workflows.map(String) : [];
     const { need, picked, offers, downloads } = await thunderPlan(ids);
     if (!picked.length) throw new RunPodError('tick at least one workflow to serve', 400);

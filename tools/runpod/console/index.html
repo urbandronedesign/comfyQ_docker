@@ -3,130 +3,173 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ComfyQ RunPod Console</title>
+<title>ComfyQ Console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='2' y='2' width='20' height='20' rx='6' fill='%2318181b'/%3E%3Cpath d='M7 12h10M12 7v10' stroke='%23fafafa' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
 <header class="top">
   <div class="brand">
-    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 12h8M12 8v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-    <span>ComfyQ <b>RunPod console</b></span>
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 12h8M12 8v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span>ComfyQ <b>Console</b></span>
   </div>
+  <!-- One page per provider. -->
   <nav class="tabs" role="tablist">
-    <button role="tab" data-tab="creds">1 · Credentials</button>
-    <button role="tab" data-tab="launch">2 · Launch</button>
-    <button role="tab" data-tab="pods">3 · Pods <span id="podCount" class="count"></span></button>
-    <button role="tab" data-tab="thunder">Thunder <span id="thunderCount" class="count"></span></button>
-    <button role="tab" data-tab="attempts">Attempts</button>
-    <button role="tab" data-tab="stock">Stock</button>
+    <button role="tab" data-page="runpod">RunPod <span id="podCount" class="count"></span></button>
+    <button role="tab" data-page="thunder">Thunder Compute <span id="thunderCount" class="count"></span></button>
   </nav>
+  <button id="settingsBtn" class="ghost icon" title="Keys and passwords">
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path fill="none" stroke="currentColor" stroke-width="2" d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>
+    <span>Settings</span>
+  </button>
   <button id="themeBtn" class="ghost icon" title="Light / dark">◐</button>
 </header>
 
-<!-- What is being spent, on every tab. Figures: tools/runpod/spend.mjs -->
-<section id="spend" class="spend" aria-live="polite">
-  <div class="spend-kpis">
-    <div class="kpi"><span class="label">Spending now</span><b id="spRate">…</b><span id="spRateSub" class="sub"></span></div>
-    <div class="kpi"><span class="label">Today</span><b id="spToday">…</b><span id="spProj" class="sub"></span></div>
-    <div class="kpi"><span class="label">This month</span><b id="spMonth">…</b><span id="spMonthSub" class="sub"></span></div>
-    <div class="kpi"><span class="label">RunPod balance</span><b id="spBal">…</b><span id="spLeft" class="sub"></span></div>
-    <div class="kpi tbal">
-      <span class="label">Thunder balance</span><b id="spTBal">…</b><span id="spTLeft" class="sub"></span>
-      <button id="spTBalEdit" class="ghost small" hidden>Update</button>
-      <span class="tbal-set" id="spTBalForm"><input id="spTBalIn" type="number" min="0" step="0.01" placeholder="as Thunder shows it" title="Thunder only shows its balance on its website (console.thundercompute.com → Settings → Billing). Type it here; the console subtracts what runs on Thunder from then on."><button id="spTBalBtn" class="ghost small">Set</button></span>
-    </div>
-    <div class="kpi budget">
-      <label class="label" for="spBudget">Daily budget ($)</label>
-      <input id="spBudget" type="number" min="0" step="1" placeholder="none">
-      <div class="meter" title="Today against the daily budget"><i id="spMeter"></i></div>
+<main>
+<!-- What is being spent, across both providers. Figures: tools/runpod/spend.mjs -->
+<section id="spend" class="tiles spend" aria-live="polite">
+  <div class="tile kpi"><span class="label">Spending now</span><b id="spRate">…</b><span id="spRateSub" class="sub"></span></div>
+  <div class="tile kpi"><span class="label">Today</span><b id="spToday">…</b><span id="spProj" class="sub"></span></div>
+  <div class="tile kpi"><span class="label">This month</span><b id="spMonth">…</b><span id="spMonthSub" class="sub"></span></div>
+  <div class="tile kpi"><span class="label">RunPod balance</span><b id="spBal">…</b><span id="spLeft" class="sub"></span></div>
+  <div class="tile kpi tbal">
+    <span class="label">Thunder balance <button id="spTBalEdit" class="link small" hidden>Update</button></span><b id="spTBal">…</b><span id="spTLeft" class="sub"></span>
+    <span class="tbal-set" id="spTBalForm"><input id="spTBalIn" type="number" min="0" step="0.01" placeholder="as Thunder shows it" title="Thunder only shows its balance on its website (console.thundercompute.com → Settings → Billing). Type it here; the console subtracts what runs on Thunder from then on."><button id="spTBalBtn" class="small">Set</button></span>
+  </div>
+  <div class="tile kpi budget">
+    <label class="label" for="spBudget">Daily budget ($)</label>
+    <input id="spBudget" type="number" min="0" step="1" placeholder="none">
+    <div class="meter" title="Today against the daily budget"><i id="spMeter"></i></div>
+  </div>
+</section>
+<ul id="spMachines" class="spend-machines"></ul>
+<p id="spNote" class="sub spnote"></p>
+
+<!-- ═════════════════════════ RunPod ═════════════════════════ -->
+<section id="page-runpod" class="page" hidden>
+  <div class="page-head">
+    <h1>Pods <span class="muted">RunPod</span></h1>
+    <div class="actions">
+      <button id="refreshPods" class="ghost icon" title="Refresh">⟳</button>
+      <button id="openCreatePod" class="cta">+ Create</button>
     </div>
   </div>
-  <ul id="spMachines" class="spend-machines"></ul>
-  <p id="spNote" class="sub"></p>
+
+  <div class="tiles">
+    <div class="tile"><span class="label">Total Pods</span><b id="rpTotal">–</b></div>
+    <div class="tile"><span class="label">Running</span><b id="rpRunning">–</b></div>
+    <div class="tile"><span class="label">Stopped</span><b id="rpOther">–</b></div>
+    <div class="tile"><span class="label">Pods $/hour</span><b id="rpRate">–</b></div>
+  </div>
+
+  <div class="panel">
+    <div class="toolbar">
+      <input id="podSearch" type="search" placeholder="Search by name, status, GPU, workflow…">
+      <select id="podStatus"><option value="">All statuses</option><option value="RUNNING">Running</option><option value="EXITED">Stopped</option></select>
+      <select id="podGpu"><option value="">All GPU types</option></select>
+    </div>
+    <div id="podList" class="dtable"></div>
+  </div>
+
+  <div id="podDetail" class="panel detail" hidden></div>
+
+  <details class="panel fold" id="stockFold">
+    <summary><span>When are cards free?</span><span class="muted small">stock history, read every 15 min</span></summary>
+    <div class="fold-body">
+      <div class="row"><p class="muted">RunPod keeps no history of its stock, so a GitHub job notes every 15 minutes which cards are free in each data centre. A card listed as free can still be taken a second later.</p><button id="refreshStock" class="ghost">Refresh</button></div>
+      <div class="filters">
+        <div id="stockGpuChips" class="chips-row" role="group" aria-label="Card"></div>
+        <div id="stockRangeChips" class="chips-row" role="group" aria-label="Period"></div>
+      </div>
+      <div id="stockNote" class="note"></div>
+      <h3 id="stockBarsTitle">By data centre</h3>
+      <p class="muted small">Share of the readings in which it was free. Click a data centre to see it below.</p>
+      <div id="stockBars" class="bars"></div>
+      <h3>Over time</h3>
+      <p class="muted small">One strip per data centre that had it at least once, one cell per hour, darker when it was free in more of that hour's readings.</p>
+      <div id="stockStrips" class="strips"></div>
+      <div class="seq-legend"><span class="muted small">never free</span><i class="s0"></i><i class="s1"></i><i class="s2"></i><i class="s3"></i><i class="s4"></i><i class="s5"></i><span class="muted small">always free</span><i class="gap"></i><span class="muted small">no reading</span></div>
+      <h3 id="stockHeatTitle">By weekday and hour</h3>
+      <div class="tablewrap"><table id="stockHeat" class="heat"></table></div>
+      <details class="tableview"><summary class="muted small">Show the figures as a table</summary><div class="tablewrap"><table id="stockTable" class="gpus"></table></div></details>
+    </div>
+  </details>
+
+  <details class="panel fold" id="attemptsFold">
+    <summary><span>Attempts to get a GPU</span><span id="attemptsSummaryShort" class="muted small"></span></summary>
+    <div class="fold-body">
+      <div class="row"><p class="muted">Every launch and start tried, by this page or by a test script, newest first. RunPod has no queue: "no machine" means none was free at that second.</p><button id="refreshAttempts" class="ghost">Refresh</button></div>
+      <div id="attemptsSummary" class="note"></div>
+      <div class="tablewrap">
+        <table class="gpus attempts">
+          <thead><tr><th>When</th><th>From</th><th>Pod</th><th>GPUs asked for</th><th>Where</th><th>Result</th></tr></thead>
+          <tbody id="attemptRows"></tbody>
+        </table>
+      </div>
+      <p class="muted small">Kept in <code id="attemptsFile"></code>.</p>
+    </div>
+  </details>
 </section>
 
-<main>
-  <!-- ───────────── Credentials ───────────── -->
-  <section id="tab-creds" class="tab" hidden>
-    <div class="card">
-      <h2>RunPod</h2>
-      <p class="muted">An API key with read and write access: RunPod → <i>Settings</i> → <i>API Keys</i> → <i>Create API Key</i>. It can spend your credits, so it stays on this machine.</p>
-      <label class="field">
-        <span>API key <em id="runpodApiKeyState" class="state"></em></span>
-        <input id="runpodApiKey" type="password" autocomplete="off" placeholder="rpa_…">
-      </label>
-      <div class="row">
-        <button id="testKey" class="secondary">Test the key</button>
-        <span id="testKeyOut" class="muted"></span>
+<!-- ═════════════════════════ Thunder ═════════════════════════ -->
+<section id="page-thunder" class="page" hidden>
+  <div class="page-head">
+    <h1>Active Instances <span class="muted">Thunder Compute</span></h1>
+    <div class="actions">
+      <button id="tRefresh" class="ghost icon" title="Refresh">⟳</button>
+      <button id="openCreateThunder" class="cta">+ Create</button>
+    </div>
+  </div>
+
+  <div class="tiles">
+    <div class="tile"><span class="label">Total Instances</span><b id="tTotal">–</b></div>
+    <div class="tile"><span class="label">Running</span><b id="tRunning">–</b></div>
+    <div class="tile"><span class="label">Other</span><b id="tOther">–</b></div>
+    <div class="tile"><span class="label">Instances $/hour</span><b id="tRate">–</b></div>
+  </div>
+
+  <div class="panel">
+    <div class="toolbar">
+      <input id="tSearch" type="search" placeholder="Search by status, specs, or any field…">
+      <select id="tStatus"><option value="">All statuses</option></select>
+      <select id="tGpuFilter"><option value="">All GPU types</option></select>
+    </div>
+    <div id="tList" class="dtable"><p class="muted pad">Loading…</p></div>
+  </div>
+
+  <div id="tDetail" class="panel detail" hidden></div>
+
+  <details class="panel fold" id="tAttemptsFold">
+    <summary><span>Launches on Thunder</span><span id="tAttemptsSummary" class="muted small"></span></summary>
+    <div class="fold-body">
+      <div class="tablewrap">
+        <table class="gpus attempts">
+          <thead><tr><th>When</th><th>From</th><th>Instance</th><th>Card</th><th>Result</th></tr></thead>
+          <tbody id="tAttemptRows"></tbody>
+        </table>
       </div>
     </div>
+  </details>
+</section>
+</main>
 
-    <div class="card">
-      <h2>Thunder Compute <span class="tag">backup</span></h2>
-      <p class="muted">For when RunPod has no free card. An API token from console.thundercompute.com → <i>Settings</i> → <i>API Tokens</i>. It can spend your credits, so it stays on this machine. Thunder's machines are in North America.</p>
-      <label class="field">
-        <span>API key <em id="thunderApiKeyState" class="state"></em></span>
-        <input id="thunderApiKey" type="password" autocomplete="off" placeholder="Thunder API token">
-      </label>
-      <div class="row">
-        <button id="testThunderKey" class="secondary">Test the key</button>
-        <span id="testThunderKeyOut" class="muted"></span>
-      </div>
-      <div class="tablewrap"><table id="thunderOffers" class="gpus" hidden></table></div>
-    </div>
+<!-- ═════════════════════════ Drawers ═════════════════════════ -->
+<div id="scrim" class="scrim" hidden></div>
 
-    <div class="card">
-      <h2>ComfyQ passwords</h2>
-      <p class="muted">Invent these. A Pod is reachable by anyone who has its URL, so it will not serve without an admin password. The student password is optional: leave it empty and anyone with the link can book jobs.</p>
-      <label class="field">
-        <span>Admin password <em id="adminPasswordState" class="state"></em></span>
-        <input id="adminPassword" type="password" autocomplete="new-password" placeholder="protects /admin">
-      </label>
-      <label class="field">
-        <span>Student access password <span class="tag">optional</span> <em id="accessPasswordState" class="state"></em></span>
-        <input id="accessPassword" type="password" autocomplete="new-password" placeholder="what students type to get in">
-      </label>
-    </div>
-
-    <div class="card">
-      <h2>HuggingFace <span class="tag">optional</span></h2>
-      <p class="muted">Only for gated models (FLUX.2, some LTX). A <i>Read</i> token from huggingface.co → <i>Settings</i> → <i>Access Tokens</i>, and accept each gated model's licence on its page while logged in.</p>
-      <label class="field">
-        <span>Token <em id="hfTokenState" class="state"></em></span>
-        <input id="hfToken" type="password" autocomplete="off" placeholder="hf_…">
-      </label>
-    </div>
-
-    <details class="card">
-      <summary>Advanced</summary>
-      <label class="field">
-        <span>Image</span>
-        <input id="image" type="text" placeholder="">
-      </label>
-      <p class="muted small">Leave empty for the latest build. A fixed build looks like <code>ghcr.io/urbandronedesign/comfyq:sha-fdd2867</code>.</p>
-    </details>
-
-    <div class="row sticky">
-      <button id="saveCreds" class="primary">Save</button>
-      <span class="muted small">Stored in <code id="settingsFile"></code>. Leave a field empty to keep what is saved.</span>
-    </div>
-  </section>
-
-  <!-- ───────────── Launch ───────────── -->
-  <section id="tab-launch" class="tab" hidden>
-    <div class="card">
-      <h2>Network volume</h2>
-      <p class="muted">Where the models live between Pods. The GPU is rented in the same data centre.</p>
+<aside id="drawer-createPod" class="drawer" hidden aria-label="Create a Pod">
+  <div class="drawer-head"><h2>Create a Pod <span class="muted">RunPod</span></h2><button class="ghost icon" data-close>✕</button></div>
+  <div class="drawer-body">
+    <div class="section">
+      <h3>Network volume</h3>
+      <p class="muted small">Where the models live between Pods. The GPU is rented in the same data centre.</p>
       <div class="row wrap">
         <select id="volume"></select>
         <button id="refreshVolumes" class="ghost">Refresh</button>
         <button id="newVolumeBtn" class="ghost">New volume…</button>
       </div>
       <div id="noVolumeNote" class="note" hidden>
-        <b>The fallback for when the volume's data centre has no free GPU.</b> RunPod puts the Pod in any data centre with the GPU free. It downloads its models at its first boot onto its own disk (Qwen Image 2.1 is about 16 GB, 2–3 minutes), and keeps students' results there too.
+        <b>The fallback for when the volume's data centre has no free GPU.</b> RunPod puts the Pod in any data centre with the GPU free. It downloads its models at its first boot onto its own disk and keeps students' results there too.
         That disk survives Stop and Start, but <b>Terminate deletes everything on it</b>: use <i>Download results</i> on the Pod before terminating.
-        Gated models (FLUX.2, some LTX) need the HuggingFace token under Credentials.
       </div>
       <div id="newVolume" class="inset" hidden>
         <div class="grid3">
@@ -134,14 +177,14 @@
           <label class="field"><span>Size (GB)</span><input id="nvSize" type="number" min="10" max="4000" value="200"></label>
           <label class="field"><span>Data centre</span><select id="nvDc"></select></label>
         </div>
-        <p class="muted small">Billed per GB every month, whether or not a Pod runs. A light bundle needs 20–40 GB of models; the whole library about 1.3 TB. Pick a data centre that has the GPUs you want (the GPU list below shows stock once the volume exists).</p>
+        <p class="muted small">Billed per GB every month, whether or not a Pod runs. Pick a data centre that has the GPUs you want.</p>
         <button id="createVolume" class="secondary">Create volume</button>
       </div>
     </div>
 
-    <div class="card">
-      <h2>Workflows to serve <span id="batchPodLabel" class="tag" hidden></span></h2>
-      <p class="muted">The first one ticked is the main one; others run beside it on the same GPU. For a second Pod with other workflows, use <i>+ Add another Pod</i> below.</p>
+    <div class="section">
+      <h3>Workflows to serve <span id="batchPodLabel" class="tag" hidden></span></h3>
+      <p class="muted small">The first one ticked is the main one; others run beside it on the same GPU. For a second Pod with other workflows, use <i>+ Add another Pod</i>.</p>
       <div class="row wrap">
         <input id="wfSearch" type="search" placeholder="Search workflows…">
         <label class="check"><input id="wfHideExp" type="checkbox"> hide experimental</label>
@@ -150,51 +193,54 @@
       <div id="wfList" class="list"></div>
     </div>
 
-    <div class="card">
-      <h2>GPU</h2>
-      <p id="needLine" class="muted"></p>
+    <div class="section">
+      <h3>GPU</h3>
+      <p id="needLine" class="muted small"></p>
       <div class="row wrap">
         <label class="check"><input id="community" type="checkbox"> Community Cloud <span class="muted">(cheaper, less reliable)</span></label>
         <button id="refreshGpus" class="ghost">Refresh prices</button>
       </div>
       <div id="gpuNote" class="note" hidden></div>
       <div class="tablewrap">
-      <table class="gpus">
-        <thead><tr><th></th><th>GPU</th><th>VRAM</th><th>$/hour</th><th>Stock</th><th></th></tr></thead>
-        <tbody id="gpuRows"></tbody>
-      </table>
+        <table class="gpus">
+          <thead><tr><th></th><th>GPU</th><th>VRAM</th><th>$/hour</th><th>Stock</th><th></th></tr></thead>
+          <tbody id="gpuRows"></tbody>
+        </table>
       </div>
     </div>
 
-    <div class="card">
-      <h2>Options</h2>
+    <div class="section">
+      <h3>Options</h3>
       <div class="grid3">
         <label class="field"><span>Pod name</span><input id="podName" placeholder="comfyq-…"></label>
         <label class="field"><span>Container disk (GB)</span><input id="diskGb" type="number" min="20" value="30"></label>
-        <label class="field" id="podVolumeField" hidden><span>Pod's own disk for models and results (GB)</span><input id="podVolumeGb" type="number" min="40" value="80"></label>
+        <label class="field" id="podVolumeField" hidden><span>Pod's own disk (GB)</span><input id="podVolumeGb" type="number" min="40" value="80"></label>
       </div>
       <label class="check"><input id="fetchModels" type="checkbox" checked> Download missing models before serving</label>
       <label class="check"><input id="syncWorkflows" type="checkbox"> Replace the volume's workflow bundles with the image's</label>
     </div>
 
-    <div id="batchCard" class="card" hidden>
-      <h2>Pods in this launch</h2>
-      <p class="muted">They are created together on the same volume and image, so none waits for another to boot. Models they all need are downloaded once: the others wait for it.</p>
+    <div id="batchCard" class="section" hidden>
+      <h3>Pods in this launch</h3>
+      <p class="muted small">Created together on the same volume and image. Models they all need are downloaded once: the others wait for it.</p>
       <div id="batchList" class="batch"></div>
     </div>
-
-    <div class="row sticky">
-      <button id="launchBtn" class="primary big">Launch Pod</button>
+  </div>
+  <div class="drawer-foot">
+    <span id="launchSummary" class="muted small"></span>
+    <div class="row">
       <button id="addToBatch" class="secondary" title="Keep this Pod's workflows and GPU, and set up another Pod to launch with it">+ Add another Pod</button>
-      <span id="launchSummary" class="muted"></span>
+      <button id="launchBtn" class="cta">Launch Pod</button>
     </div>
-  </section>
+  </div>
+</aside>
 
-  <!-- ───────────── Thunder Compute ───────────── -->
-  <section id="tab-thunder" class="tab" hidden>
-    <div class="card">
-      <h2>Launch on Thunder Compute <span class="tag">backup</span></h2>
-      <p class="muted">For when RunPod has no free card. Thunder's machines are in North America. The instance's own disk holds the models and the students' results, and <b>deleting the instance deletes them</b>: use <i>Download results</i> first. <b>Billing runs from Launch until Delete.</b></p>
+<aside id="drawer-createThunder" class="drawer" hidden aria-label="Create a Thunder instance">
+  <div class="drawer-head"><h2>Create an instance <span class="muted">Thunder Compute</span></h2><button class="ghost icon" data-close>✕</button></div>
+  <div class="drawer-body">
+    <div class="note small">Machines in North America. The instance's own disk holds the models and the students' results, and <b>deleting the instance deletes them</b>: use <i>Download results</i> first. <b>Billing runs from Create until Delete.</b></div>
+    <div class="section">
+      <h3>Workflows to serve</h3>
       <div class="row wrap">
         <input id="tWfSearch" type="search" placeholder="Search workflows…">
         <label class="check"><input id="tWfHideExp" type="checkbox"> hide experimental</label>
@@ -202,16 +248,15 @@
       <div id="tWfChosen" class="chips"></div>
       <div id="tWfList" class="list"></div>
     </div>
-
-    <div class="card">
-      <h2>Card</h2>
-      <p id="tNeed" class="muted"></p>
+    <div class="section">
+      <h3>Card</h3>
+      <p id="tNeed" class="muted small"></p>
       <div class="row wrap"><button id="tRefreshOffers" class="ghost">Refresh prices</button></div>
       <div class="tablewrap">
-      <table class="gpus">
-        <thead><tr><th></th><th>Card</th><th>VRAM</th><th>$/hour</th><th>Right now</th><th></th></tr></thead>
-        <tbody id="tGpuRows"></tbody>
-      </table>
+        <table class="gpus">
+          <thead><tr><th></th><th>Card</th><th>VRAM</th><th>$/hour</th><th>Right now</th><th></th></tr></thead>
+          <tbody id="tGpuRows"></tbody>
+        </table>
       </div>
       <div class="grid3">
         <label class="field"><span>vCPUs</span><select id="tVcpus"></select></label>
@@ -219,74 +264,51 @@
       </div>
       <label class="check"><input id="tFetch" type="checkbox" checked> Download missing models before serving</label>
     </div>
+  </div>
+  <div class="drawer-foot">
+    <span id="tSummary" class="muted small"></span>
+    <div class="row"><button id="tLaunch" class="cta">Launch on Thunder</button></div>
+  </div>
+</aside>
 
-    <div class="row sticky">
-      <button id="tLaunch" class="primary big">Launch on Thunder</button>
-      <span id="tSummary" class="muted"></span>
+<aside id="drawer-settings" class="drawer" hidden aria-label="Settings">
+  <div class="drawer-head"><h2>Settings <span class="muted">keys and passwords</span></h2><button class="ghost icon" data-close>✕</button></div>
+  <div class="drawer-body">
+    <div class="section">
+      <h3>RunPod</h3>
+      <p class="muted small">An API key with read and write access: RunPod → <i>Settings</i> → <i>API Keys</i>. It can spend your credits, so it stays on this machine.</p>
+      <label class="field"><span>API key <em id="runpodApiKeyState" class="state"></em></span><input id="runpodApiKey" type="password" autocomplete="off" placeholder="rpa_…"></label>
+      <div class="row"><button id="testKey" class="secondary">Test the key</button><span id="testKeyOut" class="muted small"></span></div>
     </div>
-
-    <div class="card">
-      <div class="row"><h2>Your Thunder instances</h2><button id="tRefresh" class="ghost">Refresh</button></div>
-      <div id="tList"><p class="muted">Loading…</p></div>
+    <div class="section">
+      <h3>Thunder Compute</h3>
+      <p class="muted small">An API token from console.thundercompute.com → <i>Settings</i> → <i>API Tokens</i>. It can spend your credits, so it stays on this machine.</p>
+      <label class="field"><span>API key <em id="thunderApiKeyState" class="state"></em></span><input id="thunderApiKey" type="password" autocomplete="off" placeholder="Thunder API token"></label>
+      <div class="row"><button id="testThunderKey" class="secondary">Test the key</button><span id="testThunderKeyOut" class="muted small"></span></div>
+      <div class="tablewrap"><table id="thunderOffers" class="gpus" hidden></table></div>
     </div>
-  </section>
-
-  <!-- ───────────── Pods ───────────── -->
-  <section id="tab-pods" class="tab" hidden>
-    <div class="split">
-      <aside class="card podlist">
-        <div class="row"><h2>Your Pods</h2><button id="refreshPods" class="ghost">Refresh</button></div>
-        <div id="podList"></div>
-      </aside>
-      <div id="podDetail" class="card detail">
-        <p class="muted">Pick a Pod.</p>
-      </div>
+    <div class="section">
+      <h3>ComfyQ passwords</h3>
+      <p class="muted small">A machine is reachable by anyone who has its URL, so it will not serve without an admin password. The student password is optional.</p>
+      <label class="field"><span>Admin password <em id="adminPasswordState" class="state"></em></span><input id="adminPassword" type="password" autocomplete="new-password" placeholder="protects /admin"></label>
+      <label class="field"><span>Student access password <span class="tag">optional</span> <em id="accessPasswordState" class="state"></em></span><input id="accessPassword" type="password" autocomplete="new-password" placeholder="what students type to get in"></label>
     </div>
-  </section>
-  <!-- ───────────── Attempts ───────────── -->
-  <section id="tab-attempts" class="tab" hidden>
-    <div class="card">
-      <div class="row"><h2>Attempts to get a GPU</h2><button id="refreshAttempts" class="ghost">Refresh</button></div>
-      <p class="muted">Every launch and start tried, by this page or by a test script, newest first. RunPod has no queue: a free card goes to whoever asks first, so "no machine" just means none was free at that second.</p>
-      <div id="attemptsSummary" class="note"></div>
-      <div class="tablewrap">
-      <table class="gpus attempts">
-        <thead><tr><th>When</th><th>From</th><th>Pod</th><th>GPUs asked for</th><th>Where</th><th>Result</th></tr></thead>
-        <tbody id="attemptRows"></tbody>
-      </table>
-      </div>
-      <p class="muted small">Kept in <code id="attemptsFile"></code>.</p>
+    <div class="section">
+      <h3>HuggingFace <span class="tag">optional</span></h3>
+      <p class="muted small">Only for gated models (FLUX.2, LTX). A <i>Read</i> token, and accept each gated model's licence on its page.</p>
+      <label class="field"><span>Token <em id="hfTokenState" class="state"></em></span><input id="hfToken" type="password" autocomplete="off" placeholder="hf_…"></label>
     </div>
-  </section>
-  <!-- ───────────── Stock history ───────────── -->
-  <section id="tab-stock" class="tab" hidden>
-    <div class="card">
-      <div class="row"><h2>When are cards free?</h2><button id="refreshStock" class="ghost">Refresh</button></div>
-      <p class="muted">RunPod keeps no history of its stock, so a GitHub job notes every 15 minutes which cards are free in each data centre. A reading says what RunPod listed at that moment; a card listed as free can still be taken a second later.</p>
-      <div class="filters">
-        <div id="stockGpuChips" class="chips-row" role="group" aria-label="Card"></div>
-        <div id="stockRangeChips" class="chips-row" role="group" aria-label="Period"></div>
-      </div>
-      <div id="stockNote" class="note"></div>
-    </div>
-    <div class="card">
-      <h2 id="stockBarsTitle">By data centre</h2>
-      <p class="muted small">Share of the readings in which it was free. Click a data centre to see it below.</p>
-      <div id="stockBars" class="bars"></div>
-    </div>
-    <div class="card">
-      <h2>Over time</h2>
-      <p class="muted small">One strip per data centre that had it at least once, one cell per hour, darker when it was free in more of that hour's readings.</p>
-      <div id="stockStrips" class="strips"></div>
-      <div class="seq-legend"><span class="muted small">never free</span><i class="s0"></i><i class="s1"></i><i class="s2"></i><i class="s3"></i><i class="s4"></i><i class="s5"></i><span class="muted small">always free</span><i class="gap"></i><span class="muted small">no reading</span></div>
-    </div>
-    <div class="card">
-      <h2 id="stockHeatTitle">By weekday and hour</h2>
-      <div class="tablewrap"><table id="stockHeat" class="heat"></table></div>
-      <details class="tableview"><summary class="muted small">Show the figures as a table</summary><div class="tablewrap"><table id="stockTable" class="gpus"></table></div></details>
-    </div>
-  </section>
-</main>
+    <details class="section">
+      <summary>Advanced</summary>
+      <label class="field"><span>Image</span><input id="image" type="text" placeholder=""></label>
+      <p class="muted small">Leave empty for the latest build. A fixed build looks like <code>ghcr.io/urbandronedesign/comfyq:sha-fdd2867</code>.</p>
+    </details>
+  </div>
+  <div class="drawer-foot">
+    <span class="muted small">Stored in <code id="settingsFile"></code>. Leave a field empty to keep what is saved.</span>
+    <div class="row"><button id="saveCreds" class="cta">Save</button></div>
+  </div>
+</aside>
 
 <div id="toast" class="toast" hidden></div>
 <div id="chartTip" class="chart-tip" role="tooltip" hidden></div>

@@ -127,12 +127,19 @@ async function browserCheck(chrome, shot) {
         await cdp('Runtime.enable'); await cdp('Page.enable');
         await cdp('Page.navigate', { url: `http://127.0.0.1:${PORT}/` });
         await sleep(2500);
-        await evalJs("document.querySelector('.tabs [data-tab=thunder]').click(); 1");
-        await sleep(5000);
+        // One page per provider; launching opens a panel from the right.
+        await evalJs("document.querySelector('.tabs [data-page=thunder]').click(); 1");
+        await sleep(4000);
+        await evalJs("document.querySelector('#tList [data-tsel]')?.click(); 1");
+        await sleep(500);
+        await evalJs("document.getElementById('openCreateThunder').click(); 1");
+        await sleep(3000);
         await evalJs("document.querySelector('[data-twf=\"image_sdxl_smoke_test\"]').click(); 1");
         await sleep(2500);
-        const view = await evalJs(`({ hidden: document.getElementById('tab-thunder').hidden,
-            list: document.getElementById('tList').innerText, gpus: document.getElementById('tGpuRows').innerText,
+        const view = await evalJs(`({ hidden: document.getElementById('page-thunder').hidden,
+            drawer: !document.getElementById('drawer-createThunder').hidden,
+            tiles: document.getElementById('tTotal').innerText + '/' + document.getElementById('tRunning').innerText,
+            list: document.getElementById('tList').innerText, detail: document.getElementById('tDetail').innerText, gpus: document.getElementById('tGpuRows').innerText,
             need: document.getElementById('tNeed').innerText, summary: document.getElementById('tSummary').innerText,
             spendRate: document.getElementById('spRate').innerText, spendMachines: document.getElementById('spMachines').innerText })`);
         if (shot) {
@@ -190,7 +197,9 @@ try {
         const si = process.argv.indexOf('--shot');
         const { view, errors } = await browserCheck(process.argv[bi + 1], si > 0 ? process.argv[si + 1] : null);
         check(`the page shows no error (${errors.join(' | ')})`, errors.length === 0);
-        check('the Thunder tab shows the serving instance with its links', !view.hidden && /Serving image_sdxl_smoke_test/.test(view.list) && /Student page/.test(view.list));
+        check(`the Thunder page lists the serving instance in its table, tiles counted (${view.tiles})`, !view.hidden && /Serving/.test(view.list) && /image_sdxl_smoke_test/.test(view.list) && view.tiles === '1/1');
+        check('clicking its row opens its details with the student links', /Student page/.test(view.detail) && /Download results/.test(view.detail));
+        check('+ Create opens the launch panel', view.drawer);
         check('the card table and summary follow the ticked workflow', /NVIDIA L40/.test(view.gpus) && /recommended/.test(view.gpus) && /L40/.test(view.summary));
         check(`the spending bar shows the running instance at its full price (${view.spendRate} | ${view.spendMachines})`,
             view.spendRate === '$0.99/h' && /Thunder/.test(view.spendMachines) && /so far/.test(view.spendMachines));

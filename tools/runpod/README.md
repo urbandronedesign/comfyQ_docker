@@ -17,13 +17,15 @@ Two ways to do the same thing, both needing only Node 22 or later (no
 
 ## The console
 
-1. **Credentials.** The RunPod API key (with read and write access), the
+**One page per provider** — *RunPod* and *Thunder Compute*, in the header (or `http://localhost:4777/#runpod` and `#thunder`). Each page has the same layout, after Thunder's own dashboard: a row of tiles (total, running, other, $ per hour), then a table with a search box and status and GPU filters; click a row to open its details below the table. **+ Create** opens the launch form in a panel on the right (Escape or ✕ closes it). The keys and passwords are behind **Settings** in the header, which opens by itself the first time. The spending tiles sit above both pages.
+
+1. **Settings.** The RunPod API key (with read and write access), the
    admin password you choose (required), a student access password
    (optional: leave it empty and anyone with the link can book jobs), and a
    HuggingFace token if you serve gated models. **Test the key** checks it
    against RunPod. Saved in `<your home folder>/.comfyq/runpod-console.json`;
    the page itself is only told whether each one is set.
-2. **Launch.** Pick or create a network volume. Tick the workflows (the first
+2. **+ Create on the RunPod page.** Pick or create a network volume. Tick the workflows (the first
    is the main one). The GPU table then shows every GPU with its VRAM, price
    and stock in the volume's data centre, greys out the ones too small or out
    of stock, and marks the cheapest one that fits as **recommended**. The VRAM
@@ -40,8 +42,8 @@ Two ways to do the same thing, both needing only Node 22 or later (no
    it. If RunPod has no machine for one of them, the others are still created
    (and billing), and the refused one stays in the list with the reason:
    **Edit** it to pick another GPU, then **Launch** again.
-3. **Pods.** Grouped by network volume, with how many run on each and what
-   they cost together per hour, and **Stop all** for a volume. When two or more
+3. **The Pods table.** Grouped by network volume (a row per volume says how many run on it and what
+   they cost together per hour, with **Folders…** and **Stop all**). When two or more
    Pods run on one volume, the console checks which image build each serves
    and warns when they differ: Pods that pulled `latest` at different times
    can, and a newer build may expect a newer layout on the volume. For each
@@ -77,7 +79,7 @@ says so when you do.
 **Folders left behind.** Each Pod keeps its queue, settings, results and
 uploads in its own folder on the volume (`pods/<pod id>/`), and terminating a
 Pod leaves that folder there, costing storage. **Folders…** on a volume in the
-Pods tab lists every Pod folder with its size and number of result files, read
+Pods table lists every Pod folder with its size and number of result files, read
 through a Pod running on that volume (the console itself cannot see inside a
 volume, so one Pod must be running). Each folder says whose it is: the reading
 Pod's own, a running Pod's, a **stopped** Pod's — kept, it is that Pod's state
@@ -106,9 +108,9 @@ The workflow list comes from this checkout's `workflows/` folder. The Pod
 serves the workflows its image was built with, so a workflow added here after
 the last image build is not on the Pod yet.
 
-## Spending, on every tab
+## Spending, above both pages
 
-The bar under the tabs shows what you are spending. It refreshes every 15 seconds and ticks every second in between:
+The tiles above both pages show what you are spending. It refreshes every 15 seconds and ticks every second in between:
 
 - **Spending now**: dollars per hour across RunPod and Thunder together. "storage only" means no GPU is running (the RunPod volume costs about $0.01/h).
 - **Today** and **This month**, plus what today reaches by midnight if everything is left on.
@@ -141,7 +143,7 @@ takes a reading every 15 minutes with
 [stock-recorder.mjs](stock-recorder.mjs): which cards of 24 GB or more are
 free, at what price, in each of RunPod's data centres. It saves the readings on
 the repository's **`runpod-stock` branch** (one file per month, never on
-`main`). The console's **Stock** tab reads them and shows, for a data centre
+`main`). The RunPod page's **When are cards free?** section reads them and shows, for a data centre
 and a card, in what share of the readings it was free, by weekday and hour,
 in your local time. Use it to choose when to launch before a class. No
 machine has to stay on.
@@ -173,9 +175,9 @@ second later.
 
 ## Thunder Compute: the backup when RunPod has no card
 
-The console's **Thunder** tab launches ComfyQ on [Thunder Compute](https://www.thundercompute.com)
+The console's **Thunder Compute** page launches ComfyQ on [Thunder Compute](https://www.thundercompute.com)
 instead: RTX A6000 / L40 (48 GB) or A100 (80 GB), billed per minute, in North America.
-Put the API token under *Credentials → Thunder Compute* (Thunder's console → *Settings → API Tokens*)
+Put the API token in *Settings → Thunder Compute* (Thunder's console → *Settings → API Tokens*)
 and press *Test the key*: it lists your instances and shows live prices and stock.
 
 Then tick the workflows, pick a card (the cheapest that fits and is in stock is
@@ -188,7 +190,7 @@ recommended) and press *Launch on Thunder*. The console:
    env file (never on a command line);
 3. opens port 3000. Students use `https://<uuid>-3000.thundercompute.net`, the admin panel is at `/admin`.
 
-The setup log and the model downloads show in the tab until it serves. If a step fails,
+The setup log and the model downloads show in the instance's details (they open by themselves while it sets up) until it serves. If a step fails,
 **the instance keeps billing**: press *Retry setup* (it is safe to run twice) or *Delete…*.
 
 - **No network volume.** The instance's own disk holds the models (downloaded at the first boot)

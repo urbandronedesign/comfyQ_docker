@@ -40,17 +40,48 @@ function store(k, v) { try { if (v === undefined) return localStorage.getItem(k)
     };
 })();
 
-function showTab(name) {
-    for (const b of document.querySelectorAll('.tabs button')) b.setAttribute('aria-selected', String(b.dataset.tab === name));
-    for (const s of document.querySelectorAll('.tab')) s.hidden = s.id !== `tab-${name}`;
-    store('rpc.tab', name);
-    if (name === 'launch') loadLaunch();
-    if (name === 'pods') loadPods();
-    if (name === 'attempts') loadAttempts();
-    if (name === 'stock') loadStock();
-    if (name === 'thunder') loadThunder();
+// One page per provider. Launching and the keys open in a panel from the right.
+const pageOpen = (name) => !$(`page-${name}`).hidden;
+function showPage(name) {
+    if (!['runpod', 'thunder'].includes(name)) name = 'runpod';
+    for (const b of document.querySelectorAll('.tabs button')) b.setAttribute('aria-selected', String(b.dataset.page === name));
+    for (const s of document.querySelectorAll('.page')) s.hidden = s.id !== `page-${name}`;
+    store('rpc.page', name);
+    if (location.hash !== `#${name}`) history.replaceState(null, '', `#${name}`);
+    if (name === 'runpod') { loadPods(); if ($('attemptsFold').open) loadAttempts(); }
+    if (name === 'thunder') { loadThunderInstances(); loadAttempts(); }
 }
-for (const b of document.querySelectorAll('.tabs button')) b.onclick = () => showTab(b.dataset.tab);
+for (const b of document.querySelectorAll('.tabs button')) b.onclick = () => showPage(b.dataset.page);
+window.addEventListener('hashchange', () => { const n = location.hash.slice(1); if (['runpod', 'thunder'].includes(n) && !pageOpen(n)) showPage(n); });
+
+function openDrawer(name) {
+    for (const d of document.querySelectorAll('.drawer')) d.hidden = d.id !== `drawer-${name}`;
+    $('scrim').hidden = false;
+    if (name === 'createPod') loadLaunch();
+    if (name === 'createThunder') loadThunder();
+}
+function closeDrawers() {
+    for (const d of document.querySelectorAll('.drawer')) d.hidden = true;
+    $('scrim').hidden = true;
+}
+$('scrim').onclick = closeDrawers;
+for (const b of document.querySelectorAll('[data-close]')) b.onclick = closeDrawers;
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('scrim').hidden) closeDrawers(); });
+$('settingsBtn').onclick = () => openDrawer('settings');
+$('openCreatePod').onclick = () => openDrawer('createPod');
+$('openCreateThunder').onclick = () => openDrawer('createThunder');
+$('stockFold').ontoggle = () => { if ($('stockFold').open) loadStock(); };
+$('attemptsFold').ontoggle = () => { if ($('attemptsFold').open) loadAttempts(); };
+
+// The old tab names, for the calls that still use them.
+function showTab(name) {
+    if (name === 'creds') return openDrawer('settings');
+    if (name === 'launch') { showPage('runpod'); return openDrawer('createPod'); }
+    if (name === 'thunder') return showPage('thunder');
+    if (name === 'stock') { showPage('runpod'); $('stockFold').open = true; return; }
+    if (name === 'attempts') { showPage('runpod'); $('attemptsFold').open = true; return; }
+    showPage('runpod');
+}
 
 // ---- credentials ----------------------------------------------------------------
 
@@ -166,7 +197,7 @@ const T_STATE = {
 
 async function loadThunder() {
     if (!settings?.thunderApiKey?.set) {
-        $('tList').innerHTML = '<p class="muted">Save your Thunder Compute API key under Credentials first.</p>';
+        $('tList').innerHTML = '<p class="muted pad">Save your Thunder Compute API key in Settings (top right) first.</p>';
     }
     if (!tWorkflows) {
         try { tWorkflows = (await api('GET', '/api/workflows')).workflows; } catch (e) { toast(e.message, true); tWorkflows = []; }
@@ -283,7 +314,8 @@ $('tLaunch').onclick = async () => {
     $('tLaunch').disabled = true;
     try {
         await api('POST', '/api/thunder/launch', { workflows: tChosen, gpu: o.id, vcpus: Number($('tVcpus').value), diskGb: Number($('tDisk').value), fetchModels: $('tFetch').checked });
-        toast('Instance created: the setup is followed below');
+        toast('Instance created: its setup is followed in the list');
+        closeDrawers();
         loadThunderInstances();
     } catch (e) { toast(e.message, true); }
     finally { $('tLaunch').disabled = false; }
@@ -305,68 +337,134 @@ function thunderStage(i) {
     return { cls: '', text: `Thunder: ${i.status} (not launched from this console)` };
 }
 
+let tInstances = [];
+let tSelected = null;
+
+function thunderDetailHtml(i) {
+    const r = i.rec;
+    const st = thunderStage(i);
+    const files = (i.probe?.plan?.files || []).filter(f => f.status !== 'done').map(f => {
+        const pct = f.total ? Math.round(100 * f.received / f.total) : 0;
+        return `<div class="file"><div>${esc(f.name)} <span class="muted small">— ${esc(f.status)}${f.total ? ` · ${gb(f.received)} / ${gb(f.total)} GB` : ''}</span></div>
+            ${f.error ? `<div class="small" style="color:var(--bad)">${esc(f.error)}</div>` : ''}
+            ${f.status === 'downloading' ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ''}</div>`;
+    }).join('');
+    const log = (r?.steps || []).slice(-12).map(s => `<div class="small"><span class="muted">${new Date(s.at).toLocaleTimeString()}</span> ${esc(s.msg)}</div>`).join('');
+    return `<div class="row"><h2>${esc(r?.gpuName || i.gpuType || '')} <span class="muted mono">${esc(i.uuid.slice(0, 8))}</span></h2>
+        ${r && !i.setupRunning && ['failed', 'interrupted'].includes(r.state) ? `<button class="secondary" data-tretry="${esc(i.uuid)}">Retry setup</button>` : ''}
+        ${r && i.links ? `<button class="secondary" data-tdl="${esc(i.uuid)}">Download results</button>` : ''}
+        <button class="danger" data-tdel="${esc(i.uuid)}">Delete…</button>
+        <button class="ghost icon" data-tclose title="Close">✕</button>
+      </div>
+      <div class="note ${st.cls}">${esc(st.text)}${st.cls === 'bad' ? '<br><b>The instance is still billing.</b> Retry the setup or delete it.' : ''}</div>
+      ${i.links ? `<div class="links">
+        <a href="${esc(i.links.students)}" target="_blank" rel="noreferrer">Student page ↗</a>
+        <a href="${esc(i.links.admin)}" target="_blank" rel="noreferrer">Admin panel ↗</a>
+        <button class="ghost small" data-tcopy="${esc(i.links.students)}">Copy student link</button>
+      </div>${studentLinksHtml(i.links, Object.fromEntries((i.probe?.served || []).map(w => [w.id, w.name])))}` : ''}
+      <dl class="kv">
+        <dt>Thunder status</dt><dd>${esc(i.status)}${i.ip ? ` <span class="muted">(${esc(i.ip)})</span>` : ''}</dd>
+        ${r ? `<dt>Cost</dt><dd>${r.pricePerHr != null ? `$${Number(r.pricePerHr).toFixed(2)} / hour` : '—'}, running for ${since(new Date(r.createdAt).toISOString())}</dd>
+        <dt>Asked to serve</dt><dd>${esc((r.serve || []).join(', '))}</dd>` : ''}
+        ${i.probe?.usage ? `<dt>Students</dt><dd>${esc(i.probe.usage.usersConnected ?? 0)} connected</dd>` : ''}
+        ${i.probe?.jobs ? `<dt>Queue</dt><dd>${i.probe.jobs.running ? '1 running' : 'nothing running'}, ${(i.probe.jobs.scheduled || []).length} waiting</dd>` : ''}
+      </dl>
+      ${files ? `<h3>Models</h3><div class="files">${files}</div>` : ''}
+      ${log ? `<details ${i.setupRunning || r?.state === 'failed' ? 'open' : ''}><summary class="muted small">Setup log</summary>${log}</details>` : ''}`;
+}
+
+function tMatches(i) {
+    const q = $('tSearch').value.trim().toLowerCase();
+    if ($('tStatus').value && i.status !== $('tStatus').value) return false;
+    if ($('tGpuFilter').value && (i.gpuType || '') !== $('tGpuFilter').value) return false;
+    if (!q) return true;
+    const hay = [i.uuid, i.status, i.gpuType, i.ip, i.rec?.gpuName, ...(i.rec?.serve || []), thunderStage(i).text].join(' ').toLowerCase();
+    return q.split(/\s+/).every(t => hay.includes(t));
+}
+for (const id of ['tSearch', 'tStatus', 'tGpuFilter']) $(id).oninput = () => renderThunderInstances();
+
+function renderThunderInstances() {
+    const list = tInstances;
+    const running = list.filter(i => i.status === 'RUNNING');
+    $('thunderCount').textContent = list.length || '';
+    $('tTotal').textContent = list.length;
+    $('tRunning').textContent = running.length;
+    $('tOther').textContent = list.length - running.length;
+    $('tRate').textContent = `$${list.reduce((a, i) => a + (Number(i.rec?.pricePerHr) || 0), 0).toFixed(2)}`;
+    for (const [id, vals, all] of [['tStatus', list.map(i => i.status), 'All statuses'], ['tGpuFilter', list.map(i => i.gpuType), 'All GPU types']]) {
+        const keep = $(id).value;
+        $(id).innerHTML = `<option value="">${all}</option>` + [...new Set(vals.filter(Boolean))].sort().map(v => `<option ${v === keep ? 'selected' : ''}>${esc(v)}</option>`).join('');
+    }
+    const shown = list.filter(tMatches);
+    $('tList').innerHTML = shown.length
+        ? `<table><thead><tr><th>ID</th><th>Status</th><th>GPU</th><th>Serving</th><th>IP Address</th><th class="num">Cost</th><th class="num">Up for</th><th></th></tr></thead><tbody>${shown.map(i => {
+            const st = thunderStage(i);
+            const dot = st.cls === 'good' ? 'run' : st.cls === 'bad' ? 'bad' : i.status === 'RUNNING' ? 'warn' : 'stop';
+            return `<tr class="${i.uuid === tSelected ? 'sel' : ''}" data-tsel="${esc(i.uuid)}">
+              <td class="mono">${esc(i.uuid.slice(0, 8))}</td>
+              <td><span class="status" title="${esc(st.text)}"><span class="dot ${dot}"></span>${esc(st.cls === 'good' ? 'Serving' : st.cls === 'bad' ? 'Needs attention' : i.status === 'RUNNING' ? 'Setting up' : i.status)}</span></td>
+              <td>${esc(i.rec?.gpuName || i.gpuType || '')}</td>
+              <td class="small">${esc((i.rec?.serve || i.probe?.served?.map(w => w.id) || []).join(', ') || '—')}</td>
+              <td class="mono">${esc(i.ip || '—')}</td>
+              <td class="num">${i.rec?.pricePerHr != null ? `$${Number(i.rec.pricePerHr).toFixed(2)}/h` : '—'}</td>
+              <td class="num">${i.rec ? since(new Date(i.rec.createdAt).toISOString()) : i.createdAt ? since(i.createdAt) : '—'}</td>
+              <td>${i.links ? `<a class="small" href="${esc(i.links.students)}" target="_blank" rel="noreferrer">students ↗</a>` : ''}</td>
+            </tr>`;
+        }).join('')}</tbody></table>`
+        : list.length
+            ? '<div class="empty"><p>No instance matches.</p></div>'
+            : `<div class="empty"><div class="ico">▤</div><p><b>No instances found</b></p><p class="muted">Create an instance to get started</p><p><button class="cta" data-create="thunder">+ Create an instance</button></p></div>`;
+    for (const b of $('tList').querySelectorAll('[data-create]')) b.onclick = () => openDrawer('createThunder');
+    for (const tr of $('tList').querySelectorAll('[data-tsel]')) tr.onclick = (ev) => {
+        if (ev.target.closest('a')) return;
+        tSelected = tSelected === tr.dataset.tsel ? null : tr.dataset.tsel;
+        renderThunderInstances();
+        if (tSelected) $('tDetail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    };
+
+    const box = $('tDetail');
+    const sel = list.find(i => i.uuid === tSelected);
+    box.hidden = !sel;
+    if (!sel) return;
+    box.innerHTML = thunderDetailHtml(sel);
+    box.querySelector('[data-tclose]').onclick = () => { tSelected = null; renderThunderInstances(); };
+    for (const b of box.querySelectorAll('[data-tretry]')) b.onclick = async () => {
+        try { await api('POST', `/api/thunder/instances/${b.dataset.tretry}/setup`); toast('Setup restarted'); loadThunderInstances(); }
+        catch (e) { toast(e.message, true); }
+    };
+    for (const b of box.querySelectorAll('[data-tdl]')) b.onclick = async () => {
+        try { const { url } = await api('POST', `/api/thunder/instances/${b.dataset.tdl}/download`); location.href = url; toast('The download starts once ComfyQ has begun zipping the results'); }
+        catch (e) { toast(e.message, true); }
+    };
+    wireCopyLinks(box);
+    for (const b of box.querySelectorAll('[data-tcopy]')) b.onclick = () => {
+        navigator.clipboard.writeText(b.dataset.tcopy).then(() => toast('Student link copied'), () => toast(b.dataset.tcopy));
+    };
+    for (const b of box.querySelectorAll('[data-tdel]')) b.onclick = async () => {
+        const code = b.dataset.tdel.slice(0, 8);
+        const typed = prompt(`Delete this Thunder instance? Its disk goes with it: the models AND every result students made on it. Download the results first.\n\nType ${code} to confirm:`);
+        if (typed === null) return;
+        try { await api('DELETE', `/api/thunder/instances/${b.dataset.tdel}`, { confirm: typed.trim() }); toast('Instance deleted: billing stops'); tSelected = null; loadThunderInstances(); loadSpend(); }
+        catch (e) { toast(e.message, true); }
+    };
+}
+
 async function loadThunderInstances() {
     clearTimeout(tTimer);
     let d;
     try { d = await api('GET', '/api/thunder/instances'); }
-    catch (e) { $('tList').innerHTML = `<p class="muted">${esc(e.message)}</p>`; return; }
-    $('thunderCount').textContent = d.instances.length || '';
-    $('tList').innerHTML = d.instances.map(i => {
-        const r = i.rec;
-        const st = thunderStage(i);
-        const files = (i.probe?.plan?.files || []).filter(f => f.status !== 'done').map(f => {
-            const pct = f.total ? Math.round(100 * f.received / f.total) : 0;
-            return `<div class="file"><div>${esc(f.name)} <span class="muted small">— ${esc(f.status)}${f.total ? ` · ${gb(f.received)} / ${gb(f.total)} GB` : ''}</span></div>
-                ${f.error ? `<div class="small" style="color:var(--bad)">${esc(f.error)}</div>` : ''}
-                ${f.status === 'downloading' ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ''}</div>`;
-        }).join('');
-        const log = (r?.steps || []).slice(-12).map(s => `<div class="small"><span class="muted">${new Date(s.at).toLocaleTimeString()}</span> ${esc(s.msg)}</div>`).join('');
-        return `<div class="card inset">
-          <div class="row"><h2>${esc(r?.gpuName || i.gpuType || '')} <span class="muted small">${esc(i.uuid.slice(0, 8))}</span></h2>
-            ${r && !i.setupRunning && ['failed', 'interrupted'].includes(r.state) ? `<button class="secondary" data-tretry="${esc(i.uuid)}">Retry setup</button>` : ''}
-            ${r && i.links ? `<button class="secondary" data-tdl="${esc(i.uuid)}">Download results</button>` : ''}
-            <button class="danger" data-tdel="${esc(i.uuid)}">Delete…</button>
-          </div>
-          <div class="note ${st.cls}">${esc(st.text)}${st.cls === 'bad' ? '<br><b>The instance is still billing.</b> Retry the setup or delete it.' : ''}</div>
-          ${i.links ? `<div class="links">
-            <a href="${esc(i.links.students)}" target="_blank" rel="noreferrer">Student page ↗</a>
-            <a href="${esc(i.links.admin)}" target="_blank" rel="noreferrer">Admin panel ↗</a>
-            <button class="ghost small" data-tcopy="${esc(i.links.students)}">Copy student link</button>
-          </div>${studentLinksHtml(i.links, Object.fromEntries((i.probe?.served || []).map(w => [w.id, w.name])))}` : ''}
-          <dl class="kv">
-            <dt>Thunder status</dt><dd>${esc(i.status)}${i.ip ? ` <span class="muted">(${esc(i.ip)})</span>` : ''}</dd>
-            ${r ? `<dt>Cost</dt><dd>${r.pricePerHr != null ? `$${Number(r.pricePerHr).toFixed(2)} / hour` : '—'}, running for ${since(new Date(r.createdAt).toISOString())}</dd>
-            <dt>Asked to serve</dt><dd>${esc((r.serve || []).join(', '))}</dd>` : ''}
-            ${i.probe?.usage ? `<dt>Students</dt><dd>${esc(i.probe.usage.usersConnected ?? 0)} connected</dd>` : ''}
-            ${i.probe?.jobs ? `<dt>Queue</dt><dd>${i.probe.jobs.running ? '1 running' : 'nothing running'}, ${(i.probe.jobs.scheduled || []).length} waiting</dd>` : ''}
-          </dl>
-          ${files ? `<div class="files">${files}</div>` : ''}
-          ${log ? `<details ${i.setupRunning || r?.state === 'failed' ? 'open' : ''}><summary class="muted small">Setup log</summary>${log}</details>` : ''}
-        </div>`;
-    }).join('') || '<p class="muted">No instance on your Thunder account.</p>';
+    catch (e) { $('tList').innerHTML = `<p class="muted pad">${esc(e.message)}</p>`; return; }
+    tInstances = d.instances;
+    if (tSelected && !tInstances.some(i => i.uuid === tSelected)) tSelected = null;
+    // An instance still setting up, or one that failed, opens its panel by itself.
+    if (!tSelected) tSelected = tInstances.find(i => i.setupRunning || ['failed', 'interrupted'].includes(i.rec?.state))?.uuid || null;
+    // Keep an open setup log open across refreshes.
+    const logOpen = $('tDetail').querySelector('details')?.open;
+    renderThunderInstances();
+    if (logOpen) { const dd = $('tDetail').querySelector('details'); if (dd) dd.open = true; }
 
-    for (const b of $('tList').querySelectorAll('[data-tretry]')) b.onclick = async () => {
-        try { await api('POST', `/api/thunder/instances/${b.dataset.tretry}/setup`); toast('Setup restarted'); loadThunderInstances(); }
-        catch (e) { toast(e.message, true); }
-    };
-    for (const b of $('tList').querySelectorAll('[data-tdl]')) b.onclick = async () => {
-        try { const { url } = await api('POST', `/api/thunder/instances/${b.dataset.tdl}/download`); location.href = url; toast('The download starts once ComfyQ has begun zipping the results'); }
-        catch (e) { toast(e.message, true); }
-    };
-    wireCopyLinks($('tList'));
-    for (const b of $('tList').querySelectorAll('[data-tcopy]')) b.onclick = () => {
-        navigator.clipboard.writeText(b.dataset.tcopy).then(() => toast('Student link copied'), () => toast(b.dataset.tcopy));
-    };
-    for (const b of $('tList').querySelectorAll('[data-tdel]')) b.onclick = async () => {
-        const code = b.dataset.tdel.slice(0, 8);
-        const typed = prompt(`Delete this Thunder instance? Its disk goes with it: the models AND every result students made on it. Download the results first.\n\nType ${code} to confirm:`);
-        if (typed === null) return;
-        try { await api('DELETE', `/api/thunder/instances/${b.dataset.tdel}`, { confirm: typed.trim() }); toast('Instance deleted: billing stops'); loadThunderInstances(); }
-        catch (e) { toast(e.message, true); }
-    };
-
-    // Follow while the tab is open.
-    if (!$('tab-thunder').hidden) tTimer = setTimeout(loadThunderInstances, d.instances.length ? 8000 : 30000);
+    // Follow while the page is open.
+    if (pageOpen('thunder')) tTimer = setTimeout(loadThunderInstances, d.instances.length ? 8000 : 30000);
 }
 $('tRefresh').onclick = loadThunderInstances;
 
@@ -734,7 +832,7 @@ $('launchBtn').onclick = async () => {
         if (!batch.length) {
             toast(n > 1 ? `${n} Pods created — now billing` : `Pod ${r.pod.id} created — now billing`);
             selectedPod = r.pod.id;
-            showTab('pods');
+            closeDrawers(); showPage('runpod');
         } else {
             toast(`${n} Pod(s) created and billing; ${batch.length} could not be created — kept below. Press Launch to try them again.`, true);
         }
@@ -761,12 +859,12 @@ async function loadPods() {
     }
     $('podCount').textContent = pods.filter(p => p.desiredStatus === 'RUNNING').length || '';
     if (selectedPod && !pods.some(p => p.id === selectedPod)) selectedPod = null;
-    if (!selectedPod && pods.length) selectedPod = (pods.find(p => p.comfyq) || pods[0]).id;
+    if (!selectedPod && pods.length) selectedPod = (pods.find(p => p.desiredStatus === 'RUNNING') || null)?.id || null;
     renderPodList();
     loadDetail();
     loadBuilds();
     clearInterval(listTimer);
-    listTimer = setInterval(() => { if (!$('tab-pods').hidden && !document.hidden) loadPods(); }, 30000);
+    listTimer = setInterval(() => { if (pageOpen('runpod') && !document.hidden) loadPods(); }, 30000);
 }
 
 // Pods grouped by network volume: Pods on one volume share its models, so
@@ -776,15 +874,31 @@ const builds = {};       // volume id -> { key, builds, distinct } once read
 
 const shortSha = (sha) => String(sha).slice(0, 7);
 
+const POD_STATUS = { RUNNING: ['run', 'Running'], EXITED: ['stop', 'Stopped'], TERMINATED: ['stop', 'Terminated'] };
 function podRow(p) {
     const running = p.desiredStatus === 'RUNNING';
-    return `<div class="pod ${p.id === selectedPod ? 'sel' : ''}" data-pod="${esc(p.id)}">
-          <div><span class="dot ${running ? 'run' : 'stop'}"></span><b>${esc(p.name)}</b>
-            ${running ? `<a class="small podlink" href="${esc(p.links.students)}" target="_blank" rel="noreferrer" title="This Pod's student page">students ↗</a>` : ''}</div>
-          <div class="muted small">${esc(p.id)} · ${esc(p.gpu?.name || 'no GPU')} · ${esc(String(p.desiredStatus || '').toLowerCase())}${p.costPerHr ? ` · $${Number(p.costPerHr).toFixed(2)}/h` : ''}</div>
-          ${p.serve?.length ? `<div class="muted small">${esc(p.serve.join(', '))}</div>` : ''}
-        </div>`;
+    const [dot, label] = POD_STATUS[p.desiredStatus] || ['warn', String(p.desiredStatus || '?').toLowerCase()];
+    return `<tr class="${p.id === selectedPod ? 'sel' : ''}" data-pod="${esc(p.id)}">
+          <td><b>${esc(p.name)}</b><div class="muted small mono">${esc(p.id)}</div></td>
+          <td><span class="status"><span class="dot ${dot}"></span>${esc(label)}</span></td>
+          <td>${esc(p.gpu?.name || '—')}</td>
+          <td class="small">${esc((p.serve || []).join(', ') || 'admin mode')}</td>
+          <td class="num">${p.costPerHr && running ? `$${Number(p.costPerHr).toFixed(2)}/h` : '—'}</td>
+          <td class="num">${running ? since(p.lastStartedAt) : '—'}</td>
+          <td>${running ? `<a class="small" href="${esc(p.links.students)}" target="_blank" rel="noreferrer" title="This Pod's student page">students ↗</a>` : ''}</td>
+        </tr>`;
 }
+
+// What the toolbar asks for: text, status and GPU.
+function podMatches(p) {
+    const q = $('podSearch').value.trim().toLowerCase();
+    if ($('podStatus').value && p.desiredStatus !== $('podStatus').value) return false;
+    if ($('podGpu').value && (p.gpu?.name || '') !== $('podGpu').value) return false;
+    if (!q) return true;
+    const hay = [p.name, p.id, p.desiredStatus, p.gpu?.name, ...(p.serve || []), p.networkVolume?.name].join(' ').toLowerCase();
+    return q.split(/\s+/).every(t => hay.includes(t));
+}
+for (const id of ['podSearch', 'podStatus', 'podGpu']) $(id).oninput = () => renderPodList();
 
 function buildLine(g) {
     const b = builds[g.volume?.id];
@@ -823,31 +937,49 @@ async function loadBuilds() {
 }
 
 function renderPodList() {
-    $('podList').innerHTML = groups.map(g => {
-        const members = g.pods.map(id => pods.find(p => p.id === id)).filter(Boolean);
+    // Tiles, and the GPU filter's options, from every Pod (not just the shown ones).
+    const runningPods = pods.filter(p => p.desiredStatus === 'RUNNING');
+    $('rpTotal').textContent = pods.length;
+    $('rpRunning').textContent = runningPods.length;
+    $('rpOther').textContent = pods.length - runningPods.length;
+    $('rpRate').textContent = `$${runningPods.reduce((a, p) => a + (Number(p.costPerHr) || 0), 0).toFixed(2)}`;
+    const gpuSel = $('podGpu'), keep = gpuSel.value;
+    const gpus = [...new Set(pods.map(p => p.gpu?.name).filter(Boolean))].sort();
+    gpuSel.innerHTML = '<option value="">All GPU types</option>' + gpus.map(g => `<option ${g === keep ? 'selected' : ''}>${esc(g)}</option>`).join('');
+
+    const body = groups.map(g => {
+        const members = g.pods.map(id => pods.find(p => p.id === id)).filter(Boolean).filter(podMatches);
+        if (!members.length) return '';
         const vname = g.volume ? esc(g.volume.name) : 'No network volume';
-        return `<div class="vgroup">
-          <div class="vhead">
-            <div><b>${vname}</b>${g.volume?.dataCenterId ? ` <span class="muted small">${esc(g.volume.dataCenterId)}</span>` : ''}</div>
-            <div class="muted small">${g.running ? `${g.running} running · <b>$${g.costPerHr.toFixed(2)}/h</b>${g.running > 1 ? ' together' : ''}` : 'nothing running'}</div>
+        return `<tr class="group"><td colspan="7"><div class="row wrap">
+            <span><b>${vname}</b>${g.volume?.dataCenterId ? ` <span class="muted">${esc(g.volume.dataCenterId)}</span>` : ''}
+            <span class="muted"> · ${g.running ? `${g.running} running · <b>$${g.costPerHr.toFixed(2)}/h</b>${g.running > 1 ? ' together' : ''}` : 'nothing running'}</span></span>
+            <span style="flex:1"></span>
             ${g.volume ? `<button class="ghost small" data-folders="${esc(g.volume.id)}" ${g.running ? '' : 'disabled title="Start a Pod on this volume to look inside it"'}>Folders…</button>` : ''}
             ${g.running > 1 ? `<button class="ghost small" data-stopall="${esc(g.volume?.id || '')}">Stop all ${g.running}</button>` : ''}
-          </div>
-          ${buildLine(g)}
-          ${members.map(podRow).join('')}
-        </div>`;
-    }).join('') || '<p class="muted">No Pods. Launch one from the Launch tab.</p>';
+          </div>${buildLine(g)}</td></tr>
+          ${members.map(podRow).join('')}`;
+    }).join('');
+    $('podList').innerHTML = body
+        ? `<table><thead><tr><th>Pod</th><th>Status</th><th>GPU</th><th>Serving</th><th class="num">Cost</th><th class="num">Up for</th><th></th></tr></thead><tbody>${body}</tbody></table>`
+        : pods.length
+            ? '<div class="empty"><p>No Pod matches.</p></div>'
+            : `<div class="empty"><div class="ico">▤</div><p><b>No Pods found</b></p><p class="muted">Create a Pod to get started</p><p><button class="cta" data-create="pod">+ Create a Pod</button></p></div>`;
+    for (const b of $('podList').querySelectorAll('[data-create]')) b.onclick = () => openDrawer('createPod');
     for (const el of $('podList').querySelectorAll('[data-pod]')) {
         el.onclick = (ev) => {
             if (ev.target.closest('a')) return;
-            selectedPod = el.dataset.pod; store('rpc.pod', selectedPod); folderView = null; renderPodList(); loadDetail();
+            selectedPod = selectedPod === el.dataset.pod && !folderView ? null : el.dataset.pod;
+            store('rpc.pod', selectedPod || ''); folderView = null; renderPodList(); loadDetail();
+            $('podDetail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         };
     }
     for (const b of $('podList').querySelectorAll('[data-folders]')) {
-        b.onclick = () => { folderView = b.dataset.folders; loadFolders(); };
+        b.onclick = (ev) => { ev.stopPropagation(); folderView = b.dataset.folders; $('podDetail').hidden = false; loadFolders(); $('podDetail').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); };
     }
     for (const b of $('podList').querySelectorAll('[data-stopall]')) {
-        b.onclick = async () => {
+        b.onclick = async (ev) => {
+            ev.stopPropagation();
             const g = groups.find(x => (x.volume?.id || '') === b.dataset.stopall);
             const running = g.pods.map(id => pods.find(p => p.id === id)).filter(p => p?.desiredStatus === 'RUNNING');
             if (!confirm(`Stop ${running.length} Pods on "${g.volume?.name || 'no volume'}"?\n\n${running.map(p => p.name).join('\n')}\n\nGPU billing ends once each has stopped. Their queues and results stay on the volume.`)) return;
@@ -896,7 +1028,8 @@ async function loadDetail() {
     clearTimeout(detailTimer);
     if (folderView) return;
     const box = $('podDetail');
-    if (!selectedPod) { box.innerHTML = '<p class="muted">Pick a Pod.</p>'; return; }
+    box.hidden = !selectedPod;
+    if (!selectedPod) return;
     let d;
     try { d = await api('GET', `/api/pods/${encodeURIComponent(selectedPod)}`); }
     catch (e) { box.innerHTML = `<p class="muted">${esc(e.message)}</p>`; return; }
@@ -970,7 +1103,7 @@ async function loadDetail() {
 
     // Poll fast while something is happening, slowly once it is settled.
     const busy = ['booting', 'fetching', 'starting'].includes(st.key);
-    detailTimer = setTimeout(() => { if (!$('tab-pods').hidden && !document.hidden) loadDetail(); else detailTimer = setTimeout(loadDetail, 5000); }, busy ? 5000 : 20000);
+    detailTimer = setTimeout(() => { if (pageOpen('runpod') && !document.hidden) loadDetail(); else detailTimer = setTimeout(loadDetail, 5000); }, busy ? 5000 : 20000);
 }
 
 // ---- folders Pods left on a volume (I6) -------------------------------------------
@@ -1052,7 +1185,23 @@ async function loadAttempts() {
         $('attemptsSummary').innerHTML = `Last hour: <b>${h.tries}</b> tries, <b>${h.created}</b> got a GPU, ${h.noMachine} found no machine free.`
             + (last ? ` Latest: ${new Date(last.at).toLocaleTimeString()} — ${esc(last.result)}.` : ' Nothing tried yet.');
         $('attemptsSummary').className = 'note ' + (h.created ? 'good' : '');
-        $('attemptRows').innerHTML = d.attempts.map(a => {
+        // Each provider's page shows its own attempts.
+        const rp = d.attempts.filter(a => a.provider !== 'thunder');
+        const th = d.attempts.filter(a => a.provider === 'thunder');
+        const lastRp = rp[0];
+        $('attemptsSummaryShort').textContent = lastRp ? `latest ${new Date(lastRp.at).toLocaleTimeString()} — ${lastRp.result}` : 'nothing tried yet';
+        $('tAttemptsSummary').textContent = th.length ? `${th.length} launch${th.length > 1 ? 'es' : ''}, latest ${new Date(th[0].at).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} — ${th[0].result}` : 'none yet';
+        $('tAttemptRows').innerHTML = th.map(a => {
+            const good = a.result === 'created';
+            return `<tr class="${good ? 'picked' : ''}">
+              <td>${new Date(a.at).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
+              <td>${esc(a.source)}</td>
+              <td class="small">${esc(a.name || '')}${a.podId ? ` <span class="muted mono">${esc(a.podId)}</span>` : ''}</td>
+              <td>${esc((a.gpus || []).join(', '))}</td>
+              <td class="${good ? 'stock-High' : a.result === 'no machine' ? 'muted' : 'stock-None'}" title="${esc(a.message || '')}">${esc(a.result)}${good && a.costPerHr ? ` · $${Number(a.costPerHr).toFixed(2)}/h` : ''}${a.result === 'error' ? ` — ${esc(String(a.message || '').slice(0, 90))}` : ''}</td>
+            </tr>`;
+        }).join('') || '<tr><td colspan="5" class="muted">No launch on Thunder recorded yet.</td></tr>';
+        $('attemptRows').innerHTML = rp.map(a => {
             const good = a.result === 'created' || a.result === 'started';
             return `<tr class="${good ? 'picked' : ''}">
               <td>${new Date(a.at).toLocaleTimeString()}</td>
@@ -1064,7 +1213,7 @@ async function loadAttempts() {
             </tr>`;
         }).join('') || '<tr><td colspan="6" class="muted">No attempt recorded yet.</td></tr>';
     } catch (e) { $('attemptsSummary').textContent = e.message; }
-    attemptsTimer = setTimeout(() => { if (!$('tab-attempts').hidden && !document.hidden) loadAttempts(); }, 5000);
+    attemptsTimer = setTimeout(() => { if (($('attemptsFold').open && pageOpen('runpod') || $('tAttemptsFold').open && pageOpen('thunder')) && !document.hidden) loadAttempts(); }, 5000);
 }
 $('refreshAttempts').onclick = loadAttempts;
 
@@ -1355,6 +1504,9 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) load
 
 (async () => {
     try { await loadSettings(); } catch (e) { toast(e.message, true); return; }
-    const first = !settings.runpodApiKey.set && !settings.thunderApiKey.set ? 'creds' : (store('rpc.tab') || (settings.runpodApiKey.set ? 'launch' : 'thunder'));
-    showTab(first);
+    // #runpod / #thunder in the address opens that page (bookmarks, links).
+    const saved = ['#runpod', '#thunder'].includes(location.hash) ? location.hash.slice(1) : store('rpc.page');
+    showPage(saved || (settings.runpodApiKey.set || !settings.thunderApiKey.set ? 'runpod' : 'thunder'));
+    // First run: nothing works without a key, so start with the keys.
+    if (!settings.runpodApiKey.set && !settings.thunderApiKey.set) openDrawer('settings');
 })();
