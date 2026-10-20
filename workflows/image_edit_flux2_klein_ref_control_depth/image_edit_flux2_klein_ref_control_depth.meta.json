@@ -43,8 +43,9 @@
       {
         "type": "lora",
         "file": "flux2_klein_9b_refcontrol_depth.safetensors",
-        "source": "https://huggingface.co/Comfy-Org/flux2-klein-9B",
-        "note": "Comfy-Org's Klein repack. The exact path inside the repo is not recorded; the constructed split_files/loras/ guess 404s."
+        "source": "https://huggingface.co/thedeoxen/refcontrol-FLUX.2-klein-9B-reference-depth-lora",
+        "note": "The author's own repo (thedeoxen), not Comfy-Org's Klein repack, which does not hold it. Verified 2026-10-20: 165.7 MB.",
+        "url": "https://huggingface.co/thedeoxen/refcontrol-FLUX.2-klein-9B-reference-depth-lora/resolve/main/flux2_klein_9b_refcontrol_depth.safetensors"
       },
       {
         "type": "clip",
@@ -61,7 +62,9 @@
       {
         "type": "other",
         "file": "da3_large.safetensors",
-        "source": "https://huggingface.co/depth-anything/DA3-LARGE-1.1"
+        "source": "https://huggingface.co/depth-anything/DA3-LARGE-1.1",
+        "auto": true,
+        "note": "ComfyUI-DepthAnythingV3 downloads it on first use (model.safetensors from this repo, renamed) into models/depthanything3/."
       }
     ]
   },

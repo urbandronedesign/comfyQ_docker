@@ -34,12 +34,14 @@
     "note": "Four training checkpoints (_5/_10/_15/_20) live in this repo; the bundle exposes them through a dropdown."
   },
   "Qwen-Image-2.1-Fun-Controlnet-Union.safetensors": {
+    "url": "https://huggingface.co/alibaba-pai/Qwen-Image-2.1-Fun-Controlnet-Union/resolve/main/Qwen-Image-2.1-Fun-Controlnet-Union.safetensors",
     "source": "https://huggingface.co/alibaba-pai/Qwen-Image-2.1-Fun-Controlnet-Union",
-    "note": "ComfyUI core cannot load this file -- it needs the ComfyUI-QwenImage21-FunControlNet pack, which is why that pack exists."
+    "note": "ComfyUI core cannot load this file -- it needs the ComfyUI-QwenImage21-FunControlNet pack, which is why that pack exists. Repo root, not gated; verified 2026-10-20: 7.55 GB."
   },
   "flux2_klein_9b_refcontrol_depth.safetensors": {
-    "source": "https://huggingface.co/Comfy-Org/flux2-klein-9B",
-    "note": "Comfy-Org's Klein repack. The exact path inside the repo is not recorded; the constructed split_files/loras/ guess 404s."
+    "url": "https://huggingface.co/thedeoxen/refcontrol-FLUX.2-klein-9B-reference-depth-lora/resolve/main/flux2_klein_9b_refcontrol_depth.safetensors",
+    "source": "https://huggingface.co/thedeoxen/refcontrol-FLUX.2-klein-9B-reference-depth-lora",
+    "note": "The author's own repo (thedeoxen), not Comfy-Org's Klein repack, which does not hold it. Verified 2026-10-20: 165.7 MB."
   },
   "pid_1.5_qwenimage_1024_to_4096_4step_bf16.safetensors": {
     "source": "https://github.com/BennyDaBall930/ComfyUI-Latent-Tiled-PiD",
@@ -111,5 +113,11 @@
     "override": true,
     "source": "https://huggingface.co/Lightricks/LTX-2.3-22b-IC-LoRA-Pixel-Spatial-Upscaler",
     "note": "Lightricks' Pixel Spatial Upscaler adapter, and NOT the DEBLUR-trigger LoRA its template's note links to: that repo (LTX-2.3-22b-IC-LoRA-Deblur) only holds ltx-2.3-22b-ic-lora-deblur-0.9. Gated, so a token is needed."
+  },
+  "da3_large.safetensors": {
+    "auto": true,
+    "override": true,
+    "source": "https://huggingface.co/depth-anything/DA3-LARGE-1.1",
+    "note": "ComfyUI-DepthAnythingV3 downloads it on first use (model.safetensors from this repo, renamed) into models/depthanything3/."
   }
 }

@@ -42,8 +42,8 @@
       {
         "type": "vae",
         "file": "qwen_image_vae.safetensors",
-        "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors",
-        "source": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI"
+        "url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/vae/qwen_image_vae.safetensors",
+        "source": "https://huggingface.co/Comfy-Org/Krea-2"
       }
     ]
   },
