@@ -6,4 +6,6 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('comfyqConsole', {
     token: ipcRenderer.sendSync('console-token'),
     app: true,
+    // Only answered when the app runs under its test (main.js).
+    testCloseWindow: () => ipcRenderer.send('test-close-window'),
 });

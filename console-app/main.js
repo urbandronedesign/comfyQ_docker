@@ -7,7 +7,9 @@
 // the console (and spend with its keys) by sending the browser's fixed header.
 'use strict';
 
-const { app, BrowserWindow, ipcMain, shell, dialog, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, safeStorage, Tray, Menu, Notification, nativeImage } = require('electron');
+const fs = require('fs');
+const watch = require('./watch');
 const { fork, spawnSync } = require('child_process');
 const secretsStore = require('./secrets');
 const workflowsCache = require('./workflows');
@@ -30,11 +32,37 @@ const TOKEN = crypto.randomBytes(24).toString('hex');
 let server = null;       // the console server child process
 let port = null;
 let win = null;
-let quitting = false;
+let quitting = false;      // a quit is under way (confirmed, or nothing billed)
+let tray = null;
+let lastSpend = null;      // the last GET /api/spend, for the tray and the quit question
+let watchState = null;
+let toldTray = false;      // said once that closing keeps the app in the tray
+const ICON = path.join(__dirname, 'assets', 'icon.png');
+
+// Test hook: what the app announces, one JSON line each (console-app/test).
+function record(ev) {
+    if (!process.env.COMFYQ_APP_EVENTS_FILE) return;
+    try { fs.appendFileSync(process.env.COMFYQ_APP_EVENTS_FILE, JSON.stringify({ at: Date.now(), ...ev }) + '\n'); } catch { /* test only */ }
+}
+
+function showWindow() {
+    if (!win) return;
+    if (win.isMinimized()) win.restore();
+    win.show(); win.focus();
+}
+
+function notify(title, body) {
+    record({ type: 'notification', title, body });
+    if (!Notification.isSupported()) return;
+    const n = new Notification({ title, body, icon: ICON, silent: false });
+    n.on('click', showWindow);
+    n.show();
+}
 
 // One app at a time: a second launch brings the first window forward.
 if (!app.requestSingleInstanceLock()) { app.quit(); return; }
-app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } });
+app.on('second-instance', () => showWindow());
+if (process.platform === 'win32') app.setAppUserModelId('com.comfyq.console');
 
 function freePort() {
     return new Promise((resolve, reject) => {
@@ -147,8 +175,93 @@ function createWindow() {
     win.webContents.on('will-navigate', (e, url) => {
         if (!url.startsWith(origin + '/')) { e.preventDefault(); if (/^https?:\/\//.test(url)) shell.openExternal(url); }
     });
+    // Closing the window keeps the app (and its billing alerts) in the tray.
+    win.on('close', (e) => {
+        if (quitting) return;
+        e.preventDefault();
+        win.hide();
+        record({ type: 'hidden' });
+        if (!toldTray) {
+            toldTray = true;
+            notify('ComfyQ Console is still running', 'It keeps watching what you spend from the tray. Right-click its icon to quit.');
+        }
+    });
     win.loadURL(`${origin}/`);
 }
+
+// ---- the console's own figures, read like the page reads them ----
+async function consoleGet(route) {
+    const r = await fetch(`http://127.0.0.1:${port}${route}`, { headers: { 'X-ComfyQ-Console': TOKEN }, signal: AbortSignal.timeout(25000) });
+    if (!r.ok) throw new Error(`${route}: HTTP ${r.status}`);
+    return r.json();
+}
+
+// Where each machine is, for "serving" and "setup failed".
+async function machineStages() {
+    const out = [];
+    try {
+        const { instances } = await consoleGet('/api/thunder/instances');
+        for (const i of instances) {
+            const r = i.rec;
+            const stage = i.probe?.answering && i.probe.mode === 'student' ? 'serving'
+                : r && ['failed', 'interrupted'].includes(r.state) ? 'failed'
+                : r ? 'setting-up' : 'other';
+            out.push({ provider: 'thunder', id: i.uuid, name: (r?.serve || []).join(' + ') || i.uuid.slice(0, 8), stage, detail: r?.error || null });
+        }
+    } catch { /* no Thunder key, or Thunder unreachable */ }
+    try {
+        const { pods } = await consoleGet('/api/pods');
+        for (const p of pods.filter(x => x.desiredStatus === 'RUNNING')) {
+            let stage = 'setting-up', detail = null;
+            try {
+                const { probe } = await consoleGet(`/api/pods/${encodeURIComponent(p.id)}`);
+                if (['failed', 'refused'].includes(probe?.plan?.status)) { stage = 'failed'; detail = probe.plan.error; }
+                else if (probe?.answering && probe.mode === 'student') stage = 'serving';
+            } catch { /* keep "setting up" */ }
+            out.push({ provider: 'runpod', id: p.id, name: p.name, stage, detail });
+        }
+    } catch { /* no RunPod key, or RunPod unreachable */ }
+    return out;
+}
+
+function updateTray() {
+    if (!tray) return;
+    const line = watch.trayLine(lastSpend);
+    tray.setToolTip(line);
+    const ms = lastSpend?.machines || [];
+    const money = (v) => `$${Number(v || 0).toFixed(2)}`;
+    tray.setContextMenu(Menu.buildFromTemplate([
+        { label: 'Open ComfyQ Console', click: showWindow },
+        { type: 'separator' },
+        { label: lastSpend ? `Now ${money(lastSpend.ratePerHr)}/h · today ${money(lastSpend.today)}` : 'Reading what you spend…', enabled: false },
+        ...ms.map(m => ({ label: `${m.provider === 'thunder' ? 'Thunder' : 'RunPod'} · ${m.name || m.id} · ${money(m.ratePerHr)}/h`, enabled: false })),
+        { type: 'separator' },
+        { label: 'Quit', click: () => app.quit() },
+    ]));
+    record({ type: 'tray', tooltip: line });
+}
+
+async function tick() {
+    try { lastSpend = await consoleGet('/api/spend'); } catch { /* keep the last figures */ }
+    updateTray();
+    if (!lastSpend) return;
+    const machines = await machineStages();
+    const r = watch.decide(watchState, { spend: lastSpend, machines }, Date.now());
+    watchState = r.state;
+    for (const ev of r.events) notify(ev.title, ev.body);
+}
+
+function startWatching() {
+    tray = new Tray(nativeImage.createFromPath(ICON).resize({ width: 16, height: 16 }));
+    tray.on('click', showWindow);
+    updateTray();
+    tick();
+    setInterval(tick, Number(process.env.COMFYQ_APP_WATCH_MS) || 30000);
+}
+
+// Test hook: the page cannot close its own top-level window (Chromium refuses
+// window.close()), so the test asks the app to, as the ✕ button would.
+if (process.env.COMFYQ_APP_EVENTS_FILE) ipcMain.on('test-close-window', () => win?.close());
 
 // The token goes only to this app's own page.
 ipcMain.on('console-token', (e) => {
@@ -159,8 +272,25 @@ app.whenReady().then(async () => {
     try { await startServer(); }
     catch (e) { dialog.showErrorBox('ComfyQ Console', e.message); app.quit(); return; }
     createWindow();
+    startWatching();
 });
 
-app.on('before-quit', () => { quitting = true; });
-app.on('window-all-closed', () => app.quit());
+// Quitting while a machine bills asks first: the machines keep billing after
+// the app quits, and nothing warns about them any more.
+app.on('before-quit', (e) => {
+    if (quitting) return;
+    const q = watch.quitQuestion(lastSpend);
+    if (!q) { quitting = true; return; }
+    e.preventDefault();
+    showWindow();
+    dialog.showMessageBox(win, {
+        type: 'warning', title: 'ComfyQ Console', message: q.title, detail: q.detail,
+        buttons: ['Keep the app running', 'Quit anyway'], defaultId: 0, cancelId: 0, noLink: true,
+    }).then(({ response }) => {
+        record({ type: 'quit-question', answer: response });
+        if (response === 1) { quitting = true; app.quit(); }
+    });
+});
+// The tray keeps the app alive with no window open.
+app.on('window-all-closed', () => { /* stay in the tray */ });
 app.on('quit', () => { try { server?.kill(); } catch { /* already gone */ } });

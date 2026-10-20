@@ -26,6 +26,8 @@ const home = fs.mkdtempSync(path.join(os.tmpdir(), 'comfyq-app-'));
 const dataDir = path.join(home, '.comfyq');
 const settingsFile = path.join(dataDir, 'runpod-console.json');
 const secretsFile = path.join(dataDir, 'console-secrets.bin');
+const eventsFile = path.join(home, 'app-events.jsonl');
+const events = () => { try { return fs.readFileSync(eventsFile, 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l)); } catch { return []; } };
 // A plain settings file as the browser version leaves it. No API key: those
 // would make the console call RunPod and Thunder.
 fs.mkdirSync(dataDir, { recursive: true });
@@ -33,7 +35,7 @@ fs.writeFileSync(settingsFile, JSON.stringify({ adminPassword: 'admin-pw-plain-1
 
 let debugPort = 9345;
 async function launch() {
-    const env = { ...process.env, COMFYQ_APP_SERVER_HOME: home, COMFYQ_APP_GITHUB_WORKFLOWS: '1' };
+    const env = { ...process.env, COMFYQ_APP_SERVER_HOME: home, COMFYQ_APP_GITHUB_WORKFLOWS: '1', COMFYQ_APP_EVENTS_FILE: eventsFile, COMFYQ_APP_WATCH_MS: '2000' };
     delete env.ELECTRON_RUN_AS_NODE;   // set in some shells: it would run Electron as plain Node
     const port = debugPort++;
     const child = spawn(ELECTRON, [APP, `--remote-debugging-port=${port}`], { env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -124,7 +126,18 @@ try {
     check(`the workflow list was refreshed from GitHub (${idx?.source}, commit ${String(idx?.commit || '').slice(0, 7)})`, idx?.source === 'github');
     const wfs = await a.call('GET', '/api/workflows');
     check(`the console lists the workflows from that copy (${wfs.data?.workflows?.length})`, (wfs.data?.workflows?.length || 0) >= 50);
+    // Phase 3: the tray, and closing the window.
+    let trayEv = null;
+    for (let i = 0; i < 20 && !trayEv; i++) { trayEv = events().filter(e => e.type === 'tray' && /\$/.test(e.tooltip)).pop(); if (!trayEv) await sleep(500); }
+    check(`the tray shows what is spent (${trayEv?.tooltip})`, /^ComfyQ Console — \$0\.00\/h · nothing running · today \$0\.00$/.test(trayEv?.tooltip || ''));
     check(`no script error (${a.errors.join(' | ')})`, a.errors.length === 0);
+    await a.evalJs('window.comfyqConsole.testCloseWindow(), 1');
+    await sleep(1500);
+    check('closing the window hides it, the app stays', events().some(e => e.type === 'hidden'));
+    check('the console still answers with the window closed', (await fetch(`${a.origin}/`)).status === 200);
+    const told = events().filter(e => e.type === 'notification' && /still running/.test(e.title));
+    check('the first close says the app is still running in the tray, once', told.length === 1);
+    check('nothing else was announced on an account with nothing running', events().filter(e => e.type === 'notification').length === 1);
     check('quitting the app stops the console server', await a.quit());
     a = null;
 

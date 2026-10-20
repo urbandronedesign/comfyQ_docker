@@ -9,7 +9,7 @@
   },
   "scripts": {
     "start": "electron .",
-    "test": "node test/app-smoke.mjs"
+    "test": "node test/watch.test.js && node test/app-smoke.mjs"
   },
   "devDependencies": {
     "electron": "^42.5.0"
