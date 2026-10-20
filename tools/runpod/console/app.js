@@ -1536,6 +1536,106 @@ setInterval(() => { if (!document.hidden) loadSpend(); }, 15000);
 setInterval(() => { if (!document.hidden) renderSpend(); }, 1000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) loadSpend(); });
 
+// ---- updates (desktop app only) ------------------------------------------------------
+//
+// The app's updater tells this page what it is doing (console-app/main.js): found,
+// downloading with progress, ready, or failed. Shown in a bar at the top, and in
+// Settings → About & updates. In a browser there is no updater: the bar stays hidden.
+
+const UPD = window.comfyqConsole?.updates || null;
+let updLaterFor = null;            // the version "Later" was pressed for
+let updDoneTimer = null;
+const mbs = (b) => `${(Number(b || 0) / 1e6).toFixed(1)} MB`;
+const secs = (s) => s < 60 ? `${Math.max(1, Math.round(s))} s` : `${Math.round(s / 60)} min`;
+
+function renderUpdate(u) {
+    if (!u) return;
+    const bar = $('updBar');
+    const show = (ids) => { for (const id of ['updNotesBtn', 'updRetry', 'updLater', 'updInstall', 'updClose']) $(id).hidden = !ids.includes(id); };
+    clearTimeout(updDoneTimer);
+    bar.className = 'updbar';
+    $('updProgress').hidden = true;
+    let visible = true;
+    if (u.state === 'downloading') {
+        bar.classList.add('busy');
+        const pct = Math.round(u.percent || 0);
+        const left = u.bytesPerSecond > 0 && u.total ? (u.total - u.transferred) / u.bytesPerSecond : null;
+        $('updTitle').textContent = `Downloading version ${u.version} — ${pct}%`;
+        $('updSub').textContent = `${mbs(u.transferred)} of ${mbs(u.total)}${u.bytesPerSecond ? ` · ${mbs(u.bytesPerSecond)}/s` : ''}${left != null ? ` · about ${secs(left)} left` : ''} · you are on ${u.current}`;
+        $('updProgress').hidden = false;
+        $('updProgress').firstElementChild.style.width = `${pct}%`;
+        show(u.notes ? ['updNotesBtn'] : []);
+    } else if (u.state === 'downloaded' || u.state === 'installing') {
+        bar.classList.add('ready');
+        $('updTitle').textContent = u.state === 'installing' ? `Installing version ${u.version}…` : `Version ${u.version} is ready to install`;
+        $('updSub').textContent = u.state === 'installing' ? 'The app closes, installs and opens again.' : `You are on ${u.current}. Install now (the app restarts in a few seconds; machines keep running), or later: it installs when you quit.`;
+        show(u.state === 'installing' ? [] : [...(u.notes ? ['updNotesBtn'] : []), 'updLater', 'updInstall']);
+        visible = updLaterFor !== u.version || u.state === 'installing';
+    } else if (u.state === 'checking') {
+        bar.classList.add('busy');
+        $('updTitle').textContent = 'Checking for updates…';
+        $('updSub').textContent = `You are on ${u.current}.`;
+        show([]);
+        visible = !!u.manual;
+    } else if (u.state === 'uptodate') {
+        $('updTitle').textContent = `You have the latest version (${u.current})`;
+        $('updSub').textContent = `Checked ${new Date(u.lastCheck || Date.now()).toLocaleTimeString()}.`;
+        show(['updClose']);
+        visible = !!u.manual;
+        if (visible) updDoneTimer = setTimeout(() => { $('updBar').hidden = true; }, 6000);
+    } else if (u.state === 'error') {
+        bar.classList.add('bad');
+        $('updTitle').textContent = 'The update did not work';
+        $('updSub').textContent = `${u.error || 'unknown error'} — details in ~/.comfyq/console-app.log`;
+        show(['updRetry', 'updClose']);
+    } else visible = false;
+    $('updNotes').textContent = u.notes || '';
+    if (!u.notes) $('updNotes').hidden = true;
+    bar.hidden = !visible;
+    renderAbout(u);
+}
+
+function renderAbout(u) {
+    $('aboutActions').hidden = !u.available;
+    const state = {
+        idle: 'not checked yet', checking: 'checking…', uptodate: 'up to date',
+        downloading: `downloading version ${u.version} (${Math.round(u.percent || 0)}%)`,
+        downloaded: `version ${u.version} downloaded: installs when you quit`, installing: `installing version ${u.version}`,
+        error: `failed: ${u.error || ''}`,
+    }[u.state] || u.state;
+    $('aboutBody').innerHTML = `<dl class="aboutgrid">
+        <dt>This version</dt><dd>${esc(u.current)}</dd>
+        <dt>Updates</dt><dd>${u.available ? esc(state) : 'not in a copy run from the repo (git pull instead)'}</dd>
+        ${u.lastCheck ? `<dt>Last check</dt><dd>${esc(new Date(u.lastCheck).toLocaleString())}</dd>` : ''}
+        <dt>How</dt><dd>Checked at start, every 30 minutes and when the window opens; downloaded in the background.</dd>
+      </dl>`;
+    $('aboutCheck').disabled = ['checking', 'downloading', 'installing'].includes(u.state);
+}
+
+if (UPD) {
+    $('updNotesBtn').onclick = () => { $('updNotes').hidden = !$('updNotes').hidden; };
+    $('updInstall').onclick = () => { $('updInstall').disabled = true; UPD.install(); };
+    $('updLater').onclick = async () => { const u = await UPD.get(); updLaterFor = u.version; $('updBar').hidden = true; toast(`Version ${u.version} installs when you quit the app`); };
+    $('updRetry').onclick = () => UPD.check();
+    $('updClose').onclick = () => { $('updBar').hidden = true; };
+    $('aboutCheck').onclick = () => UPD.check();
+    UPD.onStatus(renderUpdate);
+    UPD.get().then((u) => {
+        renderUpdate(u);
+        // The first start after an update says so, once.
+        let before = null;
+        try { before = localStorage.getItem('rpc.appVersion'); localStorage.setItem('rpc.appVersion', u.current); } catch { /* private storage */ }
+        if (before && before !== u.current) {
+            $('updBar').className = 'updbar ready';
+            $('updTitle').textContent = `Updated to version ${u.current}`;
+            $('updSub').innerHTML = `From ${esc(before)}. <a href="https://github.com/urbandronedesign/comfyQ_docker/releases/tag/console-v${encodeURIComponent(u.current)}" target="_blank" rel="noreferrer">What changed ↗</a>`;
+            for (const id of ['updNotesBtn', 'updRetry', 'updLater', 'updInstall']) $(id).hidden = true;
+            $('updClose').hidden = false;
+            $('updBar').hidden = false;
+        }
+    });
+}
+
 // ---- boot -----------------------------------------------------------------------
 
 (async () => {

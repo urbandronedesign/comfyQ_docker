@@ -26,6 +26,23 @@
 </header>
 
 <main>
+<!-- Desktop app only: an update as it happens (found, downloading, ready). -->
+<section id="updBar" class="updbar" hidden aria-live="polite">
+  <div class="updbar-row">
+    <span id="updIcon" class="updicon"></span>
+    <div class="updbar-text"><b id="updTitle"></b><span id="updSub" class="sub"></span></div>
+    <div class="updbar-actions">
+      <button id="updNotesBtn" class="ghost small" hidden>What's new</button>
+      <button id="updRetry" class="secondary small" hidden>Try again</button>
+      <button id="updLater" class="ghost small" hidden>Later</button>
+      <button id="updInstall" class="cta small" hidden>Restart and install now</button>
+      <button id="updClose" class="ghost icon small" title="Hide" hidden>✕</button>
+    </div>
+  </div>
+  <div id="updProgress" class="bar updprogress" hidden><i></i></div>
+  <pre id="updNotes" class="updnotes" hidden></pre>
+</section>
+
 <!-- What is being spent, across both providers. Figures: tools/runpod/spend.mjs -->
 <section id="spend" class="tiles spend" aria-live="polite">
   <div class="tile kpi"><span class="label">Spending now</span><b id="spRate">…</b><span id="spRateSub" class="sub"></span></div>
@@ -298,6 +315,14 @@
       <h3>HuggingFace <span class="tag">optional</span></h3>
       <p class="muted small">Only for gated models (FLUX.2, LTX). A <i>Read</i> token, and accept each gated model's licence on its page.</p>
       <label class="field"><span>Token <em id="hfTokenState" class="state"></em></span><input id="hfToken" type="password" autocomplete="off" placeholder="hf_…"></label>
+    </div>
+    <div class="section" id="aboutSection">
+      <h3>About &amp; updates</h3>
+      <div id="aboutBody" class="small muted">Updates come with the desktop app (console-app). In a browser, update the repo instead.</div>
+      <div class="row" id="aboutActions" hidden>
+        <button id="aboutCheck" class="secondary">Check for updates</button>
+        <a id="aboutReleases" class="small" href="https://github.com/urbandronedesign/comfyQ_docker/releases" target="_blank" rel="noreferrer">All versions on GitHub ↗</a>
+      </div>
     </div>
     <details class="section">
       <summary>Advanced</summary>

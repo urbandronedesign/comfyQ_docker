@@ -34,8 +34,8 @@ fs.mkdirSync(dataDir, { recursive: true });
 fs.writeFileSync(settingsFile, JSON.stringify({ adminPassword: 'admin-pw-plain-1234', hfToken: 'hf_testtoken_abcdefghijklmnop', diskGb: 30 }));
 
 let debugPort = 9345;
-async function launch() {
-    const env = { ...process.env, COMFYQ_APP_SERVER_HOME: home, COMFYQ_APP_GITHUB_WORKFLOWS: '1', COMFYQ_APP_EVENTS_FILE: eventsFile, COMFYQ_APP_WATCH_MS: '2000' };
+async function launch(extraEnv = {}) {
+    const env = { ...process.env, COMFYQ_APP_SERVER_HOME: home, COMFYQ_APP_GITHUB_WORKFLOWS: '1', COMFYQ_APP_EVENTS_FILE: eventsFile, COMFYQ_APP_WATCH_MS: '2000', ...extraEnv };
     delete env.ELECTRON_RUN_AS_NODE;   // set in some shells: it would run Electron as plain Node
     const port = debugPort++;
     // COMFYQ_APP_EXE=<path to "ComfyQ Console.exe"> checks the packaged app
@@ -73,7 +73,8 @@ async function launch() {
         for (let i = 0; i < 30; i++) { await sleep(300); try { await fetch(`${new URL(target.url).origin}/`); } catch { return true; } }
         return false;
     };
-    return { origin: new URL(target.url).origin, port: Number(new URL(target.url).port), evalJs, call, errors, quit, log };
+    const shot = async (file) => { const png = await cdp('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync(file, Buffer.from(png.data, 'base64')); };
+    return { origin: new URL(target.url).origin, port: Number(new URL(target.url).port), evalJs, call, errors, quit, log, shot };
 }
 
 let a;
@@ -160,6 +161,41 @@ try {
     check('after a restart all three keys are still known', s2.data?.adminPassword?.set && s2.data?.hfToken?.set && s2.data?.accessPassword?.set);
     check('and still not in the plain file', !fs.readFileSync(settingsFile, 'utf8').match(/admin-pw|hf_testtoken|student-pw/));
     check('quitting stops it again', await a.quit());
+    a = null;
+
+    // ---- third start: an update, shown as it happens (a pretend updater) ----
+    fs.writeFileSync(eventsFile, '');
+    a = await launch({ COMFYQ_APP_FAKE_UPDATE: '9.9.9', COMFYQ_APP_FIRST_CHECK_MS: '6000' });
+    const seen = [];
+    let shotTaken = false;
+    for (let i = 0; i < 60; i++) {
+        const v = await a.evalJs(`({ shown: !document.getElementById('updBar').hidden, title: document.getElementById('updTitle').innerText,
+            sub: document.getElementById('updSub').innerText, width: document.getElementById('updProgress').firstElementChild.style.width,
+            install: !document.getElementById('updInstall').hidden })`);
+        if (v.shown) seen.push(v);
+        if (!shotTaken && /Downloading/.test(v.title) && parseInt(v.width) >= 40 && process.env.COMFYQ_APP_SHOT) { await a.shot(process.env.COMFYQ_APP_SHOT.replace('.png', '-downloading.png')); shotTaken = true; }
+        if (v.install) break;
+        await sleep(100);
+    }
+    const dl = seen.find(v => /^Downloading version 9\.9\.9 — \d+%$/.test(v.title) && /MB\/s/.test(v.sub));
+    check(`the bar shows the download as it happens (${dl?.title} | ${dl?.sub})`, !!dl && /of 105\.8 MB · 12\.5 MB\/s · about \d+ s left · you are on/.test(dl.sub));
+    const pcts = [...new Set(seen.map(v => parseInt(v.width)).filter(n => !isNaN(n)))];
+    check(`the progress bar moves (${pcts.join(', ')}%)`, pcts.length >= 3);
+    const ready = seen.find(v => v.install);
+    check(`then: ready, with Restart and install now (${ready?.title})`, ready?.title === 'Version 9.9.9 is ready to install');
+    const ev = events().filter(e => e.type === 'update').map(e => e.state);
+    check(`the app went through every stage (${[...new Set(ev)].join(' → ')})`, ['checking', 'downloading', 'downloaded'].every(x => ev.includes(x)));
+    const notes = await a.evalJs(`(document.getElementById('updNotesBtn').click(), document.getElementById('updNotes').hidden ? '' : document.getElementById('updNotes').innerText)`);
+    check(`What's new shows the release notes (${notes.split('\n')[0]})`, /Delete asks for the code/.test(notes));
+    const about = await a.evalJs(`document.getElementById('aboutBody').innerText`);
+    check(`Settings → About & updates says it too (${about.replace(/\s+/g, ' ').slice(0, 90)})`, /downloaded: installs when you quit/.test(about) && /This version\s+0\.1\./.test(about));
+    if (process.env.COMFYQ_APP_SHOT) await a.shot(process.env.COMFYQ_APP_SHOT);
+    await a.evalJs(`document.getElementById('updInstall').click(), 1`);
+    await sleep(500);
+    check('Restart and install now asks the app to install', events().some(e => e.type === 'update-install'));
+    check(`and the bar says it is installing (${await a.evalJs("document.getElementById('updTitle').innerText")})`, /Installing version 9\.9\.9/.test(await a.evalJs("document.getElementById('updTitle').innerText")));
+    check(`no script error (${a.errors.join(' | ')})`, a.errors.length === 0);
+    check('quitting stops it', await a.quit());
     a = null;
 } catch (e) {
     console.log(`  BROKEN ${e.message}`); bad++;

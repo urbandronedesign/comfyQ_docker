@@ -14,6 +14,7 @@ What the app adds over the browser:
   - a balance covers less than 4 hours at the current rate (RunPod stops a Pod at zero).
   What is already true when the app starts is not announced. The rules are in [watch.js](watch.js), each tested in `test/watch.test.js`.
 - **Quitting while something bills asks first**, naming each machine and the total per hour: quitting does not stop them, and nothing warns about them any more.
+- **Updates you can watch.** A bar at the top of the window follows each update: found (with *What's new*), downloading with percent, MB, speed and time left, then *Restart and install now* or *Later* (it installs when you quit); a failure says why, with *Try again*. *Settings → About & updates* shows the version, the last check and its result, and checks on demand. The first start after an update says *Updated to version X*. Every check is logged in `~/.comfyq/console-app.log`.
 - **An installer that updates itself.** A one-click, per-user Windows installer (no admin prompt). The installed app checks this repo's GitHub Releases at start and every 6 hours, downloads a new version in the background, says so, and installs it when you quit. The tray menu shows the version and has *Check for updates*. Not code-signed: the first install asks *More info → Run anyway* in Windows SmartScreen.
 
 ## Install
@@ -35,7 +36,7 @@ The tag starts `.github/workflows/console-app.yml`: it tests the warning rules, 
 cd console-app
 npm install          # once; downloads Electron
 npm start            # or, from the repo root: npm run console:app
-npm test             # the warning rules (24 checks), then the real app started twice (30 checks; the GitHub part needs the internet)
+npm test             # the warning rules (24 checks), then the real app started three times (41 checks, the last with a pretend update; the GitHub part needs the internet)
 ```
 
 ⚠ If your shell has `ELECTRON_RUN_AS_NODE` set, Electron runs as plain Node and no window opens: unset it first.
