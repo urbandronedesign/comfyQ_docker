@@ -33,6 +33,7 @@ import {
 } from '../thunder.mjs';
 import { graphql, downloadNeed, diskNeeded, RESULTS_DISK_GB, acceptedGpuIds } from '../lib.mjs';
 import { updateLedger, summarize, emptyLedger, thunderBalanceNow } from '../spend.mjs';
+import { vastOffers, vastCreate, vastInstances, vastDestroy, vastCredit, vastEnv, createBody as vastCreateBody, VAST_PREFIX } from '../vast.mjs';
 import { validateBooking, cardsFor, decide as bookingDecide, podsOf, isLive, cloudsFor, podDiskFor, hoursToCover, statusLine, podPrefix } from '../booking.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -201,23 +202,16 @@ route('POST', '/api/test-key', async () => {
     return { ok: true, pods: pods.length, volumes: vols.length, gpuTypes: gpus };
 });
 
-// Vast.ai: a marketplace of machines, kept for a fixed period on-demand. The key
-// is checked by reading the account and its rentals (read only, rents nothing).
-// Vast moves calls to v1 one by one (v0 /instances/ answers 410 since 2026-10), so the version is in each path.
-const VAST_API = process.env.VAST_API_URL || 'https://console.vast.ai/api';
-async function vastGet(pathname) {
+// Vast.ai (vast.mjs): the key is checked by reading the account and its rentals.
+function vastKey() {
     const k = loadSettings().vastApiKey || process.env.VAST_API_KEY;
     if (!k) throw new RunPodError('enter your Vast.ai API key in Settings (top right) first', 400);
-    const r = await fetch(`${VAST_API}${pathname}`, { headers: { Authorization: `Bearer ${k}` } });
-    const t = await r.text();
-    if (r.status === 401 || r.status === 403) throw new RunPodError('Vast.ai refused the key: check it on cloud.vast.ai → Account → Keys', 400);
-    if (!r.ok) throw new RunPodError(redact(`Vast.ai answered ${r.status}: ${t.slice(0, 200)}`), 502);
-    return JSON.parse(t);
+    return k;
 }
 route('POST', '/api/vast/test-key', async () => {
-    const me = await vastGet('/v0/users/current/');
-    const inst = await vastGet('/v1/instances/');
-    return { ok: true, credit: Number(me.credit ?? 0), instances: Number(inst.total_instances ?? (inst.instances || []).length) };
+    const key = vastKey();
+    const [credit, instances] = await Promise.all([vastCredit(key), vastInstances(key)]);
+    return { ok: true, credit, instances: instances.length };
 });
 
 // Thunder Compute, the backup provider. The key is checked by listing the
@@ -907,6 +901,131 @@ route('DELETE', '/api/thunder/instances/([A-Za-z0-9-]+)', async ({ match, body }
     return { ok: true, deleted: !!inst };
 });
 
+// ---- Vast.ai ----------------------------------------------------------------------
+// Rent an on-demand machine (kept until its offer's end date, never interrupted),
+// keep it running, destroy it. What the console launched is remembered in
+// ~/.comfyq/vast-instances.json (workflows served, label, price) so the list can
+// say what each machine is for; a rental started on Vast's website is listed too.
+const VAST_FILE = path.join(os.homedir(), '.comfyq', 'vast-instances.json');
+function loadVast() { try { return JSON.parse(fs.readFileSync(VAST_FILE, 'utf8')); } catch { return {}; } }
+function saveVast(all) {
+    fs.mkdirSync(path.dirname(VAST_FILE), { recursive: true });
+    fs.writeFileSync(VAST_FILE + '.tmp', JSON.stringify(all, null, 2));
+    fs.renameSync(VAST_FILE + '.tmp', VAST_FILE);
+}
+
+// The machine's disk holds the image (about 40 GB unpacked), the models and the results.
+function vastPlan(ids) {
+    const all = listWorkflows();
+    const picked = ids.map(id => all.find(w => w.id === id)).filter(Boolean);
+    const need = vramNeeded(picked);
+    const downloads = downloadNeed(ids);
+    downloads.minDiskGb = diskNeeded(downloads.gb);
+    return { picked, need, downloads };
+}
+
+route('GET', '/api/vast/offers', async ({ query }) => {
+    const ids = String(query.get('workflows') || '').split(',').filter(Boolean);
+    const { need, downloads } = vastPlan(ids);
+    const minVramGb = Math.max(Number(query.get('minVram')) || 24, need.gb || 0);
+    const diskGb = Math.max(Number(query.get('diskGb')) || 0, ids.length ? downloads.minDiskGb || 0 : 0, 60);
+    const offers = await vastOffers(vastKey(), {
+        minVramGb, maxPricePerHr: Number(query.get('maxPrice')) || 1, minDays: Number(query.get('minDays')) || 1,
+        diskGb, secureOnly: query.get('secure') === '1',
+    }, { near: query.get('near') === '1' });
+    const diskByWorkflow = ids.length ? null : listWorkflows()
+        .map(w => { const d = downloadNeed([w.id]); return { id: w.id, gb: d.gb, minDiskGb: diskNeeded(d.gb), failing: d.failing.length > 0 }; })
+        .filter(w => w.gb != null && !w.failing);
+    return { offers, need, downloads, diskGb, minVramGb, diskByWorkflow };
+});
+
+route('POST', '/api/vast/launch', async ({ body }) => {
+    const key = vastKey();
+    const s = loadSettings();
+    const secrets = secretsOf(s);
+    const miss = missingSecrets(secrets);
+    if (miss.length) throw new RunPodError(`save the ${miss.join(' and ')} in Settings (top right) first`, 400);
+    const ids = Array.isArray(body.workflows) ? body.workflows.map(String) : [];
+    const { picked, downloads } = vastPlan(ids);
+    if (downloads.failing.length) throw new RunPodError(`${downloads.failing.join(', ')} cannot fetch all of its models on a new machine (see tools/model-provenance/fresh-machine.cjs): untick it`, 400);
+    if (picked.length !== ids.length) throw new RunPodError('a ticked workflow is not in this repo any more: reload the page', 400);
+    const offerId = String(body.offerId || '');
+    if (!/^\d+$/.test(offerId)) throw new RunPodError('pick a machine', 400);
+    const diskGb = Math.round(Number(body.diskGb) || 0);
+    if (!(diskGb >= 60 && diskGb <= 2000)) throw new RunPodError('disk: 60 to 2000 GB', 400);
+    if (body.fetchModels !== false && ids.length && downloads.gb != null && diskGb < downloads.minDiskGb) {
+        throw new RunPodError(`${diskGb} GB is too small: the image and ${downloads.gb} GB of models need at least ${downloads.minDiskGb} GB`, 400);
+    }
+    const perHr = Number(body.expectedPerHr) || null;
+    if (perHr) {
+        const credit = await vastCredit(key).catch(() => null);
+        if (credit != null && credit / perHr < 1) throw new RunPodError(`your Vast.ai credit is ${credit.toFixed(2)}: not even one hour at ${perHr.toFixed(2)}/h. Add credit on cloud.vast.ai first.`, 402);
+    }
+    const tag = crypto.randomBytes(3).toString('hex');
+    const label = `${VAST_PREFIX}${tag}`;
+    const podId = `vast-${tag}`;
+    const serve = picked.map(w => w.id);
+    const image = s.image || DEFAULT_IMAGE;
+    const env = vastEnv({ podId, serve, secrets, fetchModels: body.fetchModels !== false });
+    const where = String(body.where || 'Vast.ai');
+    let created;
+    try {
+        created = await vastCreate(key, offerId, vastCreateBody({ image, env, diskGb, label }));
+    } catch (e) {
+        const gone = /no longer available|not available|already rented|unavailable/i.test(e.message);
+        recordAttempt({ action: 'launch', provider: 'vast', name: label, gpus: [String(body.gpu || '')], where, result: gone ? 'no machine' : 'error', message: e.message.slice(0, 300) });
+        if (gone) throw new RunPodError('someone rented that machine a moment ago: refresh the list and pick another', 409);
+        throw e;
+    }
+    recordAttempt({ action: 'launch', provider: 'vast', name: label, gpus: [String(body.gpu || '')], where, result: 'created', podId: created.id, costPerHr: perHr });
+    const all = loadVast();
+    all[created.id] = { id: created.id, label, podId, serve, image, diskGb, gpu: body.gpu || null, where, pricePerHr: perHr, offerId, endAt: Number(body.endAt) || null, createdAt: Date.now() };
+    saveVast(all);
+    return { instance: all[created.id] };
+});
+
+route('GET', '/api/vast/instances', async () => {
+    const live = await vastInstances(vastKey());
+    const recs = loadVast();
+    // Forget what Vast no longer lists (destroyed elsewhere); a just-created one may lag.
+    let changed = false;
+    for (const [id, r] of Object.entries(recs)) if (!live.some(i => i.id === id) && Date.now() - (r.createdAt || 0) > 180_000) { delete recs[id]; changed = true; }
+    if (changed) saveVast(recs);
+    const instances = await Promise.all(live.map(async (i) => {
+        const r = recs[i.id] || null;
+        const probe = i.status === 'running' && i.url ? await probeUrl(i.url) : null;
+        return {
+            ...i, ours: !!r || String(i.label || '').startsWith(VAST_PREFIX), probe,
+            links: i.url ? { students: i.url, admin: `${i.url}/admin`, byWorkflow: studentLinks(i.url, probe?.served?.length ? probe.served.map(w => w.id) : (r?.serve || [])) } : null,
+            rec: r && { serve: r.serve, label: r.label, pricePerHr: r.pricePerHr, where: r.where, diskGb: r.diskGb, createdAt: r.createdAt, endAt: r.endAt },
+        };
+    }));
+    return { instances };
+});
+
+route('POST', '/api/vast/instances/([0-9]+)/download', async ({ match }) => {
+    const id = match[1];
+    const inst = (await vastInstances(vastKey())).find(i => i.id === id);
+    if (!inst?.url) throw new RunPodError('this machine has no address yet (is it running?)', 409);
+    const running = resultSaves.get(`vast-${id}`);
+    if (running && !['done', 'failed'].includes(running.state)) return running;
+    const st = { state: 'listing', jobs: 0, total: 0, saved: 0, bytes: 0, failed: [], error: null, folder: resultsFolder(`vast-${id}`), startedAt: Date.now() };
+    resultSaves.set(`vast-${id}`, st);
+    saveResultsFrom(inst.url, st, `vast-${id}`).catch(e => { st.state = 'failed'; st.error = redact(e.message); });
+    return st;
+});
+route('GET', '/api/vast/instances/([0-9]+)/download', ({ match }) => resultSaves.get(`vast-${match[1]}`) || { state: 'none' });
+
+route('DELETE', '/api/vast/instances/([0-9]+)', async ({ match, body }) => {
+    const id = match[1];
+    if (String(body.confirm || '').trim() !== id) throw new RunPodError(`type ${id} to confirm`, 400);
+    const key = vastKey();
+    const inst = (await vastInstances(key)).find(i => i.id === id);
+    if (inst) await vastDestroy(key, id);
+    const all = loadVast(); delete all[id]; saveVast(all);
+    return { ok: true, destroyed: !!inst };
+});
+
 // ---- workshop bookings ----------------------------------------------------------
 // From a start time, hunt RunPod every minute for N machines that meet a GPU size
 // and a price cap; keep each one found (it boots serving the booking's workflows,
@@ -1157,10 +1276,21 @@ route('GET', '/api/spend', async () => {
             }));
         } catch (e) { errors.push(`RunPod: ${e.message}`); }
     }
-    const ledger = updateLedger(loadLedger(), { now, thunderLive, runpodBalance: Number.isFinite(runpodBalance) ? runpodBalance : null });
+    let vastBalance = null, vastMachines = [];
+    if (s.vastApiKey) {
+        try {
+            const [credit, live] = await Promise.all([vastCredit(s.vastApiKey), vastInstances(s.vastApiKey)]);
+            vastBalance = credit;
+            const recs = loadVast();
+            vastMachines = live.filter(i => i.status === 'running' || i.intended === 'running').map(i => ({
+                id: i.id, name: recs[i.id]?.serve?.join(' + ') || i.label || i.id, gpu: i.gpu, ratePerHr: i.pricePerHr, since: i.startedAt,
+            }));
+        } catch (e) { errors.push(`Vast.ai: ${e.message}`); }
+    }
+    const ledger = updateLedger(loadLedger(), { now, thunderLive, runpodBalance: Number.isFinite(runpodBalance) ? runpodBalance : null, vastBalance });
     saveLedger(ledger);
     const budget = Number(s.dailyBudget) > 0 ? Number(s.dailyBudget) : null;
-    return { ...summarize(ledger, { now, runpodRatePerHr: Number.isFinite(runpodRate) ? runpodRate : null, runpodBalance: Number.isFinite(runpodBalance) ? runpodBalance : null, runpodMachines, budgetPerDay: budget, thunderBalance: s.thunderBalance || null }), errors };
+    return { ...summarize(ledger, { now, runpodRatePerHr: Number.isFinite(runpodRate) ? runpodRate : null, runpodBalance: Number.isFinite(runpodBalance) ? runpodBalance : null, runpodMachines, budgetPerDay: budget, thunderBalance: s.thunderBalance || null, vastBalance, vastMachines }), errors };
 });
 
 // Thunder serves its balance only to its website (the billing calls answer 403

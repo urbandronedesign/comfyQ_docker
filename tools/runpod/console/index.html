@@ -17,6 +17,7 @@
   <nav class="tabs" role="tablist">
     <button role="tab" data-page="runpod">RunPod <span id="podCount" class="count"></span></button>
     <button role="tab" data-page="thunder">Thunder Compute <span id="thunderCount" class="count"></span></button>
+    <button role="tab" data-page="vast">Vast.ai <span id="vastCount" class="count"></span></button>
     <button role="tab" data-page="logs">Stock &amp; logs</button>
   </nav>
   <button id="settingsBtn" class="ghost icon" title="Keys and passwords">
@@ -131,6 +132,33 @@
   <div id="tDetail" class="panel detail" hidden></div>
 
 </section>
+<!-- ═════════════════════════ Vast.ai ═════════════════════════ -->
+<section id="page-vast" class="page" hidden>
+  <div class="page-head">
+    <h1>Rentals <span class="muted">Vast.ai</span></h1>
+    <div class="actions">
+      <button id="vRefresh" class="ghost icon" title="Refresh">⟳</button>
+      <button id="openCreateVast" class="cta">+ Rent a machine</button>
+    </div>
+  </div>
+
+  <div class="tiles">
+    <div class="tile"><span class="label">Total Rentals</span><b id="vTotal">–</b></div>
+    <div class="tile"><span class="label">Running</span><b id="vRunning">–</b></div>
+    <div class="tile"><span class="label">Credit</span><b id="vCredit">–</b></div>
+    <div class="tile"><span class="label">Rentals $/hour</span><b id="vRate">–</b></div>
+  </div>
+
+  <div class="panel">
+    <div class="toolbar">
+      <input id="vSearch" type="search" placeholder="Search by status, card, country or any field…">
+    </div>
+    <div id="vList" class="dtable"><p class="muted pad">Loading…</p></div>
+  </div>
+
+  <div id="vDetail" class="panel detail" hidden></div>
+</section>
+
 <!-- ═════════════════════════ Stock & logs ═════════════════════════ -->
 <section id="page-logs" class="page" hidden>
   <div class="page-head">
@@ -344,6 +372,49 @@
   <div class="drawer-foot">
     <span id="tSummary" class="muted small"></span>
     <div class="row"><button id="tLaunch" class="cta">Launch on Thunder</button></div>
+  </div>
+</aside>
+
+<aside id="drawer-createVast" class="drawer" hidden aria-label="Rent a Vast.ai machine">
+  <div class="drawer-head"><h2>Rent a machine <span class="muted">Vast.ai</span></h2><button class="ghost icon" data-close>✕</button></div>
+  <div class="drawer-body">
+    <div class="note small">An <b>on-demand</b> rental: nobody can take the card while it runs, until the offer's end date. <b>Billing runs from Rent until Destroy</b>; stopping would release the card, so the console never stops one. The machine's own disk holds the models and the results: use <i>Download results</i> before <i>Destroy</i>.</div>
+    <div class="section">
+      <h3>Workflows to serve</h3>
+      <div class="row wrap">
+        <input id="vWfSearch" type="search" placeholder="Search workflows…">
+        <label class="check"><input id="vWfHideExp" type="checkbox"> hide experimental</label>
+      </div>
+      <div id="vWfChosen" class="chips"></div>
+      <div id="vWfList" class="list"></div>
+    </div>
+    <div class="section">
+      <h3>Machine</h3>
+      <p id="vNeed" class="muted small"></p>
+      <div class="grid3">
+        <label class="field"><span>Minimum GPU size (GB of VRAM)</span><input id="vMinVram" type="number" min="16" max="200" value="24"></label>
+        <label class="field"><span>Price cap ($ per hour)</span><input id="vMaxPrice" type="number" min="0.05" max="20" step="0.05" value="1.00"></label>
+        <label class="field"><span>Keep it at least (days)</span><input id="vMinDays" type="number" min="1" max="365" value="2"></label>
+      </div>
+      <div class="row wrap">
+        <label class="check"><input id="vNear" type="checkbox" checked> Europe and North Africa only</label>
+        <label class="check"><input id="vSecure" type="checkbox"> Certified data centres only (Secure Cloud)</label>
+        <button id="vRefreshOffers" class="ghost">Search</button>
+      </div>
+      <p class="muted small">Always required: CUDA 12.8 or newer, an Ampere or newer card, a reliable host (98%+), a fast connection and an open port.</p>
+      <div class="tablewrap">
+        <table class="gpus">
+          <thead><tr><th></th><th>Card</th><th>VRAM</th><th>$/hour</th><th>Where</th><th>Host</th><th>Reliability</th><th>Download</th><th>Can keep</th></tr></thead>
+          <tbody id="vOfferRows"><tr><td colspan="9" class="muted">Searching…</td></tr></tbody>
+        </table>
+      </div>
+      <label class="field"><span>Disk for the image, models and results (GB)</span><input id="vDisk" type="number" min="60" max="2000" value="120"></label>
+      <label class="check"><input id="vFetch" type="checkbox" checked> Download missing models before serving</label>
+    </div>
+  </div>
+  <div class="drawer-foot">
+    <span id="vSummary" class="muted small"></span>
+    <div class="row"><button id="vLaunch" class="cta">Rent on Vast.ai</button></div>
   </div>
 </aside>
 

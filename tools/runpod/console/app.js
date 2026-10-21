@@ -87,7 +87,7 @@ function store(k, v) { try { if (v === undefined) return localStorage.getItem(k)
 })();
 
 // One page per provider, one for stock history and logs. Launching and the keys open in a panel from the right.
-const PAGES = ['runpod', 'thunder', 'logs'];
+const PAGES = ['runpod', 'thunder', 'vast', 'logs'];
 const pageOpen = (name) => !$(`page-${name}`).hidden;
 function showPage(name) {
     if (!PAGES.includes(name)) name = 'runpod';
@@ -97,6 +97,7 @@ function showPage(name) {
     if (location.hash !== `#${name}`) history.replaceState(null, '', `#${name}`);
     if (name === 'runpod') loadPods();
     if (name === 'thunder') loadThunderInstances();
+    if (name === 'vast') { loadSpend(); loadVastInstances(); }
     if (name === 'logs') { if ($('stockFold').open) loadStock(); loadAttempts(); }
 }
 for (const b of document.querySelectorAll('.tabs button')) b.onclick = () => showPage(b.dataset.page);
@@ -108,6 +109,7 @@ function openDrawer(name) {
     if (name === 'createPod') loadLaunch();
     if (name === 'createThunder') loadThunder();
     if (name === 'booking') loadBookingForm();
+    if (name === 'createVast') loadVastForm();
 }
 function closeDrawers() {
     for (const d of document.querySelectorAll('.drawer')) d.hidden = true;
@@ -119,6 +121,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('scri
 $('settingsBtn').onclick = () => openDrawer('settings');
 $('openCreatePod').onclick = () => openDrawer('createPod');
 $('openCreateThunder').onclick = () => openDrawer('createThunder');
+$('openCreateVast').onclick = () => openDrawer('createVast');
 $('openBooking').onclick = () => openDrawer('booking');
 $('stockFold').ontoggle = () => { if ($('stockFold').open && pageOpen('logs')) loadStock(); };
 $('attemptsFold').ontoggle = () => { if ($('attemptsFold').open && pageOpen('logs')) loadAttempts(); };
@@ -570,6 +573,286 @@ async function loadThunderInstances() {
     if (pageOpen('thunder')) tTimer = setTimeout(loadThunderInstances, d.instances.length ? 8000 : 30000);
 }
 $('tRefresh').onclick = loadThunderInstances;
+
+// ---- Vast.ai ----------------------------------------------------------------------
+// A marketplace: each row is one host's machine, rented on-demand (kept until the
+// offer's end date). The form searches with the filters, the owner picks a row.
+
+let vWorkflows = null;
+let vChosen = [];
+let vPlan = null;
+let vPick = null;
+let vTimer = null;
+let vInstances = [];
+let vSelected = null;
+let vCredit = null;
+
+async function loadVastForm() {
+    if (!settings?.vastApiKey?.set) {
+        $('vOfferRows').innerHTML = '<tr><td colspan="9" class="muted">Save your Vast.ai API key in Settings (top right) first.</td></tr>';
+        return;
+    }
+    if (!vWorkflows) {
+        try { vWorkflows = (await api('GET', '/api/workflows')).workflows; } catch (e) { toast(e.message, true); vWorkflows = []; }
+        renderVastWorkflows();
+    }
+    loadVastOffers();
+}
+
+function renderVastWorkflows() {
+    const q = $('vWfSearch').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const hideExp = $('vWfHideExp').checked;
+    const rows = (vWorkflows || []).filter(w => {
+        if (hideExp && w.experimental && !vChosen.includes(w.id)) return false;
+        const hay = `${w.name} ${w.id} ${w.category} ${w.description}`.toLowerCase();
+        return q.every(t => hay.includes(t));
+    });
+    $('vWfList').innerHTML = rows.map(w => `
+        <label class="wf">
+          <input type="checkbox" data-vwf="${esc(w.id)}" ${vChosen.includes(w.id) ? 'checked' : ''}>
+          <div>
+            <div class="name">${esc(w.name)}${w.experimental ? '<span class="badge exp">experimental</span>' : ''}${w.gated ? '<span class="badge">needs HF token</span>' : ''}</div>
+            <div class="desc">${esc(w.id)}${w.description ? ' — ' + esc(w.description) : ''}</div>
+          </div>
+          <div class="vram">${w.vramGb ? `${w.vramGb} GB` : '?'}<div class="muted small">${esc(w.vramSource)}</div></div>
+        </label>`).join('') || '<p class="muted" style="padding:12px">No workflow matches.</p>';
+    for (const cb of $('vWfList').querySelectorAll('input[data-vwf]')) {
+        cb.onchange = () => {
+            const id = cb.dataset.vwf;
+            vChosen = cb.checked ? [...vChosen, id] : vChosen.filter(x => x !== id);
+            renderVastWorkflows();
+            loadVastOffers();
+        };
+    }
+    $('vWfChosen').innerHTML = vChosen.map((id, i) => `<span class="chip">${i === 0 ? '<b>main</b> ' : ''}${esc(id)} <button data-vrm="${esc(id)}" title="Remove">×</button></span>`).join('');
+    for (const b of $('vWfChosen').querySelectorAll('[data-vrm]')) {
+        b.onclick = () => { vChosen = vChosen.filter(x => x !== b.dataset.vrm); renderVastWorkflows(); loadVastOffers(); };
+    }
+}
+$('vWfSearch').oninput = renderVastWorkflows;
+$('vWfHideExp').onchange = renderVastWorkflows;
+
+async function loadVastOffers() {
+    const q = new URLSearchParams({
+        workflows: vChosen.join(','), minVram: $('vMinVram').value, maxPrice: $('vMaxPrice').value,
+        minDays: $('vMinDays').value, near: $('vNear').checked ? '1' : '0', secure: $('vSecure').checked ? '1' : '0',
+        diskGb: $('vDisk').value,
+    });
+    $('vOfferRows').innerHTML = '<tr><td colspan="9" class="muted">Searching…</td></tr>';
+    try { vPlan = await api('GET', `/api/vast/offers?${q}`); }
+    catch (e) { $('vOfferRows').innerHTML = `<tr><td colspan="9" class="muted">${esc(e.message)}</td></tr>`; return; }
+    if (!vPlan.offers.some(o => o.id === vPick)) vPick = vPlan.offers[0]?.id ?? null;
+    renderVastPlan();
+}
+for (const id of ['vMinVram', 'vMaxPrice', 'vMinDays']) $(id).onchange = loadVastOffers;
+for (const id of ['vNear', 'vSecure']) $(id).onchange = loadVastOffers;
+$('vRefreshOffers').onclick = loadVastOffers;
+
+function vastDiskHint() {
+    const rows = vPlan?.diskByWorkflow || [];
+    const disk = Number($('vDisk').value) || 0;
+    const tooBig = rows.filter(w => w.minDiskGb > disk).sort((a, b) => b.minDiskGb - a.minDiskGb);
+    let t = 'No workflow ticked: the machine starts in admin mode. Set the admin password, then pick a workflow in its admin panel: its models download then, and it serves.';
+    if (rows.length) t += tooBig.length
+        ? ` With ${disk} GB of disk, ${rows.length - tooBig.length} of ${rows.length} workflows fit; too big: ${tooBig.slice(0, 6).map(w => `${w.id} (${w.minDiskGb} GB)`).join(', ')}${tooBig.length > 6 ? `, and ${tooBig.length - 6} more` : ''}.`
+        : ` With ${disk} GB of disk, any one of the ${rows.length} workflows fits.`;
+    return t;
+}
+
+function renderVastPlan() {
+    const n = vPlan.need, dl = vPlan.downloads;
+    let need = !vChosen.length ? vastDiskHint()
+        : n.gb == null ? 'No VRAM figure for these workflows: keep room to spare.'
+        : `These workflows need about ${n.gb} GB of VRAM together, so only cards with at least ${vPlan.minVramGb} GB are shown.`;
+    if (vChosen.length && dl) {
+        need += dl.gb != null ? ` A new machine downloads ${dl.gb} GB of models: the disk needs at least ${dl.minDiskGb} GB with the image.` : ' No download size is known for these workflows: keep the disk generous.';
+        if (dl.failing.length) need += ` ✗ ${dl.failing.join(', ')} cannot fetch all its models on a new machine — untick it.`;
+        if (dl.minDiskGb && Number($('vDisk').value) < dl.minDiskGb) $('vDisk').value = dl.minDiskGb;
+    }
+    $('vNeed').textContent = need;
+    const day = (t) => t ? new Date(t).toLocaleDateString([], { day: 'numeric', month: 'short' }) : '?';
+    $('vOfferRows').innerHTML = vPlan.offers.length ? vPlan.offers.map(o => `
+        <tr class="${o.id === vPick ? 'picked' : ''}" data-voffer="${esc(o.id)}">
+          <td><input type="radio" name="vgpu" ${o.id === vPick ? 'checked' : ''}></td>
+          <td>${esc(o.gpu)}</td><td>${o.vramGb} GB</td>
+          <td>${o.pricePerHr.toFixed(2)}</td>
+          <td>${esc(o.where || '?')}</td>
+          <td class="small">${o.datacenter ? '<b>data centre</b>' : 'individual'}<div class="muted">${o.cpuCores} CPU · ${o.ramGb} GB RAM</div></td>
+          <td>${o.reliability != null ? `${(o.reliability * 100).toFixed(1)}%` : '?'}</td>
+          <td class="small">${o.downMbps} Mbps${o.downloadPerTb ? `<div class="muted">${o.downloadPerTb}/TB</div>` : ''}</td>
+          <td class="small">until ${day(o.endAt)}<div class="muted">${o.days} days</div></td>
+        </tr>`).join('')
+        : '<tr><td colspan="9" class="muted">No machine meets these filters right now: raise the price cap, lower the days, or untick Europe.</td></tr>';
+    for (const tr of $('vOfferRows').querySelectorAll('tr[data-voffer]')) {
+        tr.onclick = () => { vPick = Number(tr.dataset.voffer); renderVastPlan(); };
+    }
+    const o = vPlan.offers.find(x => x.id === vPick);
+    $('vLaunch').disabled = !o || !!dl?.failing?.length;
+    $('vSummary').textContent = o
+        ? `${o.gpu} ${o.vramGb} GB in ${o.where} · ${o.pricePerHr.toFixed(2)}/hour with ${vPlan.diskGb} GB · kept until ${day(o.endAt)} · ${vChosen.length ? `serves ${vChosen.length} workflow${vChosen.length > 1 ? 's' : ''}` : 'admin mode'}`
+        : '';
+}
+$('vDisk').onchange = loadVastOffers;
+
+$('vLaunch').onclick = async () => {
+    const o = vPlan?.offers.find(x => x.id === vPick);
+    if (!o) return toast('Pick a machine', true);
+    await loadSpend();
+    const until = o.endAt ? new Date(o.endAt).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '?';
+    if (!confirm(`Rent a ${o.gpu} (${o.vramGb} GB) in ${o.where} on Vast.ai at ${o.pricePerHr.toFixed(2)}/hour?\n\nIt bills until you destroy it, and can be kept until ${until}. ${vChosen.length ? `It will serve: ${vChosen.join(', ')}.` : 'It starts in admin mode: pick the workflow in its admin panel; its models download then.'}${o.downloadPerTb ? `\n\nThis host charges ${o.downloadPerTb} per TB downloaded (the image and models are about 10–60 GB).` : ''}${coverage(spend?.vast?.balance ?? null, o.pricePerHr, 'Vast.ai')}`)) return;
+    $('vLaunch').disabled = true;
+    try {
+        await api('POST', '/api/vast/launch', {
+            offerId: o.id, workflows: vChosen, diskGb: Number($('vDisk').value), fetchModels: $('vFetch').checked,
+            expectedPerHr: o.pricePerHr, gpu: o.gpu, where: o.where, endAt: o.endAt,
+        });
+        toast('Rented: the machine pulls the image, then starts ComfyQ (a few minutes)');
+        closeDrawers();
+        loadVastInstances();
+        loadSpend();
+    } catch (e) { toast(e.message, true); if (e.status === 409) loadVastOffers(); }
+    finally { $('vLaunch').disabled = false; }
+};
+
+function vastStage(i) {
+    const plan = i.probe?.plan;
+    if (i.probe?.answering && i.probe.mode === 'student') return { cls: 'good', text: `Serving ${i.probe.served.map(w => w.id).join(', ')}` };
+    if (i.probe?.answering) {
+        if (plan?.status === 'failed' || plan?.status === 'refused') return { cls: 'bad', text: `ComfyQ could not prepare the workflows: ${plan.error || ''}` };
+        if (i.probe.mode === 'admin' && !(i.rec?.serve || []).length) return { cls: 'good', text: 'Up in admin mode — pick a workflow in its admin panel' };
+        return { cls: '', text: plan?.status === 'fetching' ? 'Downloading models' : 'ComfyQ is up, switching to serving mode' };
+    }
+    if (i.status === 'running') return { cls: '', text: i.url ? 'ComfyQ is booting (first start takes a few minutes)' : 'Running, waiting for its address' };
+    if (i.status === 'loading') return { cls: '', text: `Pulling the image${i.message ? `: ${i.message.slice(0, 120)}` : ''}` };
+    if (i.status === 'exited' || i.status === 'offline') return { cls: 'bad', text: `Vast.ai: ${i.status}${i.message ? ` — ${i.message.slice(0, 160)}` : ''}` };
+    return { cls: '', text: `Vast.ai: ${i.status}${i.message ? ` — ${i.message.slice(0, 160)}` : ''}` };
+}
+
+function vastDetailHtml(i) {
+    const st = vastStage(i);
+    const files = (i.probe?.plan?.files || []).filter(f => f.status !== 'done').map(f => {
+        const pct = f.total ? Math.round(100 * f.received / f.total) : 0;
+        return `<div class="file"><div>${esc(f.name)} <span class="muted small">— ${esc(f.status)}${f.total ? ` · ${gb(f.received)} / ${gb(f.total)} GB` : ''}</span></div>
+            ${f.error ? `<div class="small" style="color:var(--bad)">${esc(f.error)}</div>` : ''}
+            ${f.status === 'downloading' ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ''}</div>`;
+    }).join('');
+    const until = i.endAt ? new Date(i.endAt).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : null;
+    return `<div class="row"><h2>${esc(i.gpu || '')} <span class="muted mono">${esc(i.id)}</span></h2>
+        ${i.links ? `<button class="secondary" data-vdl="${esc(i.id)}">Download results</button>` : ''}
+        <button class="danger" data-vdel="${esc(i.id)}">Destroy…</button>
+        <button class="ghost icon" data-vclose title="Close">✕</button>
+      </div>
+      <div class="note ${st.cls}">${esc(st.text)}${st.cls === 'bad' ? '<br><b>The machine is still billing.</b> Destroy it if it does not recover.' : ''}</div>
+      ${i.links ? `<div class="links">
+        <a href="${esc(i.links.students)}" target="_blank" rel="noreferrer">Student page ↗</a>
+        <a href="${esc(i.links.admin)}" target="_blank" rel="noreferrer">Admin panel ↗</a>
+        <button class="ghost small" data-copylink="${esc(i.links.students)}">Copy student link</button>
+      </div>${studentLinksHtml(i.links, Object.fromEntries((i.probe?.served || []).map(w => [w.id, w.name])))}
+      <p class="muted small">A Vast.ai machine answers on its own address and a port Vast chose, over plain http (no https link): students type or click it as it is.</p>` : ''}
+      <dl class="kv">
+        <dt>Vast.ai status</dt><dd>${esc(i.status)}${i.where ? ` <span class="muted">(${esc(i.where)})</span>` : ''}</dd>
+        <dt>Cost</dt><dd>${i.pricePerHr != null ? `${i.pricePerHr.toFixed(2)} / hour` : '—'}${i.startedAt ? `, running for ${since(new Date(i.startedAt).toISOString())}` : ''}</dd>
+        ${until ? `<dt>Can be kept until</dt><dd>${esc(until)} <span class="muted">(the host's end date; after it the rental stops)</span></dd>` : ''}
+        ${i.rec ? `<dt>Asked to serve</dt><dd>${esc((i.rec.serve || []).join(', ') || 'admin mode')}</dd>` : '<dt>Origin</dt><dd>not rented from this console</dd>'}
+        ${i.probe?.usage ? `<dt>Students</dt><dd>${esc(i.probe.usage.usersConnected ?? 0)} connected</dd>` : ''}
+        ${i.probe?.jobs ? `<dt>Queue</dt><dd>${i.probe.jobs.running ? '1 running' : 'nothing running'}, ${(i.probe.jobs.scheduled || []).length} waiting</dd>` : ''}
+      </dl>
+      ${files ? `<h3>Models</h3><div class="files">${files}</div>` : ''}`;
+}
+
+function vMatches(i) {
+    const q = $('vSearch').value.trim().toLowerCase();
+    if (!q) return true;
+    const hay = [i.id, i.status, i.gpu, i.where, i.label, ...(i.rec?.serve || []), vastStage(i).text].join(' ').toLowerCase();
+    return q.split(/\s+/).every(t => hay.includes(t));
+}
+$('vSearch').oninput = () => renderVastInstances();
+
+function renderVastInstances() {
+    const list = vInstances;
+    const running = list.filter(i => i.status === 'running');
+    $('vastCount').textContent = list.length || '';
+    $('vTotal').textContent = list.length;
+    $('vRunning').textContent = running.length;
+    $('vCredit').textContent = vCredit != null ? `${vCredit.toFixed(2)}` : '–';
+    $('vRate').textContent = `${list.reduce((a, i) => a + (Number(i.pricePerHr) || 0), 0).toFixed(2)}`;
+    const shown = list.filter(vMatches);
+    $('vList').innerHTML = shown.length
+        ? `<table><thead><tr><th>ID</th><th>Status</th><th>GPU</th><th>Serving</th><th>Where</th><th class="num">Cost</th><th class="num">Up for</th><th></th></tr></thead><tbody>${shown.map(i => {
+            const st = vastStage(i);
+            const dot = st.cls === 'good' ? 'run' : st.cls === 'bad' ? 'bad' : i.status === 'running' ? 'warn' : 'stop';
+            return `<tr class="${i.id === vSelected ? 'sel' : ''}" data-vsel="${esc(i.id)}">
+              <td class="mono">${esc(i.id)}</td>
+              <td><span class="status" title="${esc(st.text)}"><span class="dot ${dot}"></span>${esc(st.cls === 'good' ? 'Serving' : st.cls === 'bad' ? 'Needs attention' : i.status === 'running' ? 'Setting up' : i.status === 'loading' ? 'Pulling image' : i.status)}</span></td>
+              <td>${esc(i.gpu || '')}</td>
+              <td class="small">${esc((i.probe?.served?.map(w => w.id) || i.rec?.serve || []).join(', ') || '—')}</td>
+              <td class="small">${esc(i.where || '—')}</td>
+              <td class="num">${i.pricePerHr != null ? `${i.pricePerHr.toFixed(2)}/h` : '—'}</td>
+              <td class="num">${i.startedAt ? since(new Date(i.startedAt).toISOString()) : '—'}</td>
+              <td>${i.links ? `<a class="small" href="${esc(i.links.students)}" target="_blank" rel="noreferrer">students ↗</a>` : ''}</td>
+            </tr>`;
+        }).join('')}</tbody></table>`
+        : list.length
+            ? '<div class="empty"><p>No rental matches.</p></div>'
+            : `<div class="empty"><div class="ico">▤</div><p><b>No rentals</b></p><p class="muted">Rent a machine to get started</p><p><button class="cta" data-create="vast">+ Rent a machine</button></p></div>`;
+    for (const b of $('vList').querySelectorAll('[data-create]')) b.onclick = () => openDrawer('createVast');
+    for (const tr of $('vList').querySelectorAll('[data-vsel]')) tr.onclick = (ev) => {
+        if (ev.target.closest('a')) return;
+        vSelected = vSelected === tr.dataset.vsel ? null : tr.dataset.vsel;
+        renderVastInstances();
+        if (vSelected) $('vDetail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    };
+
+    const box = $('vDetail');
+    const sel = list.find(i => i.id === vSelected);
+    box.hidden = !sel;
+    if (!sel) return;
+    box.innerHTML = vastDetailHtml(sel);
+    box.querySelector('[data-vclose]').onclick = () => { vSelected = null; renderVastInstances(); };
+    wireCopyLinks(box);
+    for (const b of box.querySelectorAll('[data-vdl]')) b.onclick = async () => {
+        const id = b.dataset.vdl;
+        try {
+            let st = await api('POST', `/api/vast/instances/${id}/download`);
+            b.disabled = true;
+            while (!['done', 'failed'].includes(st.state)) {
+                b.textContent = st.total ? `Saving ${st.saved}/${st.total}…` : 'Listing the results…';
+                await new Promise(r => setTimeout(r, 1500));
+                st = await api('GET', `/api/vast/instances/${id}/download`);
+            }
+            if (st.state === 'failed') throw new Error(st.error || 'the download failed');
+            toast(`Saved ${st.saved} of ${st.total} results (${(st.bytes / 1e6).toFixed(0)} MB) to ${st.folder}${st.failed.length ? ` — ${st.failed.length} could not be fetched` : ''}`, !!st.failed.length);
+        } catch (e) { toast(e.message, true); }
+        finally { b.disabled = false; b.textContent = 'Download results'; }
+    };
+    for (const b of box.querySelectorAll('[data-vdel]')) b.onclick = async () => {
+        const code = b.dataset.vdel;
+        const typed = await askCode({ title: 'Destroy this Vast.ai machine?', code, button: 'Destroy machine',
+            text: 'Its disk goes with it: the models AND every result students made on it. Download the results first.\n\nBilling stops once it is destroyed.' });
+        if (typed === null) return;
+        try { await api('DELETE', `/api/vast/instances/${code}`, { confirm: typed.trim() }); toast('Machine destroyed: billing stops'); vSelected = null; loadVastInstances(); loadSpend(); }
+        catch (e) { toast(e.message, true); }
+    };
+}
+
+async function loadVastInstances() {
+    clearTimeout(vTimer);
+    if (!settings?.vastApiKey?.set) {
+        $('vList').innerHTML = '<p class="muted pad">Save your Vast.ai API key in Settings (top right) first.</p>';
+        return;
+    }
+    let d;
+    try { d = await api('GET', '/api/vast/instances'); }
+    catch (e) { $('vList').innerHTML = `<p class="muted pad">${esc(e.message)}</p>`; return; }
+    vInstances = d.instances;
+    vCredit = spend?.vast?.balance ?? vCredit;
+    if (vSelected && !vInstances.some(i => i.id === vSelected)) vSelected = null;
+    // A machine still setting up opens its panel by itself.
+    if (!vSelected) vSelected = vInstances.find(i => vastStage(i).cls !== 'good')?.id || null;
+    renderVastInstances();
+    if (pageOpen('vast')) vTimer = setTimeout(loadVastInstances, d.instances.length ? 8000 : 30000);
+}
+$('vRefresh').onclick = () => { loadSpend(); loadVastInstances(); };
 
 // ---- launch ---------------------------------------------------------------------
 
@@ -1539,7 +1822,8 @@ function renderSpend() {
     const monthFrom = new Date(dayFrom); monthFrom.setDate(1);
     const lateMonth = spend.runpod.countingSince?.month && spend.runpod.countingSince.month - monthFrom.getTime() > 5 * 60000
         ? new Date(spend.runpod.countingSince.month).toLocaleDateString([], { day: 'numeric', month: 'short' }) : null;
-    $('spMonthSub').textContent = `Thunder ${money(spend.thunder.month)} · RunPod ${money(spend.runpod.month)}${lateMonth ? ` · counted from ${lateMonth}` : ''}`;
+    $('spMonthSub').textContent = `Thunder ${money(spend.thunder.month)} · RunPod ${money(spend.runpod.month)}${spend.vast?.month != null ? ` · Vast.ai ${money(spend.vast.month)}` : ''}${lateMonth ? ` · counted from ${lateMonth}` : ''}`;
+    if (spend.vast?.balance != null) { vCredit = spend.vast.balance; if (pageOpen('vast')) $('vCredit').textContent = `${vCredit.toFixed(2)}`; }
     $('spBal').textContent = money(spend.runpod.balance);
     $('spLeft').textContent = spend.runpod.hoursLeft != null
         ? (spend.runpod.hoursLeft > 72 ? `≈ ${Math.round(spend.runpod.hoursLeft / 24)} days at this rate` : `≈ ${spend.runpod.hoursLeft} h at this rate`) : '';
@@ -1561,7 +1845,7 @@ function renderSpend() {
     $('spMachines').innerHTML = spend.machines.map(m => {
         const ms = Date.now() - (m.since || Date.now());
         const cost = m.ratePerHr != null && m.since ? m.ratePerHr * ms / 3600000 : m.costSoFar;
-        return `<li><span class="dot"></span><b>${m.provider === 'thunder' ? 'Thunder' : 'RunPod'}</b>
+        return `<li><span class="dot"></span><b>${m.provider === 'thunder' ? 'Thunder' : m.provider === 'vast' ? 'Vast.ai' : 'RunPod'}</b>
             <span>${esc(m.gpu || '')}</span><span class="muted">${esc(m.name || m.id)}</span>
             <span class="${ms > 3 * 3600000 ? 'long' : ''}">on for ${dur(ms)}</span>
             <span class="cost">${money(cost)} so far</span><span class="muted">${money(m.ratePerHr)}/h</span></li>`;
@@ -1571,7 +1855,7 @@ function renderSpend() {
     if (b && ratio >= 1) notes.push(`Today is over the ${money(b)} budget.`);
     else if (b && spend.projectedToday > b && spend.ratePerHr >= 0.05) notes.push(`Left running, today reaches ${money(spend.projectedToday)} — over the ${money(b)} budget.`);
     if (spend.machines.some(m => Date.now() - (m.since || Date.now()) > 3 * 3600000)) notes.push('A machine has been on for more than 3 hours: delete or stop it if the class is over.');
-    notes.push('RunPod figures come from its balance; Thunder ones are computed from each instance\'s price and running time (its API has no balance).');
+    notes.push('RunPod and Vast.ai figures come from their balances; Thunder ones are computed from each instance\'s price and running time (its API has no balance).');
     $('spNote').textContent = notes.join(' ');
 }
 let tBalEditing = false;

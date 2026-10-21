@@ -35,7 +35,7 @@ const env = thunderEnv({ podId: 'thunder-abc', serve: ['wf_a', 'wf_b'], secrets:
 check('env: pod folder, serve list, secrets, no-fetch flag', env.COMFYQ_POD_ID === 'thunder-abc' && env.COMFYQ_SERVE === 'wf_a,wf_b'
     && env.COMFYQ_ADMIN_PASSWORD === 'p$w "x' && env.COMFYQ_HF_TOKEN === 'hf_123' && env.COMFYQ_FETCH_MODELS === '0' && !('COMFYQ_ACCESS_PASSWORD' in env));
 const script = remoteScript({ image: 'ghcr.io/urbandronedesign/comfyq:latest', env });
-check('the GPU goes in the only way Thunder supports', script.includes('--device nvidia.com/gpu=all') && !/--gpus/.test(script));
+check('the GPU goes in the only way Thunder supports', script.includes('--device nvidia.com/gpu=all') && !/--gpus\b/.test(script));
 check('the secrets go through a quoted heredoc into an env file, never a command line',
     script.includes("<<'COMFYQ_ENV_EOF'") && script.includes('COMFYQ_ADMIN_PASSWORD=p$w "x') && script.includes('--env-file "$ENVF"') && !/ -e COMFYQ_/.test(script));
 check('port 3000 is published and /workspace is the instance disk', script.includes('-p 3000:3000') && script.includes('-v "$WS:/workspace"'));

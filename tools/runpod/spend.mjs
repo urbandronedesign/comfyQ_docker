@@ -1,10 +1,12 @@
-// What the owner is spending, right now and so far, across RunPod and Thunder.
+// What the owner is spending, right now and so far, across RunPod, Thunder and Vast.ai.
 //
 // The two providers give very different things to work with:
 //  - RunPod reports money: the account balance and the current $/h
 //    (GraphQL `myself { clientBalance currentSpendPerHr }`). Spent today is the
 //    balance at the first reading of the day minus the balance now, plus any
 //    top-up seen in between — real money, not an estimate of it.
+//  - Vast.ai the same way, from the account's credit (/api/v0/users/current/),
+//    and each rental's own $/h (dph_total, storage included).
 //  - Thunder has no balance or usage API (only /v1/user-data, a subscription
 //    status). Its spend is computed: each instance's hourly price (Thunder's
 //    own formula, thunderHourly) times how long it has existed. A ledger
@@ -23,7 +25,7 @@ const startOfDay = (t) => { const d = new Date(t); d.setHours(0, 0, 0, 0); retur
 const startOfMonth = (t) => { const d = new Date(t); d.setHours(0, 0, 0, 0); d.setDate(1); return d.getTime(); };
 
 export function emptyLedger() {
-    return { thunder: {}, runpod: { day: null, month: null, last: null } };
+    return { thunder: {}, runpod: { day: null, month: null, last: null }, vast: { day: null, month: null, last: null } };
 }
 
 /** Hours of [start, end) that fall inside [from, to). */
@@ -39,9 +41,11 @@ export function overlapHours(start, end, from, to) {
  * @param {number} r.now
  * @param {Array<{uuid,name,gpu,ratePerHr,start}>|null} r.thunderLive  null = could not read Thunder (keep sessions open)
  * @param {number|null} r.runpodBalance                                  null = could not read RunPod
+ * @param {number|null} [r.vastBalance]                                  null = could not read Vast.ai
  */
-export function updateLedger(ledger, { now, thunderLive, runpodBalance }) {
+export function updateLedger(ledger, { now, thunderLive, runpodBalance, vastBalance = null }) {
     const l = ledger && ledger.thunder && ledger.runpod ? ledger : emptyLedger();
+    if (!l.vast) l.vast = { day: null, month: null, last: null };
     if (Array.isArray(thunderLive)) {
         const live = new Set();
         for (const i of thunderLive) {
@@ -57,17 +61,21 @@ export function updateLedger(ledger, { now, thunderLive, runpodBalance }) {
         const keepFrom = startOfMonth(now) - 35 * 24 * HOUR;
         for (const [k, s] of Object.entries(l.thunder)) if (s.end != null && s.end < keepFrom) delete l.thunder[k];
     }
-    if (typeof runpodBalance === 'number' && Number.isFinite(runpodBalance)) {
-        const rp = l.runpod;
-        // A rise in the balance is a top-up: count it so spend = start - now + topUps.
-        const rise = rp.last && runpodBalance > rp.last.balance + 0.005 ? runpodBalance - rp.last.balance : 0;
-        if (!rp.day || rp.day.key !== dayKey(now)) rp.day = { key: dayKey(now), balance: runpodBalance, topUps: 0, since: now };
-        else rp.day.topUps += rise;
-        if (!rp.month || rp.month.key !== monthKey(now)) rp.month = { key: monthKey(now), balance: runpodBalance, topUps: 0, since: now };
-        else rp.month.topUps += rise;
-        rp.last = { at: now, balance: runpodBalance };
-    }
+    foldBalance(l.runpod, runpodBalance, now);
+    foldBalance(l.vast, vastBalance, now);
     return l;
+}
+
+// One balance reading: the day's and the month's first reading, plus top-ups.
+function foldBalance(rp, balance, now) {
+    if (!(typeof balance === 'number' && Number.isFinite(balance))) return;
+    // A rise in the balance is a top-up: count it so spend = start - now + topUps.
+    const rise = rp.last && balance > rp.last.balance + 0.005 ? balance - rp.last.balance : 0;
+    if (!rp.day || rp.day.key !== dayKey(now)) rp.day = { key: dayKey(now), balance, topUps: 0, since: now };
+    else rp.day.topUps += rise;
+    if (!rp.month || rp.month.key !== monthKey(now)) rp.month = { key: monthKey(now), balance, topUps: 0, since: now };
+    else rp.month.topUps += rise;
+    rp.last = { at: now, balance };
 }
 
 /** The totals the console shows. */
@@ -83,7 +91,7 @@ export function thunderBalanceNow(ledger, entry, now) {
     return { balance: +(entry.amount - spent).toFixed(4), entered: entry.amount, enteredAt: entry.at, spentSince: +spent.toFixed(4) };
 }
 
-export function summarize(ledger, { now, runpodRatePerHr = null, runpodBalance = null, runpodMachines = [], budgetPerDay = null, thunderBalance = null }) {
+export function summarize(ledger, { now, runpodRatePerHr = null, runpodBalance = null, runpodMachines = [], budgetPerDay = null, thunderBalance = null, vastBalance = null, vastMachines = [] }) {
     const l = ledger || emptyLedger();
     const dayFrom = startOfDay(now), monthFrom = startOfMonth(now);
     const sessions = Object.values(l.thunder);
@@ -92,11 +100,15 @@ export function summarize(ledger, { now, runpodRatePerHr = null, runpodBalance =
     const thunderMonth = sessions.reduce((a, s) => a + cost(s, monthFrom), 0);
     const thunderRate = sessions.filter(s => s.end == null).reduce((a, s) => a + (s.ratePerHr || 0), 0);
 
-    const spentSince = (base) => base && typeof runpodBalance === 'number'
-        ? Math.max(0, base.balance - runpodBalance + (base.topUps || 0)) : null;
-    const runpodToday = spentSince(l.runpod.day);
-    const runpodMonth = spentSince(l.runpod.month);
+    const spentSince = (base, bal) => base && typeof bal === 'number'
+        ? Math.max(0, base.balance - bal + (base.topUps || 0)) : null;
+    const runpodToday = spentSince(l.runpod.day, runpodBalance);
+    const runpodMonth = spentSince(l.runpod.month, runpodBalance);
     const rpRate = typeof runpodRatePerHr === 'number' ? runpodRatePerHr : 0;
+    const vl = l.vast || {};
+    const vastToday = spentSince(vl.day, vastBalance);
+    const vastMonth = spentSince(vl.month, vastBalance);
+    const vastRate = vastMachines.reduce((a, m) => a + (Number(m.ratePerHr) || 0), 0);
 
     const machines = [
         ...sessions.filter(s => s.end == null).map(s => ({
@@ -107,14 +119,18 @@ export function summarize(ledger, { now, runpodRatePerHr = null, runpodBalance =
             provider: 'runpod', ...m,
             costSoFar: m.since && m.ratePerHr ? +(m.ratePerHr * (now - m.since) / HOUR).toFixed(4) : null,
         })),
+        ...vastMachines.map(m => ({
+            provider: 'vast', ...m,
+            costSoFar: m.since && m.ratePerHr ? +(m.ratePerHr * (now - m.since) / HOUR).toFixed(4) : null,
+        })),
     ];
-    const ratePerHr = +(rpRate + thunderRate).toFixed(4);
-    const today = +((runpodToday || 0) + thunderToday).toFixed(4);
+    const ratePerHr = +(rpRate + thunderRate + vastRate).toFixed(4);
+    const today = +((runpodToday || 0) + thunderToday + (vastToday || 0)).toFixed(4);
     return {
         at: now,
         ratePerHr,
         today,
-        month: +((runpodMonth || 0) + thunderMonth).toFixed(4),
+        month: +((runpodMonth || 0) + thunderMonth + (vastMonth || 0)).toFixed(4),
         budgetPerDay,
         // What today will reach if everything keeps running until midnight.
         projectedToday: +(today + ratePerHr * Math.max(0, startOfDay(now) + 24 * HOUR - now) / HOUR).toFixed(4),
@@ -124,6 +140,10 @@ export function summarize(ledger, { now, runpodRatePerHr = null, runpodBalance =
             today: runpodToday, month: runpodMonth,
             countingSince: { today: l.runpod.day?.since ?? null, month: l.runpod.month?.since ?? null },
             hoursLeft: typeof runpodBalance === 'number' && rpRate > 0 ? +(runpodBalance / rpRate).toFixed(1) : null,
+        },
+        vast: {
+            balance: vastBalance, ratePerHr: +vastRate.toFixed(4), today: vastToday, month: vastMonth,
+            hoursLeft: typeof vastBalance === 'number' && vastRate > 0 ? +(vastBalance / vastRate).toFixed(1) : null,
         },
         thunder: (() => {
             const b = thunderBalanceNow(l, thunderBalance, now);
