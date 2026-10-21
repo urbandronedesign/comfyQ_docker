@@ -145,6 +145,16 @@ A new machine downloads every model its workflows need. The console reads how mu
 
 Regenerate the sizes after adding a workflow: `node tools/model-provenance/fresh-machine.cjs --online --write-sizes`.
 
+## ⚠ Known issue: "Stop serving" on the main workflow stops them all
+
+On a machine serving two workflows, the first one served is the **primary** (marked so in the
+admin panel's *Running* card). Its only button is **Stop serving**, and that stops the **whole
+machine**: back to admin mode, every workflow gone, students can no longer book. When no job is
+running or waiting, it does so without asking. To stop just one workflow, use **Close lane** on
+an **extra** workflow; to drop the primary and keep another, use **Activate & serve** on the one
+to keep (its models are on the disk already: about a minute). To be fixed: stopping the primary
+will keep the other workflows serving.
+
 ## Workshop bookings: machines found before the class, kept all day
 
 RunPod's cheap cards come and go by the minute, and the image needs a host with a CUDA 12.8 driver, which
