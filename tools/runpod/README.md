@@ -145,15 +145,16 @@ A new machine downloads every model its workflows need. The console reads how mu
 
 Regenerate the sizes after adding a workflow: `node tools/model-provenance/fresh-machine.cjs --online --write-sizes`.
 
-## ⚠ Known issue: "Stop serving" on the main workflow stops them all
+## "Stop serving" stops only that workflow (fixed in image `ce3f858`)
 
 On a machine serving two workflows, the first one served is the **primary** (marked so in the
-admin panel's *Running* card). Its only button is **Stop serving**, and that stops the **whole
-machine**: back to admin mode, every workflow gone, students can no longer book. When no job is
-running or waiting, it does so without asking. To stop just one workflow, use **Close lane** on
-an **extra** workflow; to drop the primary and keep another, use **Activate & serve** on the one
-to keep (its models are on the disk already: about a minute). To be fixed: stopping the primary
-will keep the other workflows serving.
+admin panel's *Running* card). **Stop serving** on a workflow now stops only that one:
+an extra workflow closes at once; the primary going while others serve promotes the next one
+(the machine restarts, about 15 s on a Vast A6000, nothing downloads; a render running then
+fails, queued jobs wait and continue; student pages reconnect by themselves); the last workflow
+going puts the machine in admin mode. A window says what keeps serving before anything restarts.
+The header's **Reset to admin** still stops everything, and says so. Machines on an older image
+still have the old behaviour (Stop serving on the primary stopped every workflow).
 
 ## Workshop bookings: machines found before the class, kept all day
 
@@ -259,6 +260,82 @@ scheduled jobs in a repository with no activity for 60 days: re-enable it from
 the Actions tab. And a reading says
 what RunPod listed at that moment; a card listed as free can still be taken a
 second later.
+
+## Vast.ai: cheap cards in Europe, on an https link
+
+The **Vast.ai** page (console 0.1.14+) rents machines from Vast.ai's marketplace. Key in
+**Settings → Vast.ai** (stored in Windows protected storage); *Test the key* reads the credit.
+
+- **+ Rent a machine**: the workflows to serve, a minimum GPU size, a price cap, how many days
+  the machine must be keepable, *Europe and North Africa only*, *Certified data centres only*.
+  Every search also asks for CUDA 12.8 or newer, an Ampere-or-newer card (no bf16 before that),
+  98%+ reliability, an open port and a fast link; mining cards (CMP) are dropped. Pick a row,
+  **Rent on Vast.ai**: it bills from then until **Destroy…** (type the rental id).
+- **On-demand only.** Nobody can take the card while it runs, until the offer's end date (shown
+  as "Can keep"). There is **no booking for a later date**, and **stopping releases the card**,
+  so the console never stops a machine: rent, keep it running, destroy.
+- **Offers go fast**: a listed machine can be rented by someone else within a minute or two.
+  "Someone rented that machine a moment ago" → *Search* again and pick another.
+- The machine's disk holds the image (~40 GB), the models and the results: **Download results**
+  before **Destroy…**.
+- Spending: Vast.ai is counted from its credit, like RunPod; the app notifies when a machine
+  serves, fails, has been on for hours, when the credit runs low, and when its link changes.
+
+### The student link: a Cloudflare quick tunnel
+
+A Vast.ai machine only has `http://<ip>:<random port>`, which school firewalls often block. So
+every rental also opens a **Cloudflare quick tunnel** (image `9ade5be`+, see
+[docker/README.md](../../docker/README.md)): the student and admin links become
+`https://<random-words>.trycloudflare.com`, port 443. No account, no domain.
+
+Measured (2026-10-21):
+- **It works from the school in Morocco** (the owner's demo).
+- 20 students through it: 20/20 pages, uploads, bookings and edits; 27 min connected with no
+  drop; after a ComfyQ restart all 20 reconnected by themselves and **the address stayed the same**.
+- The address changes only if the tunnel itself restarts or the machine is recreated. Then the
+  console app shows a notification with the new link: send it to the class again (jobs are not
+  lost; they run on the machine).
+- Limits: Cloudflare calls quick tunnels testing grade (no uptime guarantee), at most 200
+  requests in flight, uploads up to 100 MB (pictures are far below; long videos would not be),
+  a request is cut after 100 s (renders are not requests, so they are not affected).
+
+### Plan B: fixed addresses on your own domain (documented, not set up)
+
+If a school ever blocks `trycloudflare.com`, or a fixed address is wanted (`https://atelier1.urbandrone.xyz`,
+the same every day, printable as a QR code), the owner's domain **urbandrone.xyz** can carry
+Cloudflare's permanent ("named") tunnels. The domain stays registered at OVH and the website
+stays on GitHub Pages; only the DNS moves from Netlify to Cloudflare (free).
+
+**1. The domain on Cloudflare** (about 15 min): dash.cloudflare.com → **Add a domain** →
+`urbandrone.xyz` → **Free**. Check that the copy holds these records (as of 2026-10-21), add any
+missing one:
+
+| Type | Name | Value |
+|---|---|---|
+| A ×4 | `@` | 185.199.108.153, 185.199.109.153, 185.199.110.153, 185.199.111.153 (GitHub Pages) |
+| CNAME | `www` | urbandronedesign.github.io |
+| TXT | `@` | google-site-verification=V0csymGdp-jmGZh0fyxA8yxs5_hvMTsJsWzXDquBtRE |
+| TXT | `@` | v=spf1 -all |
+| TXT | `_dmarc` | v=DMARC1; p=reject |
+| TXT | `_github-pages-challenge-urbandronedesign` | the GitHub verification code (keep it: GitHub re-checks it) |
+
+Set the four **A** records and **www** to **DNS only (grey cloud)**, or GitHub cannot renew the
+website's certificate. Copy the two nameservers Cloudflare shows.
+
+**2. The switch, in OVH** (5 min): Web Cloud → Domain names → urbandrone.xyz → **DNS servers** →
+**Modify** → replace `dns1–4.p02.nsone.net` with Cloudflare's two. Usually active within the hour
+(at most a day); the website keeps working meanwhile. Delete nothing in Netlify until every record
+is checked as answering from Cloudflare.
+
+**3. A token for the console**: Cloudflare → My Profile → API Tokens → Create Custom Token →
+permissions *Account · Cloudflare Tunnel · Edit* and *Zone · DNS · Edit*, zone *urbandrone.xyz*.
+
+**4. To build** (not done): a Cloudflare section in Settings for that token; the console creates
+the tunnels `atelier1`, `atelier2`, `atelier3` and their DNS names once, and gives each rental the
+next free one; the image runs `cloudflared tunnel run` with the tunnel's key passed as the
+`TUNNEL_TOKEN` environment variable (never on a command line); quick tunnels stay the fallback.
+The same addresses then work every day, whatever machine is rented. Caveat: some filters also
+distrust `.xyz` domains, less often than `trycloudflare.com`; test from the school once.
 
 ## Thunder Compute: the backup when RunPod has no card
 
