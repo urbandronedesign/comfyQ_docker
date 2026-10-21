@@ -81,7 +81,7 @@ const DATA_CENTERS = ['EU-RO-1', 'EU-SE-1', 'EU-CZ-1', 'EU-NL-1', 'EU-FR-1', 'EU
 
 // ---- settings -----------------------------------------------------------------
 
-const SECRET_KEYS = ['runpodApiKey', 'thunderApiKey', 'adminPassword', 'accessPassword', 'hfToken'];
+const SECRET_KEYS = ['runpodApiKey', 'thunderApiKey', 'vastApiKey', 'adminPassword', 'accessPassword', 'hfToken'];
 const PLAIN_KEYS = ['image', 'volumeId', 'community', 'diskGb'];
 
 // In the desktop app (COMFYQ_SECRETS=parent) the keys and passwords never touch
@@ -142,7 +142,7 @@ function saveSettings(s) {
 // What the page may see: whether each secret is set, and for the two long
 // tokens their last 4 characters, so two keys can be told apart. Never for a
 // password: the last 4 characters of a short one are most of it.
-const HINTED = new Set(['runpodApiKey', 'thunderApiKey', 'hfToken']);
+const HINTED = new Set(['runpodApiKey', 'thunderApiKey', 'vastApiKey', 'hfToken']);
 function publicSettings(s = loadSettings()) {
     const out = { file: SETTINGS_FILE, defaultImage: DEFAULT_IMAGE, secretsProtected: SECRETS_FROM_PARENT, sshMissing: process.env.COMFYQ_SSH_MISSING === '1' };
     for (const k of SECRET_KEYS) {
@@ -199,6 +199,24 @@ route('POST', '/api/test-key', async () => {
     let gpus = null;
     try { gpus = (await gpuTypes(key)).gpus.length; } catch { /* prices are optional */ }
     return { ok: true, pods: pods.length, volumes: vols.length, gpuTypes: gpus };
+});
+
+// Vast.ai: a marketplace of machines, kept for a fixed period on-demand. The key
+// is checked by reading the account and its rentals (read only, rents nothing).
+const VAST_API = process.env.VAST_API_URL || 'https://console.vast.ai/api/v0';
+async function vastGet(pathname) {
+    const k = loadSettings().vastApiKey || process.env.VAST_API_KEY;
+    if (!k) throw new RunPodError('enter your Vast.ai API key in Settings (top right) first', 400);
+    const r = await fetch(`${VAST_API}${pathname}`, { headers: { Authorization: `Bearer ${k}` } });
+    const t = await r.text();
+    if (r.status === 401 || r.status === 403) throw new RunPodError('Vast.ai refused the key: check it on cloud.vast.ai → Account → Keys', 400);
+    if (!r.ok) throw new RunPodError(redact(`Vast.ai answered ${r.status}: ${t.slice(0, 200)}`), 502);
+    return JSON.parse(t);
+}
+route('POST', '/api/vast/test-key', async () => {
+    const me = await vastGet('/users/current/');
+    const inst = await vastGet('/instances/');
+    return { ok: true, credit: Number(me.credit ?? me.balance ?? 0), instances: (inst.instances || []).length };
 });
 
 // Thunder Compute, the backup provider. The key is checked by listing the

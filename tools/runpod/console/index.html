@@ -364,6 +364,12 @@
       <div class="tablewrap"><table id="thunderOffers" class="gpus" hidden></table></div>
     </div>
     <div class="section">
+      <h3>Vast.ai</h3>
+      <p class="muted small">An API key from cloud.vast.ai → <i>Account</i> → <i>Keys</i>. It can spend your credit, so it stays on this machine.</p>
+      <label class="field"><span>API key <em id="vastApiKeyState" class="state"></em></span><input id="vastApiKey" type="password" autocomplete="off" placeholder="Vast.ai API key"></label>
+      <div class="row"><button id="testVastKey" class="secondary">Test the key</button><span id="testVastKeyOut" class="muted small"></span></div>
+    </div>
+    <div class="section">
       <h3>ComfyQ passwords</h3>
       <p class="muted small">A machine is reachable by anyone who has its URL, so it will not serve without an admin password. The student password is optional.</p>
       <label class="field"><span>Admin password <em id="adminPasswordState" class="state"></em></span><input id="adminPassword" type="password" autocomplete="new-password" placeholder="protects /admin"></label>

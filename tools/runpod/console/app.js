@@ -137,7 +137,7 @@ function showTab(name) {
 // ---- credentials ----------------------------------------------------------------
 
 let settings = null;
-const SECRETS = ['runpodApiKey', 'thunderApiKey', 'adminPassword', 'accessPassword', 'hfToken'];
+const SECRETS = ['runpodApiKey', 'thunderApiKey', 'vastApiKey', 'adminPassword', 'accessPassword', 'hfToken'];
 
 // `cleared` names the inputs whose value was just saved; anything else typed
 // but not yet saved stays in its box.
@@ -235,6 +235,21 @@ $('testThunderKey').onclick = async () => {
         out.textContent = `works: ${r.instances} instance(s) on the account` + (r.offers ? '' : ', but prices are not readable');
         out.className = '';
         renderThunderOffers(r.offers);
+    } catch (e) { out.textContent = e.message; out.className = 'muted'; }
+};
+
+// Vast.ai: the key is checked by reading the account (credit, rentals); nothing is rented.
+$('testVastKey').onclick = async () => {
+    const out = $('testVastKeyOut');
+    if ($('vastApiKey').value.trim()) {
+        settings = await api('PUT', '/api/settings', { vastApiKey: $('vastApiKey').value.trim() });
+        renderSettings(['vastApiKey']);
+    }
+    out.textContent = 'checking…';
+    try {
+        const r = await api('POST', '/api/vast/test-key');
+        out.textContent = `works: credit ${Number(r.credit).toFixed(2)}, ${r.instances} rental(s) on the account`;
+        out.className = '';
     } catch (e) { out.textContent = e.message; out.className = 'muted'; }
 };
 

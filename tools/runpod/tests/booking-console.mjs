@@ -55,6 +55,11 @@ const fake = http.createServer(async (req, res) => {
         if (req.method === 'DELETE') { pods.delete(m[1]); return json(res, 200, {}); }
         return pods.has(m[1]) ? json(res, 200, pods.get(m[1])) : json(res, 404, { error: 'not found' });
     }
+    if (url.pathname.startsWith('/vast/')) {
+        if (req.headers.authorization !== 'Bearer vastkey0123456789abcdef') return json(res, 401, { error: 'bad key' });
+        if (url.pathname === '/vast/users/current/') return json(res, 200, { credit: 9.5 });
+        if (url.pathname === '/vast/instances/') return json(res, 200, { instances: [] });
+    }
     if (url.pathname === '/v1/networkvolumes') return json(res, 200, [{ id: 'vol1', name: 'comfyq-models', dataCenterId: 'EU-RO-1', size: 100 }]);
     // ---- the Pods themselves, through the proxy: /pod/<id>/... ----
     if ((m = url.pathname.match(/^\/pod\/([^/]+)(\/.*)$/))) {
@@ -77,7 +82,7 @@ const PORT = 4793;
 const TOKEN = 'bookingtesttoken0123456789';   // the page takes 16+ letters and digits
 const srv = spawn(process.execPath, [path.join(ROOT, 'tools/runpod/console/server.mjs'), '--no-open'], {
     env: { ...process.env, USERPROFILE: tmp, HOME: tmp, COMFYQ_NO_EXPLORER: '1', COMFYQ_CONSOLE_PORT: String(PORT), COMFYQ_CONSOLE_TOKEN: TOKEN,
-        RUNPOD_REST_URL: `${F}/v1`, RUNPOD_GRAPHQL_URL: `${F}/graphql`, COMFYQ_POD_PROXY: `${F}/pod/{id}`, COMFYQ_BOOKING_TICK_MS: '400' },
+        RUNPOD_REST_URL: `${F}/v1`, RUNPOD_GRAPHQL_URL: `${F}/graphql`, COMFYQ_POD_PROXY: `${F}/pod/{id}`, COMFYQ_BOOKING_TICK_MS: '400', VAST_API_URL: `${F}/vast` },
     stdio: ['ignore', 'pipe', 'pipe'],
 });
 let log = ''; srv.stdout.on('data', c => log += c); srv.stderr.on('data', c => log += c);
@@ -142,6 +147,17 @@ try {
     const nb = await booking(none.data.booking.id);
     check(`no card at 80 GB under $0.35: it says so instead of trying (${nb.blocked})`, /no card has at least 80 GB/.test(nb.blocked || '') && !creates.some(c => c.name.startsWith(`comfyq-bk-${nb.id}`)));
     await api('POST', `/api/bookings/${nb.id}/stop`);
+
+    // ---- the Vast.ai key: saved like the others, shown only by its last 4, tested read-only ----
+    const noVast = await api('POST', '/api/vast/test-key');
+    check(`no Vast.ai key: says where to enter it (${noVast.status})`, noVast.status === 400 && /Settings/.test(JSON.stringify(noVast.data)));
+    const vSaved = await api('PUT', '/api/settings', { vastApiKey: 'vastkey0123456789abcdef' });
+    check(`the Vast.ai key is saved and shown only as …cdef (${JSON.stringify(vSaved.data.vastApiKey)})`, vSaved.data.vastApiKey?.set && vSaved.data.vastApiKey.hint === '…cdef' && !JSON.stringify(vSaved.data).includes('vastkey0123'));
+    const vt = await api('POST', '/api/vast/test-key');
+    check(`the Vast.ai key test reads credit and rentals (${JSON.stringify(vt.data)})`, vt.status === 200 && vt.data.credit === 9.5 && vt.data.instances === 0);
+    await api('PUT', '/api/settings', { vastApiKey: 'wrongwrongwrongwrong' });
+    const bad = await api('POST', '/api/vast/test-key');
+    check(`a refused Vast.ai key says so, without echoing it (${bad.status})`, bad.status === 400 && /refused the key/.test(JSON.stringify(bad.data)) && !JSON.stringify(bad.data).includes('wrongwrong'));
 
     // ---- on shared storage: Secure, in the volume's data centre, mounting it ----
     const onVol = await api('POST', '/api/bookings', { name: 'Shared', count: 1, minVramGb: 24, maxPricePerHr: 0.5, cloud: 'community', volumeId: 'vol1', serve: ['image_sdxl_smoke_test'] });

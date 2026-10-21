@@ -11,7 +11,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const SECRET_KEYS = ['runpodApiKey', 'thunderApiKey', 'adminPassword', 'accessPassword', 'hfToken'];
+const SECRET_KEYS = ['runpodApiKey', 'thunderApiKey', 'vastApiKey', 'adminPassword', 'accessPassword', 'hfToken'];
 
 function dataDir() {
     return path.join(process.env.COMFYQ_APP_SERVER_HOME || os.homedir(), '.comfyq');
