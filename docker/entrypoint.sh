@@ -92,6 +92,15 @@ node server/cloud/podEnv.js || echo "[entrypoint] could not apply the environmen
 # stays: node packs that fetch gated models read that one.
 unset COMFYQ_ADMIN_PASSWORD COMFYQ_ACCESS_PASSWORD COMFYQ_HF_TOKEN
 
+# COMFYQ_TUNNEL=quick (set by the console for Vast.ai): an https address
+# through a Cloudflare quick tunnel, see tunnel.sh. Once per container start,
+# outside the ComfyQ loop below, so the address survives a mode switch.
+source "$APP/docker/tunnel.sh"
+rm -f /tmp/comfyq-public-url
+if [[ "${COMFYQ_TUNNEL:-}" == "quick" ]]; then
+    start_quick_tunnel "http://127.0.0.1:3000" /tmp/comfyq-public-url
+fi
+
 # ComfyUI's stdout/stderr are pipes into the ComfyQ process that spawned it.
 # When ComfyQ exits, ComfyUI survives with both ends gone, and the next
 # ComfyQ adopts it as already running — then the first line it prints during a

@@ -43,6 +43,7 @@ const OFFERS = [
 const queries = [], creates = [], destroyed = [];
 const instances = new Map();
 let gone102 = false;
+let tunnelUp = false;
 const vastSrv = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x');
     if (req.headers.authorization !== `Bearer ${KEY}`) return json(res, 401, { error: 'bad key' });
@@ -69,7 +70,7 @@ const vastSrv = http.createServer(async (req, res) => {
 
 // ---- fake ComfyQ on the rented machine ---------------------------------------------
 const comfySrv = http.createServer((req, res) => {
-    if (req.url === '/federation/self') return json(res, 200, { mode: 'student', servedWorkflows: [{ id: 'image_sdxl_smoke_test', name: 'SDXL' }], jobs: { running: null, scheduled: [] }, usage: { usersConnected: 1 } });
+    if (req.url === '/federation/self') return json(res, 200, { mode: 'student', servedWorkflows: [{ id: 'image_sdxl_smoke_test', name: 'SDXL' }], jobs: { running: null, scheduled: [] }, usage: { usersConnected: 1 }, publicUrl: tunnelUp ? 'https://lime-cat-river.trycloudflare.com' : null });
     if (req.url.startsWith('/jobs')) return json(res, 200, { jobs: [{ id: 'j1', user_id: 'zaki', workflow_id: 'image_sdxl_smoke_test', status: 'completed', prompt: 'a riad', params: {}, outputs: [{ filename: 'zaki_1.png' }] }] });
     if (req.url.startsWith('/images/')) { const body = Buffer.from('PNG'); res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': body.length }); return res.end(body); }
     if (req.url === '/admin/pod-plan') return json(res, 200, { plan: { status: 'done' } });
@@ -120,6 +121,7 @@ try {
         r1.status === 200 && c?.image === 'ghcr.io/urbandronedesign/comfyq:latest' && c.runtype === 'args' && !('args' in c) && c.disk === 120 && /^comfyq-vast-[0-9a-f]{6}$/.test(c.label) && c.price === null);
     check('it opens port 3000 and passes the serving plan and the passwords in env',
         c?.env?.['-p 3000:3000'] === '1' && c.env.COMFYQ_SERVE === 'image_sdxl_smoke_test' && c.env.COMFYQ_ADMIN_PASSWORD === 'admin-pw' && c.env.COMFYQ_HF_TOKEN === 'hf_secret_token_123' && /^vast-[0-9a-f]{6}$/.test(c.env.COMFYQ_POD_ID));
+    check('it asks the machine for an https tunnel (school firewalls block a raw ip:port)', c?.env?.COMFYQ_TUNNEL === 'quick');
     check('the launch answer carries no secret', !JSON.stringify(r1.data).includes('admin-pw') && !JSON.stringify(r1.data).includes('hf_secret'));
     gone102 = true;
     const r2 = await api('POST', '/api/vast/launch', { offerId: 102, workflows: [], diskGb: 120, expectedPerHr: 0.54 });
@@ -136,6 +138,13 @@ try {
     const i1 = l1.data?.instances?.[0];
     check(`once running: its address, students served, links per workflow (${JSON.stringify(i1?.links)})`,
         i1?.status === 'running' && i1.ip === '203.0.113.7' && i1.probe?.answering && i1.probe.mode === 'student' && i1.links?.byWorkflow?.[0]?.url.endsWith('/user?workflow=image_sdxl_smoke_test'));
+
+    check(`before the tunnel is up the links are the raw address, marked not secure (${i1?.links?.students})`, !i1.secure && i1.links.students === i1.direct);
+    tunnelUp = true;
+    const i2 = (await api('GET', '/api/vast/instances')).data?.instances?.[0];
+    check(`once the tunnel is up every student link is https on it (${JSON.stringify(i2?.links)})`,
+        i2?.secure && i2.links.students === 'https://lime-cat-river.trycloudflare.com' && i2.links.admin === 'https://lime-cat-river.trycloudflare.com/admin'
+        && i2.links.byWorkflow[0].url === 'https://lime-cat-river.trycloudflare.com/user?workflow=image_sdxl_smoke_test' && i2.direct !== i2.links.students);
 
     // ---- spending ----
     const sp = await api('GET', '/api/spend');

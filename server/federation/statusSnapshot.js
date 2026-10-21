@@ -11,7 +11,18 @@
 const sm = require('../queue/jobStateMachine');
 const { lanAddresses } = require('./systemInfo');
 
+const fs = require('fs');
+
 const SNAPSHOT_VERSION = 1;
+
+// Written by docker/entrypoint.sh when it opened a Cloudflare quick tunnel.
+const PUBLIC_URL_FILE = process.env.COMFYQ_PUBLIC_URL_FILE || '/tmp/comfyq-public-url';
+function publicUrl() {
+    try {
+        const u = fs.readFileSync(PUBLIC_URL_FILE, 'utf8').trim();
+        return /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/.test(u) ? u : null;
+    } catch { return null; }
+}
 const MAX_SCHEDULED = 25;          // keep the datagram comfortably small
 const PROMPT_MAX = 160;            // trim prompts for the wire
 
@@ -179,6 +190,9 @@ function buildSnapshot({ configManager, registry, runtime, sysInfo }) {
         // True when this machine is reserved behind a student access password
         // — a fleet monitor can show a lock instead of an open "Schedule a job".
         accessLocked: !!config.auth?.accessPasswordHash,
+        // The https address of a Cloudflare tunnel the container opened
+        // (docker/entrypoint.sh, COMFYQ_TUNNEL=quick), else null.
+        publicUrl: publicUrl(),
         jobs: jobsState({ runtime, registry }),
         federation: { enabled: fed.enabled !== false, intervalSec: fed.intervalSec || 15 },
         ts: Date.now()

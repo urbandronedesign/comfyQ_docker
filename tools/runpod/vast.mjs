@@ -95,7 +95,9 @@ export function vastEnv({ podId, serve = [], secrets = {}, fetchModels = true })
         // Vast passes these to docker as given: refuse what would break the line.
         if (/[\r\n]/.test(String(v))) throw new RunPodError(`${k} cannot contain a line break`, 400);
     }
-    return { ...env, [`-p ${PORT}:${PORT}`]: '1' };
+    // A Vast machine has only a raw ip:port, which school firewalls often block:
+    // the container also opens a Cloudflare quick tunnel (https, port 443).
+    return { ...env, COMFYQ_TUNNEL: 'quick', [`-p ${PORT}:${PORT}`]: '1' };
 }
 
 export function createBody({ image, env, diskGb, label }) {

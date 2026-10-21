@@ -748,7 +748,9 @@ function vastDetailHtml(i) {
         <a href="${esc(i.links.admin)}" target="_blank" rel="noreferrer">Admin panel ↗</a>
         <button class="ghost small" data-copylink="${esc(i.links.students)}">Copy student link</button>
       </div>${studentLinksHtml(i.links, Object.fromEntries((i.probe?.served || []).map(w => [w.id, w.name])))}
-      <p class="muted small">A Vast.ai machine answers on its own address and a port Vast chose, over plain http (no https link): students type or click it as it is.</p>` : ''}
+      ${i.secure
+        ? `<p class="muted small">Secure https address through a Cloudflare tunnel (port 443, what school firewalls let through). It changes if the machine restarts. Direct address, for this PC only: <span class="mono">${esc(i.direct || '')}</span></p>`
+        : `<p class="small" style="color:var(--warn, #b7791f)">No https address yet: the Cloudflare tunnel is starting (or this machine runs an older image). The link above is plain http on port ${esc((i.direct || '').split(':').pop())}, which a school firewall may block.</p>`}` : ''}
       <dl class="kv">
         <dt>Vast.ai status</dt><dd>${esc(i.status)}${i.where ? ` <span class="muted">(${esc(i.where)})</span>` : ''}</dd>
         <dt>Cost</dt><dd>${i.pricePerHr != null ? `${i.pricePerHr.toFixed(2)} / hour` : '—'}${i.startedAt ? `, running for ${since(new Date(i.startedAt).toISOString())}` : ''}</dd>

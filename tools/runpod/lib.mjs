@@ -146,6 +146,7 @@ export async function probeUrl(base) {
         served: (self?.servedWorkflows || []).map(w => ({ id: w.id, name: w.name, busy: !!w.busy })),
         jobs: self?.jobs || null,
         usage: self?.usage || null,
+        publicUrl: /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/.test(self?.publicUrl || '') ? self.publicUrl : null,
         plan: planRes?.plan || null,
     };
 }

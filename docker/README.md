@@ -186,6 +186,25 @@ bundles the Pod does not have yet. To replace them with the image's, start the
 Pod once with the environment variable `COMFYQ_SYNC_WORKFLOWS=1`. That
 overwrites them, so commit any edit you want to keep to git first.
 
+## An https address on any machine (Cloudflare quick tunnel)
+
+Vast.ai gives a machine only a raw `http://<ip>:<random port>`, which school
+firewalls often block (an unusual port, and plain http). With
+**`COMFYQ_TUNNEL=quick`** (the console sets it on every Vast.ai rental) the
+entrypoint starts `cloudflared` ([tunnel.sh](tunnel.sh), cloudflared pinned and
+SHA-256-checked in the Dockerfile) and the machine also answers on
+`https://<random>.trycloudflare.com`, port 443. ComfyQ reports it as `publicUrl`
+in `/federation/self`; the console's links switch to it as soon as it exists.
+
+- No Cloudflare account or domain. Cloudflare calls quick tunnels testing grade:
+  no uptime guarantee, up to 200 requests in flight (fine for a class of ~20).
+- The address is kept across ComfyQ restarts (mode switches) and changes only
+  if the tunnel itself restarts (then it says so in the container log) or the
+  machine is recreated: copy the student links from the console each time.
+- A stable address (`atelier1.example.com`) needs a named tunnel on a domain
+  you own; not set up.
+- Tested with a fake cloudflared: `bash docker/test-tunnel.sh`.
+
 ## Known limits
 
 - **RunPod cuts any request after 100 seconds.** A few admin actions wait for

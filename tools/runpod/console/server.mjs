@@ -994,9 +994,11 @@ route('GET', '/api/vast/instances', async () => {
     const instances = await Promise.all(live.map(async (i) => {
         const r = recs[i.id] || null;
         const probe = i.status === 'running' && i.url ? await probeUrl(i.url) : null;
+        // The https tunnel address once the machine has one, else the raw ip:port.
+        const base = probe?.publicUrl || i.url;
         return {
-            ...i, ours: !!r || String(i.label || '').startsWith(VAST_PREFIX), probe,
-            links: i.url ? { students: i.url, admin: `${i.url}/admin`, byWorkflow: studentLinks(i.url, probe?.served?.length ? probe.served.map(w => w.id) : (r?.serve || [])) } : null,
+            ...i, ours: !!r || String(i.label || '').startsWith(VAST_PREFIX), probe, direct: i.url, secure: !!probe?.publicUrl,
+            links: base ? { students: base, admin: `${base}/admin`, byWorkflow: studentLinks(base, probe?.served?.length ? probe.served.map(w => w.id) : (r?.serve || [])) } : null,
             rec: r && { serve: r.serve, label: r.label, pricePerHr: r.pricePerHr, where: r.where, diskGb: r.diskGb, createdAt: r.createdAt, endAt: r.endAt },
         };
     }));

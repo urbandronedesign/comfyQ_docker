@@ -41,6 +41,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
+# cloudflared: with COMFYQ_TUNNEL=quick the entrypoint opens a Cloudflare quick
+# tunnel, so a machine with only a raw ip:port (Vast.ai) gets an https address
+# on port 443 that school firewalls let through. Pinned and checked.
+ARG CLOUDFLARED_VERSION=2026.9.3
+ARG CLOUDFLARED_SHA256=77e26d8d900e0b8469f416239d14b5f296525fdf79fee6f511ef55609e3fbac2
+RUN curl -fsSL -o /usr/local/bin/cloudflared \
+        "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-amd64" \
+    && echo "${CLOUDFLARED_SHA256}  /usr/local/bin/cloudflared" | sha256sum -c - \
+    && chmod +x /usr/local/bin/cloudflared
+
 # ComfyQ strips VIRTUAL_ENV from ComfyUI's environment, so the venv is never
 # "activated" — it is reached by the absolute path to its python, which is
 # what config.json points at.
