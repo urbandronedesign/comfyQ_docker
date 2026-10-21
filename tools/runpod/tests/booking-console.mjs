@@ -165,6 +165,7 @@ try {
         check(`the form lists only qualifying cards, cheapest first (${r.cards})`, /RTX A5000.*RTX 3090/s.test(r.cards) && !/4090|4080|A6000/.test(r.cards));
         check(`the form says what the day costs at most (${r.summary})`, /2 × \$0\.35\/h = \$0\.70\/h/.test(r.summary));
         check(`booking from the page works and it shows in the list (${r.list.slice(0, 80)})`, r.booked && /Page booking/.test(r.list) && /hunting|ready/.test(r.list));
+        check(`stock history and logs are a page of their own, not on the RunPod page (${JSON.stringify(r.logs)})`, r.logs.shown && r.logs.stock && r.logs.attempts && r.logs.thunder && !r.logs.onRunpod && r.logs.hash === '#logs');
         check(`no script error on the page (${r.errors.join(' | ')})`, r.errors.length === 0);
     }
 } catch (e) {
@@ -213,7 +214,14 @@ async function browserCheck(chrome) {
         await sleep(2500);
         const booked = await evalJs("document.getElementById('drawer-booking').hidden");
         const list = await evalJs("document.getElementById('bookingList').innerText");
-        return { cards, summary, booked, list, errors, volume, cloudLocked };
+        await evalJs("document.querySelector('.tabs [data-page=logs]').click(); 1");
+        await sleep(2000);
+        const logs = await evalJs(`(() => { const pg = document.getElementById('page-logs');
+            return { shown: !pg.hidden && document.getElementById('page-runpod').hidden, hash: location.hash,
+                stock: pg.contains(document.getElementById('stockFold')) && document.getElementById('stockFold').open,
+                attempts: pg.contains(document.getElementById('attemptRows')), thunder: pg.contains(document.getElementById('tAttemptRows')),
+                onRunpod: !!document.querySelector('#page-runpod #stockFold, #page-runpod #attemptsFold, #page-thunder #tAttemptsFold') }; })()`);
+        return { cards, summary, booked, list, errors, volume, cloudLocked, logs };
     } finally { p.kill(); }
 }
 process.exit(bad ? 1 : 0);

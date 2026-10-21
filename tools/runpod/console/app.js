@@ -86,19 +86,21 @@ function store(k, v) { try { if (v === undefined) return localStorage.getItem(k)
     };
 })();
 
-// One page per provider. Launching and the keys open in a panel from the right.
+// One page per provider, one for stock history and logs. Launching and the keys open in a panel from the right.
+const PAGES = ['runpod', 'thunder', 'logs'];
 const pageOpen = (name) => !$(`page-${name}`).hidden;
 function showPage(name) {
-    if (!['runpod', 'thunder'].includes(name)) name = 'runpod';
+    if (!PAGES.includes(name)) name = 'runpod';
     for (const b of document.querySelectorAll('.tabs button')) b.setAttribute('aria-selected', String(b.dataset.page === name));
     for (const s of document.querySelectorAll('.page')) s.hidden = s.id !== `page-${name}`;
     store('rpc.page', name);
     if (location.hash !== `#${name}`) history.replaceState(null, '', `#${name}`);
-    if (name === 'runpod') { loadPods(); if ($('attemptsFold').open) loadAttempts(); }
-    if (name === 'thunder') { loadThunderInstances(); loadAttempts(); }
+    if (name === 'runpod') loadPods();
+    if (name === 'thunder') loadThunderInstances();
+    if (name === 'logs') { if ($('stockFold').open) loadStock(); loadAttempts(); }
 }
 for (const b of document.querySelectorAll('.tabs button')) b.onclick = () => showPage(b.dataset.page);
-window.addEventListener('hashchange', () => { const n = location.hash.slice(1); if (['runpod', 'thunder'].includes(n) && !pageOpen(n)) showPage(n); });
+window.addEventListener('hashchange', () => { const n = location.hash.slice(1); if (PAGES.includes(n) && !pageOpen(n)) showPage(n); });
 
 function openDrawer(name) {
     for (const d of document.querySelectorAll('.drawer')) d.hidden = d.id !== `drawer-${name}`;
@@ -118,16 +120,17 @@ $('settingsBtn').onclick = () => openDrawer('settings');
 $('openCreatePod').onclick = () => openDrawer('createPod');
 $('openCreateThunder').onclick = () => openDrawer('createThunder');
 $('openBooking').onclick = () => openDrawer('booking');
-$('stockFold').ontoggle = () => { if ($('stockFold').open) loadStock(); };
-$('attemptsFold').ontoggle = () => { if ($('attemptsFold').open) loadAttempts(); };
+$('stockFold').ontoggle = () => { if ($('stockFold').open && pageOpen('logs')) loadStock(); };
+$('attemptsFold').ontoggle = () => { if ($('attemptsFold').open && pageOpen('logs')) loadAttempts(); };
+$('tAttemptsFold').ontoggle = () => { if ($('tAttemptsFold').open && pageOpen('logs')) loadAttempts(); };
 
 // The old tab names, for the calls that still use them.
 function showTab(name) {
     if (name === 'creds') return openDrawer('settings');
     if (name === 'launch') { showPage('runpod'); return openDrawer('createPod'); }
     if (name === 'thunder') return showPage('thunder');
-    if (name === 'stock') { showPage('runpod'); $('stockFold').open = true; return; }
-    if (name === 'attempts') { showPage('runpod'); $('attemptsFold').open = true; return; }
+    if (name === 'stock') { $('stockFold').open = true; return showPage('logs'); }
+    if (name === 'attempts') { $('attemptsFold').open = true; return showPage('logs'); }
     showPage('runpod');
 }
 
@@ -1300,7 +1303,7 @@ async function loadAttempts() {
             </tr>`;
         }).join('') || '<tr><td colspan="6" class="muted">No attempt recorded yet.</td></tr>';
     } catch (e) { $('attemptsSummary').textContent = e.message; }
-    attemptsTimer = setTimeout(() => { if (($('attemptsFold').open && pageOpen('runpod') || $('tAttemptsFold').open && pageOpen('thunder')) && !document.hidden) loadAttempts(); }, 5000);
+    attemptsTimer = setTimeout(() => { if (pageOpen('logs') && ($('attemptsFold').open || $('tAttemptsFold').open) && !document.hidden) loadAttempts(); }, 5000);
 }
 $('refreshAttempts').onclick = loadAttempts;
 
@@ -1691,8 +1694,8 @@ if (UPD) {
 
 (async () => {
     try { await loadSettings(); } catch (e) { toast(e.message, true); return; }
-    // #runpod / #thunder in the address opens that page (bookmarks, links).
-    const saved = ['#runpod', '#thunder'].includes(location.hash) ? location.hash.slice(1) : store('rpc.page');
+    // #runpod / #thunder / #logs in the address opens that page (bookmarks, links).
+    const saved = PAGES.includes(location.hash.slice(1)) ? location.hash.slice(1) : store('rpc.page');
     showPage(saved || (settings.runpodApiKey.set || !settings.thunderApiKey.set ? 'runpod' : 'thunder'));
     // First run: nothing works without a key, so start with the keys.
     if (!settings.runpodApiKey.set && !settings.thunderApiKey.set) openDrawer('settings');

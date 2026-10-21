@@ -169,7 +169,7 @@ shut-down time. Then, **while the app runs** (window closed is fine; quitting st
 asks first):
 
 - from the start time, **every minute** the console asks RunPod for the machines still missing, with
-  every qualifying card as a fallback, cheapest first. A refused try costs nothing; each try is in *Attempts*;
+  every qualifying card as a fallback, cheapest first. A refused try costs nothing; each try is in *Stock & logs → Attempts*;
 - each machine found is **kept**. It boots serving the workflows; their models come from the shared volume,
   or, with none, are downloaded to its own disk (a few minutes, ~19 GB for Krea 2). You get a Windows
   notification, and its student links show under the booking;
@@ -220,7 +220,7 @@ takes a reading every 15 minutes with
 [stock-recorder.mjs](stock-recorder.mjs): which cards of 24 GB or more are
 free, at what price, in each of RunPod's data centres. It saves the readings on
 the repository's **`runpod-stock` branch** (one file per month, never on
-`main`). The RunPod page's **When are cards free?** section reads them and shows, for a data centre
+`main`). The **Stock & logs** page's **When are cards free?** section reads them and shows, for a data centre
 and a card, in what share of the readings it was free, by weekday and hour,
 in your local time. Use it to choose when to launch before a class. No
 machine has to stay on.
