@@ -203,7 +203,8 @@ route('POST', '/api/test-key', async () => {
 
 // Vast.ai: a marketplace of machines, kept for a fixed period on-demand. The key
 // is checked by reading the account and its rentals (read only, rents nothing).
-const VAST_API = process.env.VAST_API_URL || 'https://console.vast.ai/api/v0';
+// Vast moves calls to v1 one by one (v0 /instances/ answers 410 since 2026-10), so the version is in each path.
+const VAST_API = process.env.VAST_API_URL || 'https://console.vast.ai/api';
 async function vastGet(pathname) {
     const k = loadSettings().vastApiKey || process.env.VAST_API_KEY;
     if (!k) throw new RunPodError('enter your Vast.ai API key in Settings (top right) first', 400);
@@ -214,9 +215,9 @@ async function vastGet(pathname) {
     return JSON.parse(t);
 }
 route('POST', '/api/vast/test-key', async () => {
-    const me = await vastGet('/users/current/');
-    const inst = await vastGet('/instances/');
-    return { ok: true, credit: Number(me.credit ?? me.balance ?? 0), instances: (inst.instances || []).length };
+    const me = await vastGet('/v0/users/current/');
+    const inst = await vastGet('/v1/instances/');
+    return { ok: true, credit: Number(me.credit ?? 0), instances: Number(inst.total_instances ?? (inst.instances || []).length) };
 });
 
 // Thunder Compute, the backup provider. The key is checked by listing the
