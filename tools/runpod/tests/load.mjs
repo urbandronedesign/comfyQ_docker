@@ -71,12 +71,13 @@ const secs = (ms) => ms == null ? '—' : `${Math.round(ms / 1000)} s`;
 
 /**
  * Run the load test. Returns a summary object and logs as it goes.
- * @param {object} o  { targets: [{ podId, workflow }…] — or podId + workflows: [id…] for one Pod — students, log, timeoutMin }
+ * @param {object} o  { targets: [{ podId, workflow }…] — or podId + workflows: [id…] for one Pod — students, log, timeoutMin,
+ *   prompts: [string…], pictures: [{ name, data: Buffer }…] (student i uploads picture i; default: one drawn here) }
  *   Each student books the workflow of target i % n on that target's Pod.
  */
 export { testPicture, fieldsOf };
 
-export async function loadTest({ targets, podId, workflows, students = 20, prompts = null, log = console.log, timeoutMin = 45 }) {
+export async function loadTest({ targets, podId, workflows, students = 20, prompts = null, pictures = null, log = console.log, timeoutMin = 45 }) {
     targets = targets || workflows.map(workflow => ({ podId, workflow }));
     workflows = [...new Set(targets.map(t => t.workflow))];
     const podIds = [...new Set(targets.map(t => t.podId))];
@@ -126,7 +127,8 @@ export async function loadTest({ targets, podId, workflows, students = 20, promp
             if (f.imageKey) {
                 const tu = Date.now();
                 const form = new FormData();
-                form.append('file', new Blob([picture], { type: 'image/png' }), `student-${i + 1}.png`);
+                const mine = pictures?.length ? pictures[i % pictures.length] : null;
+                form.append('file', new Blob([mine ? mine.data : picture], { type: 'image/png' }), mine ? mine.name : `student-${i + 1}.png`);
                 const r = await fetch(base + '/upload', { method: 'POST', body: form, signal: AbortSignal.timeout(120000) });
                 if (!r.ok) throw new Error(`upload ${r.status} ${(await r.text()).slice(0, 120)}`);
                 params[f.imageKey] = (await r.json()).filename;
