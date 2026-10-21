@@ -1373,6 +1373,54 @@ function makeRouter({ configManager, registry, adminGate, exitForRestart, runtim
         }
     });
 
+    // Stop ONE workflow and keep the others serving (owner, 2026-10-21: "I stopped
+    // serving SDXL but it stopped all the lanes"). An extra lane just closes. The
+    // primary lane owns the machine's base ComfyUI, so stopping it while others
+    // serve promotes the next one to primary and restarts into serving it (their
+    // models are on disk: nothing downloads). Only the last workflow going puts
+    // the machine in admin mode, as reset-to-admin does.
+    router.post('/stop-workflow', adminGate, express.json(), async (req, res) => {
+        try {
+            const { workflowId } = req.body || {};
+            if (!workflowId) return res.status(400).json({ error: 'workflowId required' });
+            const cfg = configManager.load().config;
+            const lanes = runtime?.lanes;
+            const live = lanes ? lanes.list() : [];
+            const lane = live.find(l => l.workflowId === workflowId);
+            if (lane && !lane.primary) {
+                await lanes.close(workflowId);
+                console.log(`[Admin] stop-workflow: closed the lane of ${workflowId}`);
+                return res.json({ ok: true, action: 'closed', serving: live.filter(l => l.workflowId !== workflowId).map(l => l.workflowId) });
+            }
+            const primary = live.find(l => l.primary)?.workflowId || cfg.workflows.activeWorkflowId;
+            if (cfg.mode !== 'student' || workflowId !== primary) return res.status(409).json({ error: `${workflowId} is not being served` });
+            const others = live.length
+                ? live.filter(l => !l.primary).map(l => l.workflowId)
+                : (cfg.workflows.extraLaneWorkflowIds || []).filter(id => id !== workflowId);
+            const keep = others.filter(id => { const e = registry.get(id); return e && !e.unavailable; });
+            if (!keep.length) {
+                configManager.update(c => { c.mode = 'admin'; return c; });
+                console.log(`[Admin] stop-workflow: ${workflowId} was the last one served — admin mode`);
+                res.json({ ok: true, action: 'admin', serving: [] });
+                if (exitForRestart) setTimeout(() => exitForRestart('admin'), 250);
+                return;
+            }
+            // The lane being promoted runs its own ComfyUI on another port: stop it,
+            // or on a rig (where a restart leaves ComfyUI processes up) it would
+            // linger holding VRAM while the base ComfyUI loads the same models.
+            if (lanes?.get(keep[0])) await lanes.close(keep[0]);
+            configManager.update(c => {
+                c.workflows.activeWorkflowId = keep[0];
+                c.workflows.extraLaneWorkflowIds = keep.slice(1);
+                c.mode = 'student';
+                return c;
+            });
+            console.log(`[Admin] stop-workflow: ${workflowId} stopped; ${keep[0]} becomes primary${keep.length > 1 ? `, ${keep.slice(1).join(', ')} stay` : ''}; restarting`);
+            res.json({ ok: true, action: 'promoted', primary: keep[0], serving: keep });
+            if (exitForRestart) setTimeout(() => exitForRestart('student'), 250);
+        } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+
     router.post('/reset-to-admin', adminGate, (req, res) => {
         configManager.update(c => { c.mode = 'admin'; return c; });
         res.json({ ok: true, mode: 'admin' });

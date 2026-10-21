@@ -566,7 +566,7 @@ const WorkflowSelector = ({ headers = {}, nodePackGaps = null, selectedWorkflowI
                                                         disabled={deactivating}
                                                         onClick={(e) => { e.stopPropagation(); onDeactivate(w.id); }}
                                                         className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-background border border-border hover:border-danger/50 text-muted hover:text-danger transition-colors disabled:opacity-60 disabled:cursor-wait"
-                                                        title="Stop serving — switch the server back to admin mode"
+                                                        title={(lanes || []).length > 1 ? 'Stop serving this workflow — the others keep serving' : 'Stop serving — switch the server back to admin mode'}
                                                     >
                                                         {deactivating ? <RefreshCw size={13} className="animate-spin" /> : <Square size={13} />}
                                                         <span>{deactivating ? 'Stopping…' : 'Stop serving'}</span>

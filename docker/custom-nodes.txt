@@ -1,6 +1,13 @@
 # ComfyUI node packs baked into the image — one git URL per line, optionally
 # pinned with @<commit-or-tag>. Blank lines and # comments are ignored.
 #
+# ★ Every pack is PINNED to a commit (2026-10-21, the commits in image sha-9ade5be,
+# where SDXL and 20 FLUX.3 Klein edits were checked): a rebuild for an unrelated
+# change (cloudflared) had otherwise taken whatever 22 authors published since
+# the last build. To update a pack: change its commit here, rebuild, and test
+# the bundles that use it. (Their Python requirements are not pinned: only
+# torch and friends, by constraints.txt.)
+#
 # Edit this file and rebuild the image to add, remove or pin a pack (see
 # docker/README.md). A pack installed later from the admin panel lands on the
 # container's own disk and is gone at the next Pod restart — put it here instead.
@@ -10,33 +17,33 @@
 # Comfy registry entry. None is guessed.
 
 # ---- Used by the bundles in workflows/ ---------------------------------------
-https://github.com/Fannovel16/comfyui_controlnet_aux
-https://github.com/kijai/ComfyUI-KJNodes
-https://github.com/Lightricks/ComfyUI-LTXVideo
-https://github.com/kijai/ComfyUI-LivePortraitKJ
-https://github.com/lquesada/ComfyUI-Inpaint-CropAndStitch
-https://github.com/PozzettiAndrea/ComfyUI-DepthAnythingV3
-https://github.com/yuvraj108c/ComfyUI-Video-Depth-Anything
-https://github.com/lbouaraba/comfyui-krea2edit
-https://github.com/BennyDaBall930/ComfyUI-Latent-Tiled-PiD
-https://github.com/b2renger/ComfyUI-QwenImage21-FunControlNet
-https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler
-https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite
-https://github.com/rgthree/rgthree-comfy
-https://github.com/cubiq/ComfyUI_essentials
+https://github.com/Fannovel16/comfyui_controlnet_aux@a587a4c1594524c1d2de5cd1a86cd868ff448e1c
+https://github.com/kijai/ComfyUI-KJNodes@f4bae1f9960e5d643573a2ecf7abd56453a21821
+https://github.com/Lightricks/ComfyUI-LTXVideo@220e1d45aa0469f518e982102fca4dca92a61862
+https://github.com/kijai/ComfyUI-LivePortraitKJ@4d9dc6205b793ffd0fb319816136d9b8c0dbfdff
+https://github.com/lquesada/ComfyUI-Inpaint-CropAndStitch@a645e22e0670f275b3f31a3a5c366577679ef297
+https://github.com/PozzettiAndrea/ComfyUI-DepthAnythingV3@20ef6c8ccf8d57a0ad6f6fa7031739eb8489f2a4
+https://github.com/yuvraj108c/ComfyUI-Video-Depth-Anything@a0db08e63d1ea571601c45cde4aaee0acdd0544d
+https://github.com/lbouaraba/comfyui-krea2edit@13ef60f20828949becada815d3cbc371eb5ccaab
+https://github.com/BennyDaBall930/ComfyUI-Latent-Tiled-PiD@06b427ed49174b42c1ff3e59020c7a7ebaaaa7b7
+https://github.com/b2renger/ComfyUI-QwenImage21-FunControlNet@735e4b80d8aebb9ee1fff337d776e0e32815bc80
+https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler@4490bd1f482e026674543386bb2a4d176da245b9
+https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite@4d907bee61e92c2e65af3bd6383a4e4d356126d1
+https://github.com/rgthree/rgthree-comfy@d7297b42f0fa78bec1c0411478f887423c249502
+https://github.com/cubiq/ComfyUI_essentials@9d9f4bedfc9f0321c19faf71855e228c93bd0dc9
 
 # ---- Needed by ComfyQ itself ---------------------------------------------------
 # The admin panel's missing-node-pack check reads its extension-node-map.json.
-https://github.com/ltdrdata/ComfyUI-Manager
+https://github.com/ltdrdata/ComfyUI-Manager@a74929c65b49d7d7d81b9a6f140de878a818b893
 
 # ---- Small utilities the rig also carries ---------------------------------------
-https://github.com/Fannovel16/ComfyUI-Frame-Interpolation
-https://github.com/city96/ComfyUI-GGUF
-https://github.com/pythongosssss/ComfyUI-Custom-Scripts
-https://github.com/evanspearman/ComfyMath
-https://github.com/BlenderNeko/ComfyUI_Noise
-https://github.com/Suzie1/ComfyUI_Comfyroll_CustomNodes
-https://github.com/niknah/quick-connections
+https://github.com/Fannovel16/ComfyUI-Frame-Interpolation@26545cc2dd95bc3d27f056016300673bdeee78f5
+https://github.com/city96/ComfyUI-GGUF@6ea2651e7df66d7585f6ffee804b20e92fb38b8a
+https://github.com/pythongosssss/ComfyUI-Custom-Scripts@609f3afaa74b2f88ef9ce8d939626065e3247469
+https://github.com/evanspearman/ComfyMath@c01177221c31b8e5fbc062778fc8254aeb541638
+https://github.com/BlenderNeko/ComfyUI_Noise@0c9ec19b16dc72334cb8ce82c3774aed183048e4
+https://github.com/Suzie1/ComfyUI_Comfyroll_CustomNodes@d78b780ae43fcf8c6b7c6505e6ffb4584281ceca
+https://github.com/niknah/quick-connections@12fc2b61b4d96a206e9e1abd189de58bd5091af3
 
 # ---- On the rig but used by no bundle: uncomment to include ---------------------
 # https://github.com/yolain/ComfyUI-Easy-Use

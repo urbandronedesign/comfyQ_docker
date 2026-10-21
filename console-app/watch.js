@@ -22,13 +22,17 @@ const dayKey = (t) => new Date(t).toDateString();
  * @param {object|null} state  what was decided last time (null on the first call)
  * @param {object} snap
  * @param {object} snap.spend      GET /api/spend
- * @param {Array<{id,name,provider,stage,detail}>} snap.machines  stage: 'setting-up' | 'serving' | 'failed' | 'other'
+ * @param {Array<{id,name,provider,stage,detail,address}>} snap.machines  stage: 'setting-up' | 'serving' | 'failed' | 'other';
+ *        address: the student page's https address when it can change (a Vast.ai machine's quick tunnel), else absent
  * @param {number} now
  * @returns {{ state: object, events: Array<{key,title,body,level}> }}
  */
+const providerName = (p) => p === 'thunder' ? 'Thunder' : p === 'vast' ? 'Vast.ai' : 'RunPod';
+
 function decide(state, { spend, machines = [], bookings = [] }, now) {
     const first = !state;
     const s = state ? JSON.parse(JSON.stringify(state)) : { stages: {}, longOn: {}, budgetDay: null, low: {} };
+    s.addresses = s.addresses || {};
     s.bookingSeen = s.bookingSeen || {};
     const events = [];
     const say = (key, title, body, level = 'info') => { if (!first) events.push({ key, title, body, level }); };
@@ -39,14 +43,23 @@ function decide(state, { spend, machines = [], bookings = [] }, now) {
         seen.add(m.id);
         const before = s.stages[m.id];
         if (before !== m.stage) {
-            const label = `${m.provider === 'thunder' ? 'Thunder' : 'RunPod'} · ${m.name || m.id}`;
+            const label = `${providerName(m.provider)} · ${m.name || m.id}`;
             if (m.stage === 'serving') say(`serving:${m.id}`, /admin mode/.test(m.name || '') ? `${label} is up` : `${label} is serving`,
                 /admin mode/.test(m.name || '') ? 'ComfyQ answers in admin mode: pick a workflow in its admin panel.' : 'The student pages are ready.');
             if (m.stage === 'failed') say(`failed:${m.id}`, `${label}: setup failed`, `${m.detail || 'Open the console to see why.'} It is still billing.`, 'bad');
         }
         s.stages[m.id] = m.stage;
+        // ★ A quick tunnel that restarts comes back on a NEW address, and the links
+        //   the students have stop working: say so at once, with the new one.
+        if (m.address) {
+            const was = s.addresses[m.id];
+            if (was && was !== m.address) say(`address:${m.id}:${m.address}`, `${providerName(m.provider)} · ${m.name || m.id}: new student link`,
+                `Its https address changed, so the old student links no longer work. New student page: ${m.address} — copy the links from the console and send them again.`, 'warn');
+            s.addresses[m.id] = m.address;
+        }
     }
     for (const id of Object.keys(s.stages)) if (!seen.has(id)) delete s.stages[id];
+    for (const id of Object.keys(s.addresses)) if (!seen.has(id)) delete s.addresses[id];
 
     // ---- on for a long time ----
     const running = spend?.machines || [];
@@ -58,7 +71,7 @@ function decide(state, { spend, machines = [], bookings = [] }, now) {
         const reached = LONG_ON_HOURS.filter(h => hours >= h).pop() || 0;
         const told = s.longOn[id] || 0;
         if (reached > told) {
-            const label = `${m.provider === 'thunder' ? 'Thunder' : 'RunPod'} · ${m.name || m.id}`;
+            const label = `${providerName(m.provider)} · ${m.name || m.id}`;
             say(`long:${id}:${reached}`, `${label} has been on for ${reached} hours`,
                 `${money(m.costSoFar ?? (m.ratePerHr || 0) * hours)} so far at ${money(m.ratePerHr)}/h. Delete or stop it if the class is over.`, 'warn');
         }
@@ -74,7 +87,7 @@ function decide(state, { spend, machines = [], bookings = [] }, now) {
     }
 
     // ---- balances running out ----
-    for (const [name, b] of [['RunPod', spend?.runpod], ['Thunder', spend?.thunder]]) {
+    for (const [name, b] of [['RunPod', spend?.runpod], ['Thunder', spend?.thunder], ['Vast.ai', spend?.vast]]) {
         const low = b && b.hoursLeft != null && b.ratePerHr > 0 && b.hoursLeft < LOW_BALANCE_HOURS;
         if (low && !s.low[name]) say(`low:${name}`, `${name} balance is running out`, `About ${money(b.balance)} left: ${b.hoursLeft} hours at the current rate.${name === 'RunPod' ? ' RunPod stops a Pod when it reaches zero.' : ''}`, 'bad');
         s.low[name] = !!low;
@@ -110,7 +123,7 @@ function quitQuestion(spend, bookings = []) {
     const rate = ms.reduce((a, m) => a + (Number(m.ratePerHr) || 0), 0);
     return {
         title: `${ms.length} machine${ms.length > 1 ? 's are' : ' is'} still billing`,
-        detail: `${ms.map(m => `• ${m.provider === 'thunder' ? 'Thunder' : 'RunPod'} · ${m.name || m.id}: ${money(m.ratePerHr)}/h`).join('\n')}\n\n`
+        detail: `${ms.map(m => `• ${providerName(m.provider)} · ${m.name || m.id}: ${money(m.ratePerHr)}/h`).join('\n')}\n\n`
             + `Together ${money(rate)}/h. Quitting the app does not stop them: they keep billing, and the app will not warn you any more. `
             + 'Delete or stop them in the console first, or quit anyway.'
             + (hunting.length ? `\n\n${hunting.length} workshop booking${hunting.length > 1 ? 's' : ''} also stop${hunting.length > 1 ? '' : 's'} hunting until the app is opened again.` : ''),

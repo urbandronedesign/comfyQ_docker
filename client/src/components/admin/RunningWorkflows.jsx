@@ -6,12 +6,11 @@ import Badge from '../ui/Badge';
 /**
  * What this machine is serving right now, one row per lane, each stoppable.
  *
- * ★ The two stops are NOT the same action, which is why they are labelled
- * differently. Closing an extra lane gives its VRAM back and the machine keeps
- * serving the others. Stopping the PRIMARY lane is "stop serving": it puts the
- * server back in admin mode, so students can no longer book anything — the same
- * thing the header's "Reset to admin" does. Mirrors the per-card controls in
- * WorkflowSelector so the two cannot drift.
+ * Every row stops only its own workflow (owner, 2026-10-21). Closing an extra
+ * lane gives its VRAM back at once. Stopping the PRIMARY lane while others serve
+ * promotes the next one (a restart, asked first by AdminConfig); only the last
+ * workflow going puts the machine in admin mode. The header's "Reset to admin"
+ * is the one that stops everything.
  *
  * Empty whenever nothing is served, which is the honest reading of an admin-mode
  * machine: it answers HTTP and schedules nothing.
@@ -80,7 +79,7 @@ const RunningWorkflows = ({
                                                 disabled={deactivating}
                                                 onClick={() => onDeactivate(l.workflowId)}
                                                 className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-background border border-border hover:border-danger/50 text-muted hover:text-danger transition-colors disabled:opacity-60 disabled:cursor-wait"
-                                                title="Stop serving — puts the server back in admin mode, so students can no longer book on this machine."
+                                                title={lanes.length > 1 ? 'Stop serving this workflow — the others keep serving (the machine restarts, about a minute).' : 'Stop serving — puts the server back in admin mode, so students can no longer book on this machine.'}
                                             >
                                                 {deactivating ? <RefreshCw size={13} className="animate-spin" /> : <Power size={13} />}
                                                 <span>{deactivating ? 'Stopping…' : 'Stop serving'}</span>

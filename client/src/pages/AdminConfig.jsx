@@ -684,24 +684,51 @@ const AdminConfig = ({ currentMode }) => {
         finally { setClosingLaneId(null); refreshLanes(); }
     };
 
-    // ★ Stop serving restarts ComfyQ into admin mode: EVERY lane stops, the job
-    // rendering fails (server-restart) and the queue waits until the machine
-    // serves again. On the Thunder test (2026-10-20) it was pressed on the
-    // primary lane mid-class and took the other workflow's render with it. So
-    // look at the queue first and ask when there is anything in it.
-    const requestStopServing = async () => {
+    // ★ Stopping ONE workflow keeps the others (owner, 2026-10-21: "I stopped
+    // serving SDXL but it stopped all the lanes"). An extra lane just closes.
+    // The primary lane going while others serve promotes the next one, which
+    // restarts ComfyQ (about a minute, nothing downloads): a render running then
+    // fails on any workflow, so the window always says so. The header's "Reset
+    // to admin" (no workflow) still stops everything, and says so when more
+    // than one workflow is served. Called from a button with an event, or with
+    // a workflow id.
+    const requestStopServing = async (arg) => {
+        const workflowId = typeof arg === 'string' ? arg : null;
+        const lane = workflowId ? lanes.find(l => l.workflowId === workflowId) : null;
+        if (lane && !lane.primary) return closeLane(workflowId);
+        const keep = workflowId ? lanes.filter(l => l.workflowId !== workflowId) : [];
+        const nameOf = (id) => lanes.find(l => l.workflowId === id)?.name || id;
         let counts;
         try {
-            const count = async (status) => {
+            const list = async (status) => {
                 const r = await fetch(`${SERVER_URL}/jobs?status=${status}`, { headers: adminHeaders() });
                 if (!r.ok) throw new Error(String(r.status));
-                return ((await r.json()).jobs || []).length;
+                return (await r.json()).jobs || [];
             };
-            const [running, queued] = await Promise.all([count('processing'), count('scheduled')]);
-            counts = { running, queued };
+            const [running, queued] = await Promise.all([list('processing'), list('scheduled')]);
+            counts = { running: running.length, queued: (workflowId && keep.length ? queued.filter(j => j.workflow_id === workflowId) : queued).length };
         } catch { counts = { running: null, queued: null }; }
-        if (counts.running === 0 && counts.queued === 0) return resetToAdmin();
-        setStopConfirm(counts);
+        const info = { ...counts, workflowId, name: workflowId ? nameOf(workflowId) : null, keep: keep.map(l => l.name || l.workflowId), all: lanes.map(l => l.name || l.workflowId) };
+        const quiet = counts.running === 0 && counts.queued === 0;
+        if (keep.length) return setStopConfirm(info);
+        if (quiet && lanes.length <= 1) return resetToAdmin();
+        setStopConfirm(info);
+    };
+
+    const stopOneWorkflow = async (workflowId) => {
+        setStopConfirm(null);
+        setDeactivating(true);
+        try {
+            const res = await fetch(`${SERVER_URL}/admin/stop-workflow`, {
+                method: 'POST', headers: { ...adminHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ workflowId }),
+            });
+            const body = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(body.error || 'Failed');
+            showToast(body.action === 'promoted'
+                ? `Stopped — ${(body.serving || []).join(', ')} keep${(body.serving || []).length > 1 ? '' : 's'} serving; restarting (about a minute)…`
+                : body.action === 'closed' ? 'Workflow closed; the others keep serving' : 'Stopped serving — switching to admin mode…');
+            setTimeout(() => window.location.reload(), body.action === 'closed' ? 500 : 2500);
+        } catch (e) { showToast(e.message, 'err'); setDeactivating(false); }
     };
 
     const resetToAdmin = async () => {
@@ -1504,29 +1531,43 @@ const AdminConfig = ({ currentMode }) => {
             )}
 
             <Modal isOpen={!!stopConfirm} onClose={() => !deactivating && setStopConfirm(null)}
-                title="Stop serving while jobs are on this machine?" maxWidth="max-w-md">
+                title={stopConfirm?.keep?.length ? `Stop serving ${stopConfirm.name}?` : 'Stop serving on this machine?'} maxWidth="max-w-md">
                 {stopConfirm && (
                     <div className="space-y-4">
+                        {stopConfirm.keep?.length ? (
+                            <p className="text-sm text-foreground">
+                                <b>{stopConfirm.keep.join(', ')}</b> keep{stopConfirm.keep.length > 1 ? '' : 's'} serving. The machine restarts into
+                                serving {stopConfirm.keep.length > 1 ? 'them' : 'it'} (about a minute; nothing is downloaded), so student pages reconnect.
+                            </p>
+                        ) : (
+                            <p className="text-sm text-foreground">
+                                {stopConfirm.all?.length > 1
+                                    ? <>This stops <b>every workflow on this machine</b> ({stopConfirm.all.join(', ')}): ComfyQ restarts in admin mode and students can no longer book.</>
+                                    : <>ComfyQ restarts in admin mode: students can no longer book on this machine.</>}
+                            </p>
+                        )}
                         {stopConfirm.running === null ? (
                             <p className="text-sm text-foreground">The queue could not be read, so jobs may be rendering or waiting.</p>
-                        ) : (
+                        ) : (stopConfirm.running > 0 || stopConfirm.queued > 0) && (
                             <ul className="text-sm text-foreground space-y-1.5 list-disc pl-5">
                                 {stopConfirm.running > 0 && (
-                                    <li><b>{stopConfirm.running}</b> job{stopConfirm.running > 1 ? 's' : ''} rendering will <b>fail</b> (<code className="text-xs">server-restart</code>).</li>
+                                    <li><b>{stopConfirm.running}</b> job{stopConfirm.running > 1 ? 's' : ''} rendering will <b>fail</b> (<code className="text-xs">server-restart</code>){stopConfirm.keep?.length ? ', on any workflow' : ''}.</li>
                                 )}
                                 {stopConfirm.queued > 0 && (
-                                    <li><b>{stopConfirm.queued}</b> queued job{stopConfirm.queued > 1 ? 's' : ''} will wait until this machine serves again.</li>
+                                    <li><b>{stopConfirm.queued}</b> queued job{stopConfirm.queued > 1 ? 's' : ''}{stopConfirm.keep?.length ? ` for ${stopConfirm.name}` : ''} will wait until {stopConfirm.keep?.length ? 'it is' : 'this machine is'} served again.</li>
                                 )}
                             </ul>
                         )}
                         <p className="text-sm text-muted">
-                            Stopping does not stop just one model: ComfyQ restarts in admin mode and <b>every workflow on this machine stops</b>.
-                            Wait until the queue is empty — or, to drop a second workflow only, use <i>Close lane</i> on it.
+                            {stopConfirm.keep?.length
+                                ? 'Wait for the renders to finish if you can.'
+                                : <>To drop one workflow and keep the others, use <i>Stop serving</i> on that workflow instead.</>}
                         </p>
                         <div className="flex justify-end gap-2 pt-2 border-t border-border">
                             <Button variant="ghost" onClick={() => setStopConfirm(null)} disabled={deactivating}>Keep serving</Button>
-                            <Button variant="danger" icon={Power} onClick={resetToAdmin} isLoading={deactivating}>
-                                {deactivating ? 'Stopping…' : 'Stop serving anyway'}
+                            <Button variant="danger" icon={Power} isLoading={deactivating}
+                                onClick={() => stopConfirm.keep?.length ? stopOneWorkflow(stopConfirm.workflowId) : resetToAdmin()}>
+                                {deactivating ? 'Stopping…' : stopConfirm.keep?.length ? `Stop ${stopConfirm.name} only` : 'Stop serving'}
                             </Button>
                         </div>
                     </div>

@@ -236,6 +236,19 @@ async function machineStages() {
             out.push({ provider: 'runpod', id: p.id, name: (p.serve || []).length ? p.name : `${p.name} (admin mode)`, stage, detail });
         }
     } catch { /* no RunPod key, or RunPod unreachable */ }
+    try {
+        const { instances } = await consoleGet('/api/vast/instances');
+        for (const i of instances) {
+            const r = i.rec;
+            const stage = i.probe?.answering && (i.probe.mode === 'student' || (r && !(r.serve || []).length)) ? 'serving'
+                : ['exited', 'offline'].includes(i.status) ? 'failed'
+                : i.ours ? 'setting-up' : 'other';
+            out.push({ provider: 'vast', id: i.id, name: (r?.serve || []).join(' + ') || `${i.gpu || i.id} (admin mode)`, stage,
+                detail: stage === 'failed' ? `Vast.ai says ${i.status}${i.message ? `: ${i.message}` : ''}` : null,
+                // The quick tunnel's address changes if the tunnel restarts: watched.
+                address: i.secure ? i.links?.students || null : null });
+        }
+    } catch { /* no Vast.ai key, or Vast.ai unreachable */ }
     return out;
 }
 
@@ -250,7 +263,7 @@ ${trayUpdateLine()}` : line);
         { label: 'Open ComfyQ Console', click: showWindow },
         { type: 'separator' },
         { label: lastSpend ? `Now ${money(lastSpend.ratePerHr)}/h · today ${money(lastSpend.today)}` : 'Reading what you spend…', enabled: false },
-        ...ms.map(m => ({ label: `${m.provider === 'thunder' ? 'Thunder' : 'RunPod'} · ${m.name || m.id} · ${money(m.ratePerHr)}/h`, enabled: false })),
+        ...ms.map(m => ({ label: `${m.provider === 'thunder' ? 'Thunder' : m.provider === 'vast' ? 'Vast.ai' : 'RunPod'} · ${m.name || m.id} · ${money(m.ratePerHr)}/h`, enabled: false })),
         ...watch.huntingBookings(lastBookings).map(b => ({ label: `Booking · ${b.status || b.name}`, enabled: false })),
         { type: 'separator' },
         { label: `Version ${app.getVersion()}${app.isPackaged ? '' : ' (from the repo)'}`, enabled: false },

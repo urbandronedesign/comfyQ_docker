@@ -96,5 +96,29 @@ check('tray line before the first reading', trayLine(null) === 'ComfyQ Console')
     check('a stopped booking does not hold quitting', quitQuestion(spend(), bk([], 'stopped')) === null && huntingBookings(bk([], 'ended')).length === 0);
 }
 
+// ---- Vast.ai: serving, a new https address, the credit ----
+{
+    const vm = (address, stage = 'serving') => [{ provider: 'vast', id: '57061526', name: 'image_edit_flux3_klein_distilled_image_edit', stage, address }];
+    let v = decide(null, { spend: spend(), machines: vm('https://old-words.trycloudflare.com') }, t0);
+    check('a Vast.ai machine already serving at app start is not announced', v.events.length === 0);
+    v = decide(v.state, { spend: spend(), machines: vm('https://old-words.trycloudflare.com') }, t0 + 30_000);
+    check('the same address again: nothing', v.events.length === 0);
+    v = decide(v.state, { spend: spend(), machines: vm('https://new-words.trycloudflare.com') }, t0 + 60_000);
+    check(`the address changed: one warning naming the new student page (${v.events.map(e => e.title)})`,
+        keys(v).join() === 'address' && v.events[0].level === 'warn' && /Vast\.ai/.test(v.events[0].title) && /new-words\.trycloudflare\.com/.test(v.events[0].body) && /old student links no longer work/.test(v.events[0].body));
+    v = decide(v.state, { spend: spend(), machines: vm('https://new-words.trycloudflare.com') }, t0 + 90_000);
+    check('and only once', v.events.length === 0);
+    v = decide(v.state, { spend: spend(), machines: vm(null, 'setting-up') }, t0 + 120_000);
+    v = decide(v.state, { spend: spend(), machines: vm('https://new-words.trycloudflare.com') }, t0 + 150_000);
+    check('a moment with no address (tunnel restarting) then the same one back: no false alarm', !keys(v).includes('address'));
+    let f = decide(null, { spend: spend(), machines: vm(null, 'setting-up') }, t0);
+    f = decide(f.state, { spend: spend(), machines: vm('https://a.trycloudflare.com') }, t0 + 30_000);
+    check('a Vast.ai machine that starts serving is announced as such', keys(f).join() === 'serving' && /^Vast\.ai · /.test(f.events[0].title));
+    const low = decide(st, { spend: spend({ vast: { balance: 0.9, ratePerHr: 0.36, hoursLeft: 2.5 } }) }, t0);
+    check('Vast.ai credit running out is said', keys(low).join() === 'low' && /Vast\.ai/.test(low.events[0].title));
+    const q2 = quitQuestion(spend({ machines: [{ provider: 'vast', id: 'v', name: 'flux', ratePerHr: 0.36 }] }));
+    check('the quit question names a Vast.ai machine', /Vast\.ai · flux: \$0\.36\/h/.test(q2.detail));
+}
+
 console.log(`watch: ${n - bad}/${n} checks passed`);
 process.exit(bad ? 1 : 0);
