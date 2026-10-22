@@ -212,6 +212,10 @@ async function consoleGet(route) {
 }
 
 // Where each machine is, for "serving" and "setup failed".
+// What a machine serves NOW (its own answer), else what it was launched with:
+// an admin can switch workflows in the machine's panel after launch.
+const servingName = (probe, asked) => ((probe?.answering ? (probe.served || []).map(w => w.id) : asked) || []).join(' + ');
+
 async function machineStages() {
     const out = [];
     try {
@@ -221,7 +225,7 @@ async function machineStages() {
             const stage = i.probe?.answering && (i.probe.mode === 'student' || (r && !(r.serve || []).length)) ? 'serving'
                 : r && ['failed', 'interrupted'].includes(r.state) ? 'failed'
                 : r ? 'setting-up' : 'other';
-            out.push({ provider: 'thunder', id: i.uuid, name: (r?.serve || []).join(' + ') || `${i.uuid.slice(0, 8)} (admin mode)`, stage, detail: r?.error || null });
+            out.push({ provider: 'thunder', id: i.uuid, name: servingName(i.probe, r?.serve) || `${i.uuid.slice(0, 8)} (admin mode)`, stage, detail: r?.error || null });
         }
     } catch { /* no Thunder key, or Thunder unreachable */ }
     try {
@@ -243,7 +247,7 @@ async function machineStages() {
             const stage = i.probe?.answering && (i.probe.mode === 'student' || (r && !(r.serve || []).length)) ? 'serving'
                 : ['exited', 'offline'].includes(i.status) ? 'failed'
                 : i.ours ? 'setting-up' : 'other';
-            out.push({ provider: 'vast', id: i.id, name: (r?.serve || []).join(' + ') || `${i.gpu || i.id} (admin mode)`, stage,
+            out.push({ provider: 'vast', id: i.id, name: servingName(i.probe, r?.serve) || `${i.gpu || i.id} (admin mode)`, stage,
                 detail: stage === 'failed' ? `Vast.ai says ${i.status}${i.message ? `: ${i.message}` : ''}` : null,
                 // The quick tunnel's address changes if the tunnel restarts: watched.
                 address: i.secure ? i.links?.students || null : null });

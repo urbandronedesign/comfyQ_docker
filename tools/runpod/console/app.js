@@ -497,7 +497,7 @@ function renderThunderInstances() {
               <td class="mono">${esc(i.uuid.slice(0, 8))}</td>
               <td><span class="status" title="${esc(st.text)}"><span class="dot ${dot}"></span>${esc(st.cls === 'good' ? 'Serving' : st.cls === 'bad' ? 'Needs attention' : i.status === 'RUNNING' ? 'Setting up' : i.status)}</span></td>
               <td>${esc(i.rec?.gpuName || i.gpuType || '')}</td>
-              <td class="small">${esc((i.rec?.serve || i.probe?.served?.map(w => w.id) || []).join(', ') || '—')}</td>
+              <td class="small">${esc((i.probe?.answering ? (i.probe.served || []).map(w => w.id) : i.rec?.serve || []).join(', ') || '—')}</td>
               <td class="mono">${esc(i.ip || '—')}</td>
               <td class="num">${i.rec?.pricePerHr != null ? `$${Number(i.rec.pricePerHr).toFixed(2)}/h` : '—'}</td>
               <td class="num">${i.rec ? since(new Date(i.rec.createdAt).toISOString()) : i.createdAt ? since(i.createdAt) : '—'}</td>
@@ -787,7 +787,7 @@ function renderVastInstances() {
               <td class="mono">${esc(i.id)}</td>
               <td><span class="status" title="${esc(st.text)}"><span class="dot ${dot}"></span>${esc(st.cls === 'good' ? 'Serving' : st.cls === 'bad' ? 'Needs attention' : i.status === 'running' ? 'Setting up' : i.status === 'loading' ? 'Pulling image' : i.status)}</span></td>
               <td>${esc(i.gpu || '')}</td>
-              <td class="small">${esc((i.probe?.served?.map(w => w.id) || i.rec?.serve || []).join(', ') || '—')}</td>
+              <td class="small">${esc((i.probe?.answering ? (i.probe.served || []).map(w => w.id) : i.rec?.serve || []).join(', ') || '—')}</td>
               <td class="small">${esc(i.where || '—')}</td>
               <td class="num">${i.pricePerHr != null ? `${i.pricePerHr.toFixed(2)}/h` : '—'}</td>
               <td class="num">${i.startedAt ? since(new Date(i.startedAt).toISOString()) : '—'}</td>
