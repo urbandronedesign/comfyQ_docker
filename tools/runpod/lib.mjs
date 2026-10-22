@@ -128,7 +128,10 @@ export const proxyUrl = (podId, port = PORT) => process.env.COMFYQ_POD_PROXY
 export async function urlGet(base, route) {
     try {
         const res = await fetch(base + route, { signal: AbortSignal.timeout(12000) });
-        if (!res.ok) return null;
+        // Discard an unread body: left paused while the other side closes the
+        // connection, it crashed the whole console on an undici assertion
+        // (a school web filter's 403 page in front of a Vast port, 2026-10-22).
+        if (!res.ok) { await res.body?.cancel().catch(() => {}); return null; }
         return await res.json();
     } catch { return null; }
 }
