@@ -33,7 +33,7 @@ import {
 } from '../thunder.mjs';
 import { graphql, downloadNeed, diskNeeded, RESULTS_DISK_GB, acceptedGpuIds } from '../lib.mjs';
 import { updateLedger, summarize, emptyLedger, thunderBalanceNow } from '../spend.mjs';
-import { vastOffers, vastCreate, vastInstances, vastDestroy, vastCredit, vastEnv, createBody as vastCreateBody, VAST_PREFIX } from '../vast.mjs';
+import { vastOffers, vastCreate, vastInstances, vastDestroy, vastCredit, vastTunnelFromLogs, vastEnv, createBody as vastCreateBody, VAST_PREFIX } from '../vast.mjs';
 import { validateBooking, cardsFor, decide as bookingDecide, podsOf, isLive, cloudsFor, podDiskFor, hoursToCover, statusLine, podPrefix } from '../booking.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -984,6 +984,30 @@ route('POST', '/api/vast/launch', async ({ body }) => {
     return { instance: all[created.id] };
 });
 
+// A network that blocks plain http to a raw ip:port (a school's Fortinet web
+// filter, 2026-10-22) hides ComfyQ's direct address, and with it the https
+// tunnel address ComfyQ reports. Then the address comes from the rental's own
+// log, asked of Vast at most once a minute per machine, and is probed like the
+// direct one before anything uses it.
+const vastLogTunnel = new Map();   // id -> { url, at }
+async function vastProbe(key, i) {
+    if (i.status !== 'running' || !i.url) return { probe: null, base: i.url, via: null };
+    const probe = await probeUrl(i.url);
+    if (probe.answering) return { probe, base: probe.publicUrl || i.url, fetchBase: i.url, via: 'direct' };
+    let hit = vastLogTunnel.get(i.id);
+    if (!hit || Date.now() - hit.at > 60_000) {
+        hit = { url: await vastTunnelFromLogs(key, i.id), at: Date.now() };
+        vastLogTunnel.set(i.id, hit);
+    }
+    if (!hit.url) return { probe, base: i.url, via: null };
+    // Test hook: where the console itself reaches that https address (the
+    // installed app drops every COMFYQ_*_PROXY variable).
+    const fetchBase = process.env.COMFYQ_TUNNEL_PROXY || hit.url;
+    const viaTunnel = await probeUrl(fetchBase);
+    if (!viaTunnel.answering) return { probe, base: i.url, via: null };
+    return { probe: { ...viaTunnel, publicUrl: hit.url }, base: hit.url, fetchBase, via: 'log' };
+}
+
 route('GET', '/api/vast/instances', async () => {
     const live = await vastInstances(vastKey());
     const recs = loadVast();
@@ -991,13 +1015,15 @@ route('GET', '/api/vast/instances', async () => {
     let changed = false;
     for (const [id, r] of Object.entries(recs)) if (!live.some(i => i.id === id) && Date.now() - (r.createdAt || 0) > 180_000) { delete recs[id]; changed = true; }
     if (changed) saveVast(recs);
+    const key = vastKey();
     const instances = await Promise.all(live.map(async (i) => {
         const r = recs[i.id] || null;
-        const probe = i.status === 'running' && i.url ? await probeUrl(i.url) : null;
         // The https tunnel address once the machine has one, else the raw ip:port.
-        const base = probe?.publicUrl || i.url;
+        const { probe, base, via } = await vastProbe(key, i);
         return {
             ...i, ours: !!r || String(i.label || '').startsWith(VAST_PREFIX), probe, direct: i.url, secure: !!probe?.publicUrl,
+            // 'log': this network blocks the direct address; the https one was read from the machine's log.
+            reachedVia: via,
             links: base ? { students: base, admin: `${base}/admin`, byWorkflow: studentLinks(base, probe?.served?.length ? probe.served.map(w => w.id) : (r?.serve || [])) } : null,
             rec: r && { serve: r.serve, label: r.label, pricePerHr: r.pricePerHr, where: r.where, diskGb: r.diskGb, createdAt: r.createdAt, endAt: r.endAt },
         };
@@ -1007,13 +1033,16 @@ route('GET', '/api/vast/instances', async () => {
 
 route('POST', '/api/vast/instances/([0-9]+)/download', async ({ match }) => {
     const id = match[1];
-    const inst = (await vastInstances(vastKey())).find(i => i.id === id);
+    const key = vastKey();
+    const inst = (await vastInstances(key)).find(i => i.id === id);
     if (!inst?.url) throw new RunPodError('this machine has no address yet (is it running?)', 409);
+    const { fetchBase, via } = await vastProbe(key, inst);
+    if (!via) throw new RunPodError('ComfyQ on this machine does not answer from here (yet)', 409);
     const running = resultSaves.get(`vast-${id}`);
     if (running && !['done', 'failed'].includes(running.state)) return running;
     const st = { state: 'listing', jobs: 0, total: 0, saved: 0, bytes: 0, failed: [], error: null, folder: resultsFolder(`vast-${id}`), startedAt: Date.now() };
     resultSaves.set(`vast-${id}`, st);
-    saveResultsFrom(inst.url, st, `vast-${id}`).catch(e => { st.state = 'failed'; st.error = redact(e.message); });
+    saveResultsFrom(fetchBase, st, `vast-${id}`).catch(e => { st.state = 'failed'; st.error = redact(e.message); });
     return st;
 });
 route('GET', '/api/vast/instances/([0-9]+)/download', ({ match }) => resultSaves.get(`vast-${match[1]}`) || { state: 'none' });

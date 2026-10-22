@@ -44,8 +44,13 @@ const queries = [], creates = [], destroyed = [];
 const instances = new Map();
 let gone102 = false;
 let tunnelUp = false;
+let filterOn = false;   // a school web filter in front of the raw ip:port
 const vastSrv = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x');
+    if (url.pathname.startsWith('/logs/')) {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        return res.end('[tunnel] public https address: https://old-gone-tunnel.trycloudflare.com\n[ComfyQ] student mode\n[tunnel] public https address: https://blue-owl-harbor.trycloudflare.com\n');
+    }
     if (req.headers.authorization !== `Bearer ${KEY}`) return json(res, 401, { error: 'bad key' });
     if (url.pathname === '/api/v0/users/current/') return json(res, 200, { credit: 9.5, balance: 0 });
     if (url.pathname === '/api/v0/instances/' && req.method === 'GET') return json(res, 410, { success: false, error: 'deprecated_endpoint' });
@@ -64,12 +69,17 @@ const vastSrv = http.createServer(async (req, res) => {
         for (const i of instances.values()) if (i.actual_status === 'loading' && Date.now() - i.t0 > 1200) { i.actual_status = 'running'; i.ports = { '3000/tcp': [{ HostIp: '0.0.0.0', HostPort: '41234' }] }; }
         return json(res, 200, { success: true, total_instances: instances.size, instances: [...instances.values()], next_token: null });
     }
+    if ((m = url.pathname.match(/^\/api\/v0\/instances\/request_logs\/(\d+)\/$/)) && req.method === 'PUT') { logAsks++; return json(res, 200, { success: true, result_url: `http://127.0.0.1:${vastSrv.address().port}/logs/${m[1]}` }); }
     if ((m = url.pathname.match(/^\/api\/v0\/instances\/(\d+)\/$/)) && req.method === 'DELETE') { destroyed.push(m[1]); instances.delete(m[1]); return json(res, 200, { success: true }); }
     json(res, 404, { error: 'no route' });
 });
 
 // ---- fake ComfyQ on the rented machine ---------------------------------------------
+let logAsks = 0;
 const comfySrv = http.createServer((req, res) => {
+    // /tun/… is the https tunnel (COMFYQ_TUNNEL_PROXY); anything else is the raw ip:port.
+    if (req.url.startsWith('/tun/')) req.url = req.url.slice(4);
+    else if (filterOn) { const body = Buffer.alloc(35000, 'x'); res.writeHead(403, { 'Content-Type': 'text/html', 'Content-Length': body.length, Connection: 'close' }); return res.end(body); }
     if (req.url === '/federation/self') return json(res, 200, { mode: 'student', servedWorkflows: [{ id: 'image_sdxl_smoke_test', name: 'SDXL' }], jobs: { running: null, scheduled: [] }, usage: { usersConnected: 1 }, publicUrl: tunnelUp ? 'https://lime-cat-river.trycloudflare.com' : null });
     if (req.url.startsWith('/jobs')) return json(res, 200, { jobs: [{ id: 'j1', user_id: 'zaki', workflow_id: 'image_sdxl_smoke_test', status: 'completed', prompt: 'a riad', params: {}, outputs: [{ filename: 'zaki_1.png' }] }] });
     if (req.url.startsWith('/images/')) { const body = Buffer.from('PNG'); res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': body.length }); return res.end(body); }
@@ -83,7 +93,7 @@ const PORT = 4793;
 const TOKEN = 'vasttesttoken0123456789';
 const proc = spawn(process.execPath, [path.join(HERE, '..', 'console', 'server.mjs'), '--no-open'], {
     env: { ...process.env, USERPROFILE: tmp, HOME: tmp, COMFYQ_NO_EXPLORER: '1', COMFYQ_CONSOLE_PORT: String(PORT), COMFYQ_CONSOLE_TOKEN: TOKEN,
-        VAST_API_URL: `http://127.0.0.1:${vastSrv.address().port}/api`, COMFYQ_VAST_PROXY: `http://127.0.0.1:${comfySrv.address().port}`, COMFYQ_CONSOLE_SOURCE: 'vast-test' },
+        VAST_API_URL: `http://127.0.0.1:${vastSrv.address().port}/api`, COMFYQ_VAST_PROXY: `http://127.0.0.1:${comfySrv.address().port}`, COMFYQ_TUNNEL_PROXY: `http://127.0.0.1:${comfySrv.address().port}/tun`, COMFYQ_CONSOLE_SOURCE: 'vast-test' },
     stdio: ['ignore', 'pipe', 'pipe'],
 });
 let out = ''; proc.stdout.on('data', c => out += c); proc.stderr.on('data', c => out += c);
@@ -145,6 +155,15 @@ try {
     check(`once the tunnel is up every student link is https on it (${JSON.stringify(i2?.links)})`,
         i2?.secure && i2.links.students === 'https://lime-cat-river.trycloudflare.com' && i2.links.admin === 'https://lime-cat-river.trycloudflare.com/admin'
         && i2.links.byWorkflow[0].url === 'https://lime-cat-river.trycloudflare.com/user?workflow=image_sdxl_smoke_test' && i2.direct !== i2.links.students);
+
+    // ---- a network that blocks the raw ip:port (a school's web filter, 2026-10-22) ----
+    filterOn = true; tunnelUp = false;
+    const i3 = (await api('GET', '/api/vast/instances')).data?.instances?.[0];
+    check(`behind a filter that blocks the raw address, the https link comes from the machine's log, the last one printed (${i3?.links?.students})`,
+        i3?.reachedVia === 'log' && i3.secure && i3.probe?.answering && i3.links.students === 'https://blue-owl-harbor.trycloudflare.com');
+    const again = await api('GET', '/api/vast/instances');
+    check(`the filter's 403 page did not crash the console, and Vast is asked for the log once a minute at most (${logAsks})`,
+        again.status === 200 && again.data.instances[0].reachedVia === 'log' && logAsks === 1 && !/ERR_ASSERTION/.test(out));
 
     // ---- spending ----
     const sp = await api('GET', '/api/spend');

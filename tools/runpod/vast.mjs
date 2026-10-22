@@ -152,7 +152,30 @@ export async function vastInstances(apiKey) {
     return out;
 }
 
-export const vastDestroy = (apiKey, id) => vast(apiKey, 'DELETE', `/v0/instances/${encodeURIComponent(id)}/`, {});
+/**
+ * The https tunnel address a rental printed in its own log, or null. For a
+ * network that blocks plain http to a raw ip:port (a school's web filter): the
+ * console then cannot ask ComfyQ for the address, but Vast hands out the log.
+ * The address can change when the tunnel restarts, so the LAST one counts and
+ * the caller still probes it before using it.
+ */
+export async function vastTunnelFromLogs(apiKey, id, { waitMs = 15_000 } = {}) {
+    try {
+        const req = await vast(apiKey, 'PUT', `/v0/instances/request_logs/${encodeURIComponent(id)}/`, { tail: '1000' });
+        if (!req?.result_url) return null;
+        const until = Date.now() + waitMs;
+        while (Date.now() < until) {
+            await new Promise(r => setTimeout(r, 2000));
+            const r = await fetch(req.result_url, { signal: AbortSignal.timeout(10_000) });
+            if (!r.ok) { await r.body?.cancel().catch(() => {}); continue; }   // the log file is not written yet
+            const found = [...(await r.text()).matchAll(/\[tunnel\] public https address: (https:\/\/[a-z0-9-]+\.trycloudflare\.com)/g)];
+            return found.length ? found[found.length - 1][1] : null;
+        }
+    } catch { /* no log yet, or the call is refused: no address */ }
+    return null;
+}
+
+export const vastDestroy =(apiKey, id) => vast(apiKey, 'DELETE', `/v0/instances/${encodeURIComponent(id)}/`, {});
 export async function vastCredit(apiKey) {
     const me = await vast(apiKey, 'GET', '/v0/users/current/');
     return Number(me?.credit ?? 0);
