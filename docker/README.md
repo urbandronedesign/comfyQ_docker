@@ -16,6 +16,7 @@ volume mounted at `/workspace`.
 | Python | 3.12, in `/opt/venv` |
 | torch | 2.8.0+cu128, the same build as the Windows rigs |
 | ComfyUI | `v0.42.1` by default (`COMFYUI_VERSION` build argument), in `/opt/ComfyUI` |
+| Node.js | `24.22.1` (`NODE_VERSION` + `NODE_DEB` build arguments, checked at build) |
 | Node packs | the list in [custom-nodes.txt](custom-nodes.txt) |
 | ComfyQ | this repo, in `/app`, with the client prebuilt and served on port 3000 |
 

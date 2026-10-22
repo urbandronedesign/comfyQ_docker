@@ -10,10 +10,14 @@
 # rebuilds only the last few: system → torch → ComfyUI → node packs → app.
 
 ARG COMFYUI_VERSION=v0.42.1
-ARG NODE_MAJOR=24
+# Node is pinned to an exact release and checked, so a cached layer can never
+# hide an old one (24.22.0 sat in the image after the 2026-10-21 security
+# release because the install layer was cached). Bump both lines together.
+ARG NODE_VERSION=24.22.1
+ARG NODE_DEB=24.22.1-1nodesource1
 
 # ---- Client build (needs dev dependencies the runtime image does not) --------
-FROM node:${NODE_MAJOR}-bookworm-slim AS client
+FROM node:${NODE_VERSION}-bookworm-slim AS client
 WORKDIR /src/client
 COPY client/package.json ./
 RUN npm install --no-audit --no-fund
@@ -23,7 +27,6 @@ RUN npm run build
 # ---- Runtime -------------------------------------------------------------------
 FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04
 ARG COMFYUI_VERSION
-ARG NODE_MAJOR
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
@@ -37,8 +40,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3.12 python3.12-venv python3.12-dev build-essential \
         git curl ca-certificates ffmpeg lsof procps rsync \
         libgl1 libglib2.0-0 libsm6 libxext6 \
-    && curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # cloudflared: with COMFYQ_TUNNEL=quick the entrypoint opens a Cloudflare quick
@@ -71,6 +72,16 @@ RUN git clone --depth 1 --branch ${COMFYUI_VERSION} \
 COPY docker/custom-nodes.txt docker/install-nodes.sh /opt/docker/
 RUN bash /opt/docker/install-nodes.sh /opt/docker/custom-nodes.txt \
         /opt/ComfyUI/custom_nodes /opt/venv/bin/python
+
+# ---- Node ------------------------------------------------------------------------
+# Its own layer, after the heavy ones, so a Node security update rebuilds only
+# from here on instead of torch, ComfyUI and every node pack.
+ARG NODE_VERSION
+ARG NODE_DEB
+RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION%%.*}.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs=${NODE_DEB} \
+    && rm -rf /var/lib/apt/lists/* \
+    && test "$(node -v)" = "v${NODE_VERSION}"
 
 # ---- ComfyQ ----------------------------------------------------------------------
 WORKDIR /app
