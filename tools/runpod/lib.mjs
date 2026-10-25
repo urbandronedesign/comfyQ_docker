@@ -146,6 +146,7 @@ export async function probeUrl(base) {
         answering: !!self,
         mode: self?.mode || null,
         gpu: self?.gpu || null,
+        vramGb: self?.vramGb || null,
         served: (self?.servedWorkflows || []).map(w => ({ id: w.id, name: w.name, busy: !!w.busy })),
         jobs: self?.jobs || null,
         usage: self?.usage || null,

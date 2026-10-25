@@ -18,6 +18,7 @@
     <button role="tab" data-page="runpod">RunPod <span id="podCount" class="count"></span></button>
     <button role="tab" data-page="thunder">Thunder Compute <span id="thunderCount" class="count"></span></button>
     <button role="tab" data-page="vast">Vast.ai <span id="vastCount" class="count"></span></button>
+    <button role="tab" data-page="home">My machines <span id="homeCount" class="count"></span></button>
     <button role="tab" data-page="logs">Stock &amp; logs</button>
   </nav>
   <button id="settingsBtn" class="ghost icon" title="Keys and passwords">
@@ -157,6 +158,33 @@
   </div>
 
   <div id="vDetail" class="panel detail" hidden></div>
+</section>
+
+<!-- ═════════════════════════ My machines ═════════════════════════ -->
+<section id="page-home" class="page" hidden>
+  <div class="page-head">
+    <h1>My machines <span class="muted">your own PCs, reached through a Tailscale Funnel</span></h1>
+    <div class="actions">
+      <button id="hRefresh" class="ghost icon" title="Refresh">⟳</button>
+      <button id="openAddHome" class="cta">+ Add a machine</button>
+    </div>
+  </div>
+
+  <div class="tiles">
+    <div class="tile"><span class="label">Machines</span><b id="hTotal">–</b></div>
+    <div class="tile"><span class="label">Online</span><b id="hOnline">–</b></div>
+    <div class="tile"><span class="label">Serving</span><b id="hServing">–</b></div>
+    <div class="tile"><span class="label">Students connected</span><b id="hUsers">–</b></div>
+  </div>
+
+  <div class="panel">
+    <div class="toolbar">
+      <input id="hSearch" type="search" placeholder="Search by name, status, card or workflow…">
+    </div>
+    <div id="hList" class="dtable"><p class="muted pad">Loading…</p></div>
+  </div>
+
+  <div id="hDetail" class="panel detail" hidden></div>
 </section>
 
 <!-- ═════════════════════════ Stock & logs ═════════════════════════ -->
@@ -415,6 +443,22 @@
   <div class="drawer-foot">
     <span id="vSummary" class="muted small"></span>
     <div class="row"><button id="vLaunch" class="cta">Rent on Vast.ai</button></div>
+  </div>
+</aside>
+
+<aside id="drawer-addHome" class="drawer" hidden aria-label="Add one of your machines">
+  <div class="drawer-head"><h2>Add a machine <span class="muted">your own PC</span></h2><button class="ghost icon" data-close>✕</button></div>
+  <div class="drawer-body">
+    <div class="note small">The console only <b>watches</b> the machine and gives its links: it does not start, stop or change it, and nothing is billed. On the machine, ComfyQ must run with <b>Serve-ComfyQ.bat</b> and its Funnel be open (<span class="mono">tailscale funnel --bg 3000</span>). Steps: <span class="mono">docs/home-machines-windows.md</span>.</div>
+    <div class="section">
+      <label class="field"><span>Name</span><input id="hName" type="text" maxlength="40" placeholder="atelier-4090"></label>
+      <label class="field"><span>Address</span><input id="hUrl" type="text" placeholder="https://atelier-4090.your-tailnet.ts.net"></label>
+      <p class="muted small">The address <b>tailscale funnel status</b> prints on that machine. Without a page after it (not …/admin).</p>
+    </div>
+  </div>
+  <div class="drawer-foot">
+    <span id="hAddOut" class="muted small"></span>
+    <div class="row"><button id="hAdd" class="cta">Add the machine</button></div>
   </div>
 </aside>
 

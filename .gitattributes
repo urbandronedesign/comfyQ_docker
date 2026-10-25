@@ -3,3 +3,6 @@
 # fails with "$'\r': command not found".
 *.sh            text eol=lf
 docker/**       text eol=lf
+
+# Windows launchers: cmd.exe misreads labels and goto in LF-only batch files.
+*.bat           text eol=crlf

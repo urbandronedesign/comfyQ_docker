@@ -337,6 +337,32 @@ next free one; the image runs `cloudflared tunnel run` with the tunnel's key pas
 The same addresses then work every day, whatever machine is rented. Caveat: some filters also
 distrust `.xyz` domains, less often than `trycloudflare.com`; test from the school once.
 
+## My machines: your own PCs, watched and linked
+
+The **My machines** page lists PCs you own that run ComfyQ themselves (setup:
+[docs/home-machines-windows.md](../../docs/home-machines-windows.md): Windows, the portable disk,
+`Serve-ComfyQ.bat`, a Tailscale Funnel). The console **only watches them**: nothing is started,
+stopped, changed or billed, and they are not in the spending bar.
+
+- **+ Add a machine**: a name and its address, the one `tailscale funnel status` prints
+  (`https://atelier-4090.<tailnet>.ts.net`; the private `http://atelier-4090:3000` also works
+  from a PC on the tailnet). Only `http(s)://host[:port]` is taken, no page and no password in
+  it. A machine that does not answer is added anyway, shown offline. Kept in
+  `~/.comfyq/home-machines.json`.
+- **Status**, read from the machine every 15 s while the page is open (and every 30 s by the
+  desktop app): serving / admin mode / offline, the GPU, the workflows served, students
+  connected, the queue, when it last answered. One missed answer is not "offline"; two in a
+  row, or never since the console started, are ([home.mjs](home.mjs)).
+- **Links**: the student page, one per workflow when it serves several, the admin panel.
+- **Download results** saves every result into `Desktop\ComfyQ results\home-<name>-<date>`,
+  as for the rented machines.
+- **Remove from the list** forgets it in the console only.
+- **Notifications** (desktop app): *is offline* when a machine that was answering stops, and
+  *is back* when it answers again. A machine added while switched off is not called offline.
+
+Tests: [home.test.mjs](home.test.mjs) (32 rules), [tests/home-console.mjs](tests/home-console.mjs)
+(22 against two stand-in machines, + 7 in headless Chrome with `--browser <chrome.exe>`).
+
 ## Thunder Compute: the backup when RunPod has no card
 
 The console's **Thunder Compute** page launches ComfyQ on [Thunder Compute](https://www.thundercompute.com)

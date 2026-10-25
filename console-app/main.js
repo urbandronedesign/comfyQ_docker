@@ -253,6 +253,14 @@ async function machineStages() {
                 address: i.secure ? i.links?.students || null : null });
         }
     } catch { /* no Vast.ai key, or Vast.ai unreachable */ }
+    try {
+        // The owner's own machines: whether each still answers (offline / back).
+        const { machines } = await consoleGet('/api/home/machines');
+        for (const m of machines) {
+            out.push({ provider: 'home', id: m.id, name: m.name,
+                stage: m.stage?.key === 'offline' ? 'offline' : m.stage?.key === 'serving' ? 'serving' : 'other' });
+        }
+    } catch { /* an older console server, or none listed */ }
     return out;
 }
 
