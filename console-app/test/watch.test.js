@@ -120,5 +120,31 @@ check('tray line before the first reading', trayLine(null) === 'ComfyQ Console')
     check('the quit question names a Vast.ai machine', /Vast\.ai · flux: \$0\.36\/h/.test(q2.detail));
 }
 
+// ---- My machines: the owner's own PCs, offline and back ----
+{
+    const hm = (stage) => [{ provider: 'home', id: 'atelier-4090', name: 'atelier-4090', stage }];
+    let h = decide(null, { spend: spend(), machines: hm('offline') }, t0);
+    check('a machine already offline at app start is not announced', h.events.length === 0);
+    h = decide(h.state, { spend: spend(), machines: hm('serving') }, t0 + 30_000);
+    check(`it comes back serving: "is back", saying the links work (${h.events.map(e => e.title)})`,
+        keys(h).join() === 'back' && /^My machine · atelier-4090 is back$/.test(h.events[0].title) && /student links work/.test(h.events[0].body));
+    h = decide(h.state, { spend: spend(), machines: hm('serving') }, t0 + 60_000);
+    check('still serving: nothing', h.events.length === 0);
+    h = decide(h.state, { spend: spend(), machines: hm('offline') }, t0 + 90_000);
+    check('it stops answering: one alert, never "still billing"', keys(h).join() === 'offline' && h.events[0].level === 'bad'
+        && /is offline/.test(h.events[0].title) && /Serve-ComfyQ\.bat/.test(h.events[0].body) && !/billing/.test(h.events[0].body));
+    h = decide(h.state, { spend: spend(), machines: hm('offline') }, t0 + 120_000);
+    check('and only once', h.events.length === 0);
+    h = decide(h.state, { spend: spend(), machines: hm('other') }, t0 + 150_000);
+    check('back in admin mode says to pick a workflow', keys(h).join() === 'back' && /admin panel/.test(h.events[0].body));
+    let fresh = decide(null, { spend: spend(), machines: [] }, t0);
+    fresh = decide(fresh.state, { spend: spend(), machines: hm('offline') }, t0 + 30_000);
+    check('a machine just added while switched off is not called "offline" (it was never seen up)', fresh.events.length === 0);
+    fresh = decide(fresh.state, { spend: spend(), machines: hm('serving') }, t0 + 60_000);
+    check('then switched on: "is back"', keys(fresh).join() === 'back');
+    const sv = decide(decide(null, { spend: spend(), machines: [] }, t0).state, { spend: spend(), machines: hm('serving') }, t0 + 30_000);
+    check('a serving machine added to the list is not announced as "setup finished"', sv.events.length === 0);
+}
+
 console.log(`watch: ${n - bad}/${n} checks passed`);
 process.exit(bad ? 1 : 0);

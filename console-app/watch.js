@@ -3,6 +3,7 @@
 //
 // Warnings, each said once (re-armed only when the cause goes away and comes back):
 //   - a machine finished its setup and serves, or its setup failed (it bills anyway);
+//   - one of the owner's own machines ("My machines") stopped answering, or is back;
 //   - a machine has been on for 3 hours, then again at 6 and 9;
 //   - today passed the daily budget;
 //   - a balance covers less than 4 hours at the current rate;
@@ -27,7 +28,7 @@ const dayKey = (t) => new Date(t).toDateString();
  * @param {number} now
  * @returns {{ state: object, events: Array<{key,title,body,level}> }}
  */
-const providerName = (p) => p === 'thunder' ? 'Thunder' : p === 'vast' ? 'Vast.ai' : 'RunPod';
+const providerName = (p) => p === 'thunder' ? 'Thunder' : p === 'vast' ? 'Vast.ai' : p === 'home' ? 'My machine' : 'RunPod';
 
 function decide(state, { spend, machines = [], bookings = [] }, now) {
     const first = !state;
@@ -42,6 +43,17 @@ function decide(state, { spend, machines = [], bookings = [] }, now) {
     for (const m of machines) {
         seen.add(m.id);
         const before = s.stages[m.id];
+        // ★ The owner's own machines bill nothing: what matters is whether they
+        //   still answer. Said when one stops answering and when it is back.
+        if (m.provider === 'home') {
+            const label = `${providerName(m.provider)} · ${m.name || m.id}`;
+            if (before && before !== 'offline' && m.stage === 'offline') say(`offline:${m.id}`, `${label} is offline`,
+                'It stopped answering. Check that it is on and awake, that Serve-ComfyQ.bat runs, and that its Funnel is open.', 'bad');
+            if (before === 'offline' && m.stage !== 'offline') say(`back:${m.id}`, `${label} is back`,
+                m.stage === 'serving' ? 'It answers again and serves: the student links work.' : 'It answers again, in admin mode: pick a workflow in its admin panel.');
+            s.stages[m.id] = m.stage;
+            continue;
+        }
         if (before !== m.stage) {
             const label = `${providerName(m.provider)} · ${m.name || m.id}`;
             if (m.stage === 'serving') say(`serving:${m.id}`, /admin mode/.test(m.name || '') ? `${label} is up` : `${label} is serving`,

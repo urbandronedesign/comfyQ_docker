@@ -87,7 +87,7 @@ function store(k, v) { try { if (v === undefined) return localStorage.getItem(k)
 })();
 
 // One page per provider, one for stock history and logs. Launching and the keys open in a panel from the right.
-const PAGES = ['runpod', 'thunder', 'vast', 'logs'];
+const PAGES = ['runpod', 'thunder', 'vast', 'home', 'logs'];
 const pageOpen = (name) => !$(`page-${name}`).hidden;
 function showPage(name) {
     if (!PAGES.includes(name)) name = 'runpod';
@@ -98,6 +98,7 @@ function showPage(name) {
     if (name === 'runpod') loadPods();
     if (name === 'thunder') loadThunderInstances();
     if (name === 'vast') { loadSpend(); loadVastInstances(); }
+    if (name === 'home') loadHomeMachines();
     if (name === 'logs') { if ($('stockFold').open) loadStock(); loadAttempts(); }
 }
 for (const b of document.querySelectorAll('.tabs button')) b.onclick = () => showPage(b.dataset.page);
@@ -110,6 +111,7 @@ function openDrawer(name) {
     if (name === 'createThunder') loadThunder();
     if (name === 'booking') loadBookingForm();
     if (name === 'createVast') loadVastForm();
+    if (name === 'addHome') { $('hAddOut').textContent = ''; setTimeout(() => $('hName').focus(), 0); }
 }
 function closeDrawers() {
     for (const d of document.querySelectorAll('.drawer')) d.hidden = true;
@@ -122,6 +124,7 @@ $('settingsBtn').onclick = () => openDrawer('settings');
 $('openCreatePod').onclick = () => openDrawer('createPod');
 $('openCreateThunder').onclick = () => openDrawer('createThunder');
 $('openCreateVast').onclick = () => openDrawer('createVast');
+$('openAddHome').onclick = () => openDrawer('addHome');
 $('openBooking').onclick = () => openDrawer('booking');
 $('stockFold').ontoggle = () => { if ($('stockFold').open && pageOpen('logs')) loadStock(); };
 $('attemptsFold').ontoggle = () => { if ($('attemptsFold').open && pageOpen('logs')) loadAttempts(); };
@@ -855,6 +858,152 @@ async function loadVastInstances() {
     if (pageOpen('vast')) vTimer = setTimeout(loadVastInstances, d.instances.length ? 8000 : 30000);
 }
 $('vRefresh').onclick = () => { loadSpend(); loadVastInstances(); };
+
+// ---- my machines --------------------------------------------------------------------
+// The owner's own PCs: watched and linked, never started, stopped or billed.
+
+let hTimer = null;
+let hMachines = [];
+let hSelected = null;
+
+function homeDot(m) {
+    return { serving: 'run', admin: 'run', offline: 'bad', checking: 'warn' }[m.stage.key] || 'stop';
+}
+function homeStatusLabel(m) {
+    return { serving: 'Serving', admin: 'Admin mode', offline: 'Offline', checking: 'Checking' }[m.stage.key] || m.stage.key;
+}
+function seenAgo(t) {
+    if (!t) return 'never since the console started';
+    const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+    return s < 60 ? 'just now' : `${since(new Date(t).toISOString())} ago`;
+}
+
+function homeDetailHtml(m) {
+    const p = m.probe || {};
+    const names = Object.fromEntries((p.served || []).map(w => [w.id, w.name]));
+    const st = m.stage;
+    return `<div class="row"><h2>${esc(m.name)} <span class="muted mono">${esc(m.url)}</span></h2>
+        ${p.answering ? `<button class="secondary" data-hdl="${esc(m.id)}">Download results</button>` : ''}
+        <button class="ghost" data-hdel="${esc(m.id)}">Remove from the list</button>
+        <button class="ghost icon" data-hclose title="Close">✕</button>
+      </div>
+      <div class="note ${st.key === 'offline' ? 'bad' : st.key === 'checking' ? '' : 'good'}">${esc(st.text)}${st.key === 'offline'
+        ? '<br>Check on the machine: it is switched on and awake, <b>Serve-ComfyQ.bat</b> is running, and <span class="mono">tailscale funnel status</span> shows its address.' : ''}</div>
+      <div class="links">
+        <a href="${esc(m.links.students)}" target="_blank" rel="noreferrer">Student page ↗</a>
+        <a href="${esc(m.links.admin)}" target="_blank" rel="noreferrer">Admin panel ↗</a>
+        <button class="ghost small" data-copylink="${esc(m.links.students)}">Copy student link</button>
+      </div>${studentLinksHtml(m.links, names)}
+      <dl class="kv">
+        <dt>Last answer</dt><dd>${esc(seenAgo(m.health?.lastSeen))}</dd>
+        ${p.gpu ? `<dt>GPU</dt><dd>${esc(p.gpu)}${p.vramGb ? ` <span class="muted">(${esc(p.vramGb)} GB)</span>` : ''}</dd>` : ''}
+        ${p.answering ? `<dt>Serving</dt><dd>${esc((p.served || []).map(w => w.name || w.id).join(', ') || 'nothing (admin mode)')}</dd>` : ''}
+        ${p.usage ? `<dt>Students</dt><dd>${esc(p.usage.usersConnected ?? 0)} connected</dd>` : ''}
+        ${p.jobs ? `<dt>Queue</dt><dd>${p.jobs.running ? '1 running' : 'nothing running'}, ${(p.jobs.scheduled || []).length} waiting</dd>` : ''}
+        <dt>Cost</dt><dd>none counted: your own machine</dd>
+      </dl>`;
+}
+
+function hMatches(m) {
+    const q = $('hSearch').value.trim().toLowerCase();
+    if (!q) return true;
+    const hay = [m.name, m.url, m.stage.text, homeStatusLabel(m), m.probe?.gpu, ...(m.probe?.served || []).flatMap(w => [w.id, w.name])].join(' ').toLowerCase();
+    return q.split(/\s+/).every(t => hay.includes(t));
+}
+$('hSearch').oninput = () => renderHomeMachines();
+
+function renderHomeMachines() {
+    const list = hMachines;
+    $('homeCount').textContent = list.length || '';
+    $('hTotal').textContent = list.length;
+    $('hOnline').textContent = list.filter(m => m.health?.online).length;
+    $('hServing').textContent = list.filter(m => m.stage.key === 'serving').length;
+    $('hUsers').textContent = list.reduce((a, m) => a + (Number(m.probe?.usage?.usersConnected) || 0), 0);
+    const shown = list.filter(hMatches);
+    $('hList').innerHTML = shown.length
+        ? `<table><thead><tr><th>Name</th><th>Status</th><th>GPU</th><th>Serving</th><th class="num">Students</th><th class="num">Queue</th><th>Last answer</th><th></th></tr></thead><tbody>${shown.map(m => {
+            const p = m.probe || {};
+            return `<tr class="${m.id === hSelected ? 'sel' : ''}" data-hsel="${esc(m.id)}">
+              <td><b>${esc(m.name)}</b><div class="muted small mono">${esc(m.url.replace(/^https?:\/\//, ''))}</div></td>
+              <td><span class="status" title="${esc(m.stage.text)}"><span class="dot ${homeDot(m)}"></span>${esc(homeStatusLabel(m))}</span></td>
+              <td>${esc(p.gpu || '—')}</td>
+              <td class="small">${esc((p.served || []).map(w => w.id).join(', ') || '—')}</td>
+              <td class="num">${p.usage ? esc(p.usage.usersConnected ?? 0) : '—'}</td>
+              <td class="num">${p.jobs ? `${p.jobs.running ? 1 : 0} + ${(p.jobs.scheduled || []).length}` : '—'}</td>
+              <td class="small">${esc(seenAgo(m.health?.lastSeen))}</td>
+              <td>${p.answering ? `<a class="small" href="${esc(m.links.students)}" target="_blank" rel="noreferrer">students ↗</a>` : ''}</td>
+            </tr>`;
+        }).join('')}</tbody></table>`
+        : list.length
+            ? '<div class="empty"><p>No machine matches.</p></div>'
+            : `<div class="empty"><div class="ico">▤</div><p><b>No machines yet</b></p><p class="muted">Add one of your own PCs by its Tailscale Funnel address</p><p><button class="cta" data-create="home">+ Add a machine</button></p></div>`;
+    for (const b of $('hList').querySelectorAll('[data-create]')) b.onclick = () => openDrawer('addHome');
+    for (const tr of $('hList').querySelectorAll('[data-hsel]')) tr.onclick = (ev) => {
+        if (ev.target.closest('a')) return;
+        hSelected = hSelected === tr.dataset.hsel ? null : tr.dataset.hsel;
+        renderHomeMachines();
+        if (hSelected) $('hDetail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    };
+
+    const box = $('hDetail');
+    const sel = list.find(m => m.id === hSelected);
+    box.hidden = !sel;
+    if (!sel) return;
+    box.innerHTML = homeDetailHtml(sel);
+    box.querySelector('[data-hclose]').onclick = () => { hSelected = null; renderHomeMachines(); };
+    wireCopyLinks(box);
+    for (const b of box.querySelectorAll('[data-hdl]')) b.onclick = async () => {
+        const id = b.dataset.hdl;
+        try {
+            let st = await api('POST', `/api/home/machines/${id}/download`);
+            b.disabled = true;
+            while (!['done', 'failed'].includes(st.state)) {
+                b.textContent = st.total ? `Saving ${st.saved}/${st.total}…` : 'Listing the results…';
+                await new Promise(r => setTimeout(r, 1500));
+                st = await api('GET', `/api/home/machines/${id}/download`);
+            }
+            if (st.state === 'failed') throw new Error(st.error || 'the download failed');
+            toast(`Saved ${st.saved} of ${st.total} results (${(st.bytes / 1e6).toFixed(0)} MB) to ${st.folder}${st.failed.length ? ` — ${st.failed.length} could not be fetched` : ''}`, !!st.failed.length);
+        } catch (e) { toast(e.message, true); }
+        finally { b.disabled = false; b.textContent = 'Download results'; }
+    };
+    for (const b of box.querySelectorAll('[data-hdel]')) b.onclick = async () => {
+        const m = hMachines.find(x => x.id === b.dataset.hdel);
+        if (!m || !confirm(`Remove ${m.name} from this list?\n\nOnly the console forgets it: the machine, its models and its results are not touched, and you can add it again.`)) return;
+        try { await api('DELETE', `/api/home/machines/${m.id}`); toast(`${m.name} removed from the list`); hSelected = null; loadHomeMachines(); }
+        catch (e) { toast(e.message, true); }
+    };
+}
+
+async function loadHomeMachines() {
+    clearTimeout(hTimer);
+    let d;
+    try { d = await api('GET', '/api/home/machines'); }
+    catch (e) { $('hList').innerHTML = `<p class="muted pad">${esc(e.message)}</p>`; return; }
+    hMachines = d.machines;
+    if (hSelected && !hMachines.some(m => m.id === hSelected)) hSelected = null;
+    // A machine that is not serving opens its panel by itself: that is the one to look at.
+    if (!hSelected) hSelected = hMachines.find(m => m.stage.key === 'offline')?.id || null;
+    renderHomeMachines();
+    if (pageOpen('home')) hTimer = setTimeout(loadHomeMachines, 15000);
+}
+$('hRefresh').onclick = () => loadHomeMachines();
+
+$('hAdd').onclick = async () => {
+    const out = $('hAddOut');
+    $('hAdd').disabled = true;
+    out.textContent = 'Checking the address…';
+    try {
+        const { machine } = await api('POST', '/api/home/machines', { name: $('hName').value, url: $('hUrl').value });
+        $('hName').value = ''; $('hUrl').value = '';
+        closeDrawers();
+        toast(machine.probe?.answering ? `${machine.name} added: it answers` : `${machine.name} added, but it does not answer right now (off, or the Funnel is closed)`, !machine.probe?.answering);
+        hSelected = machine.id;
+        showPage('home');
+    } catch (e) { out.textContent = e.message; }
+    finally { $('hAdd').disabled = false; }
+};
+for (const id of ['hName', 'hUrl']) $(id).onkeydown = (e) => { if (e.key === 'Enter') $('hAdd').click(); };
 
 // ---- launch ---------------------------------------------------------------------
 
@@ -1998,6 +2147,8 @@ if (UPD) {
     // #runpod / #thunder / #logs in the address opens that page (bookmarks, links).
     const saved = PAGES.includes(location.hash.slice(1)) ? location.hash.slice(1) : store('rpc.page');
     showPage(saved || (settings.runpodApiKey.set || !settings.thunderApiKey.set ? 'runpod' : 'thunder'));
+    // The tab shows how many machines of your own are listed, whichever page is open.
+    if (!pageOpen('home')) loadHomeMachines();
     // First run: nothing works without a key, so start with the keys.
     if (!settings.runpodApiKey.set && !settings.thunderApiKey.set) openDrawer('settings');
 })();

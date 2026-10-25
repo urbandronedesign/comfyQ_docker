@@ -34,6 +34,7 @@ import {
 import { graphql, downloadNeed, diskNeeded, RESULTS_DISK_GB, acceptedGpuIds } from '../lib.mjs';
 import { updateLedger, summarize, emptyLedger, thunderBalanceNow } from '../spend.mjs';
 import { vastOffers, vastCreate, vastInstances, vastDestroy, vastCredit, vastTunnelFromLogs, vastEnv, createBody as vastCreateBody, VAST_PREFIX } from '../vast.mjs';
+import { cleanName, cleanAddress, idFor, nextHealth, homeStage } from '../home.mjs';
 import { validateBooking, cardsFor, decide as bookingDecide, podsOf, isLive, cloudsFor, podDiskFor, hoursToCover, statusLine, podPrefix } from '../booking.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -1056,6 +1057,75 @@ route('DELETE', '/api/vast/instances/([0-9]+)', async ({ match, body }) => {
     const all = loadVast(); delete all[id]; saveVast(all);
     return { ok: true, destroyed: !!inst };
 });
+
+// ---- my machines ------------------------------------------------------------------
+// The owner's own PCs (home.mjs): a name and the address ComfyQ answers on,
+// usually a Tailscale Funnel. Nothing is created, billed or deleted here; the
+// list is kept in ~/.comfyq/home-machines.json and each machine is read like a
+// Pod (probeUrl). Whether it is online is remembered in memory only.
+const HOME_FILE = path.join(os.homedir(), '.comfyq', 'home-machines.json');
+function loadHome() { try { return JSON.parse(fs.readFileSync(HOME_FILE, 'utf8')); } catch { return {}; } }
+function saveHome(all) {
+    fs.mkdirSync(path.dirname(HOME_FILE), { recursive: true });
+    fs.writeFileSync(HOME_FILE + '.tmp', JSON.stringify(all, null, 2));
+    fs.renameSync(HOME_FILE + '.tmp', HOME_FILE);
+}
+const homeHealth = new Map();   // id -> { lastSeen, misses, online, checkedAt }
+async function readHome(m) {
+    const probe = await probeUrl(m.url);
+    const health = nextHealth(homeHealth.get(m.id), probe.answering, Date.now());
+    homeHealth.set(m.id, health);
+    const served = probe.answering ? (probe.served || []).map(w => w.id) : [];
+    return {
+        id: m.id, name: m.name, url: m.url, addedAt: m.addedAt,
+        probe, health, stage: homeStage(probe, health),
+        links: { students: m.url, admin: `${m.url}/admin`, byWorkflow: studentLinks(m.url, served) },
+    };
+}
+
+route('GET', '/api/home/machines', async () => {
+    const all = Object.values(loadHome()).sort((a, b) => a.name.localeCompare(b.name));
+    return { machines: await Promise.all(all.map(readHome)) };
+});
+
+route('POST', '/api/home/machines', async ({ body }) => {
+    let name, url;
+    try { name = cleanName(body.name); url = cleanAddress(body.url); }
+    catch (e) { throw new RunPodError(e.message, 400); }
+    const all = loadHome();
+    const same = Object.values(all).find(m => m.url === url);
+    if (same) throw new RunPodError(`${url} is already in the list, as ${same.name}`, 409);
+    const id = idFor(name, Object.keys(all));
+    all[id] = { id, name, url, addedAt: Date.now() };
+    saveHome(all);
+    // Added even when it does not answer now: it may simply be switched off.
+    return { machine: await readHome(all[id]) };
+});
+
+route('DELETE', '/api/home/machines/([a-z0-9-]+)', ({ match }) => {
+    const all = loadHome();
+    if (!all[match[1]]) throw new RunPodError('no such machine in the list', 404);
+    delete all[match[1]];
+    saveHome(all);
+    homeHealth.delete(match[1]);
+    // Only the console's list changes: the machine itself is not touched.
+    return { ok: true };
+});
+
+route('POST', '/api/home/machines/([a-z0-9-]+)/download', async ({ match }) => {
+    const m = loadHome()[match[1]];
+    if (!m) throw new RunPodError('no such machine in the list', 404);
+    const probe = await probeUrl(m.url);
+    if (!probe.answering) throw new RunPodError(`${m.name} does not answer from here right now`, 409);
+    const key = `home-${m.id}`;
+    const running = resultSaves.get(key);
+    if (running && !['done', 'failed'].includes(running.state)) return running;
+    const st = { state: 'listing', jobs: 0, total: 0, saved: 0, bytes: 0, failed: [], error: null, folder: resultsFolder(key), startedAt: Date.now() };
+    resultSaves.set(key, st);
+    saveResultsFrom(m.url, st, key).catch(e => { st.state = 'failed'; st.error = redact(e.message); });
+    return st;
+});
+route('GET', '/api/home/machines/([a-z0-9-]+)/download', ({ match }) => resultSaves.get(`home-${match[1]}`) || { state: 'none' });
 
 // ---- workshop bookings ----------------------------------------------------------
 // From a start time, hunt RunPod every minute for N machines that meet a GPU size

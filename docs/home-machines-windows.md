@@ -74,6 +74,12 @@ slowly — keep them on rented 48 GB cards. Put the most-used workflow on the
 12. **Serve** the workshop's workflow from the admin panel. Student link:
     `https://atelier-4090.<tailnet>.ts.net/user?workflow=<workflow id>`.
 
+13. **Add it to the ComfyQ Console** (on the owner's PC): *My machines* →
+    *+ Add a machine*, the name and the Funnel address. The console then shows
+    whether it answers, what it serves, the student links per workflow, and
+    *Download results*; the desktop app notifies when it goes offline and when
+    it is back. Details: [tools/runpod/README.md](../tools/runpod/README.md#my-machines-your-own-pcs-watched-and-linked).
+
 ## 3 · Test before relying on it
 
 - **From the school network in Morocco**, open the student link. `ts.net` has
