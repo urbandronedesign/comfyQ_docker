@@ -114,6 +114,27 @@ slowly — keep them on rented 48 GB cards. Put the most-used workflow on the
 and add it again with the new address. The desktop app's *offline* notification
 is the signal.
 
+## Console or Parsec
+
+The console **watches** the machines; **Parsec operates** them.
+
+| Task | Console | Parsec |
+|---|---|---|
+| See online / serving / offline, GPU, workflows, students, queue | Yes | |
+| Get the student links and the admin panel link | Yes | |
+| Download results | Yes | |
+| Notification when a machine goes offline or comes back | Yes (desktop app) | |
+| Change workflow or settings | Through the admin panel link, with the password | Yes |
+| Start or restart ComfyQ or the tunnel | No | Yes |
+| Read a new tunnel address | No | Yes |
+| Restart the machine | No | Yes |
+
+The console reaches a machine only through its tunnel address, added by hand.
+If the tunnel restarts, the machine shows offline even if it is working: read
+the new address with Parsec, then remove and add the machine in *My machines*.
+*My machines* has not yet been tried against a real machine; step 14 is that
+test.
+
 ## If the machine stays on
 
 With the machine on and `Tunnel-ComfyQ.bat` running, the same link should keep
