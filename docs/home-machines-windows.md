@@ -75,8 +75,8 @@ slowly — keep them on rented 48 GB cards. Put the most-used workflow on the
    - Task Scheduler → *Create Task*, **twice**, both with trigger **At log on**
      and *Run only when user is logged on* (ComfyUI needs the user's session
      for the GPU):
-     - action `cmd.exe /c "S:\<ComfyQ folder>\Serve-ComfyQ.bat"`
-     - action `cmd.exe /c "S:\<ComfyQ folder>\Tunnel-ComfyQ.bat"`
+     - action `cmd.exe /c "S:\ComfyQ-serve\Serve-ComfyQ.bat"`
+     - action `cmd.exe /c "S:\ComfyQ-serve\Tunnel-ComfyQ.bat"`
 
    ComfyQ remembers what it was serving and resumes serving it at restart. The
    tunnel comes back too, at a **new address**.
@@ -96,7 +96,7 @@ slowly — keep them on rented 48 GB cards. Put the most-used workflow on the
     The address appears in that window. To read it again:
 
     ```
-    findstr trycloudflare S:\<ComfyQ folder>\tunnel.log
+    findstr trycloudflare S:\ComfyQ-serve\tunnel.log
     ```
 
     Only port 3000 goes public; ComfyUI (8188) stays private — keep *Expose
