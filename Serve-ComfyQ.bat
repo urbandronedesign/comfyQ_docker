@@ -2,7 +2,7 @@
 setlocal
 rem ---------------------------------------------------------------------------
 rem  ComfyQ - serve on ONE port (3000), for a machine reached over the internet
-rem  (Tailscale Funnel, a Cloudflare tunnel). See docs/home-machines-windows.md.
+rem  (Tunnel-ComfyQ.bat: a Cloudflare quick tunnel). See docs/home-machines-windows.md.
 rem
 rem  Start-ComfyQ.bat runs the development setup: the page comes from Vite on
 rem  :5173, which refuses requests addressed to any other host name - so a
@@ -81,7 +81,7 @@ if errorlevel 1 (
 echo.
 echo   Students    http://localhost:3000/user?workflow=^<workflow id^>
 echo   Admin       http://localhost:3000/admin
-echo   From outside, use the Funnel address instead of localhost.
+echo   From outside, use the address Tunnel-ComfyQ.bat gives instead of localhost.
 echo.
 
 :serve

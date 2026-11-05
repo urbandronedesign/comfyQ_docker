@@ -1,19 +1,29 @@
-# Home machines on Windows (portable disk + Tailscale Funnel)
+# Home machines on Windows (portable disk + Cloudflare quick tunnel)
 
 Two owned machines in France serve ComfyQ to students anywhere — including
 from the school network in Morocco — as a backup to the rented cloud machines.
 
-| Machine | GPU | RAM | Funnel name |
-|---|---|---|---|
-| 1 | RTX 4090 24 GB | 128 GB | `atelier-4090` |
-| 2 | RTX 3090 24 GB | 128 GB | `atelier-3090` |
+| Machine | GPU | RAM |
+|---|---|---|
+| 1 | RTX 4090 24 GB | 128 GB |
+| 2 | RTX 3090 24 GB | 128 GB |
 
 Each runs **Windows as it is**, with **its own portable disk** (ComfyUI
 portable + models + ComfyQ). Nothing is installed in ComfyUI.
 
-**Nothing opens on the Livebox.** Students reach the machine through
-**Tailscale Funnel**, a fixed https address on port 443 that the machine opens
-*outward*; the owner reaches it through Tailscale (Remote Desktop).
+**Nothing opens on the Livebox and no account is needed.** Students reach the
+machine at `https://<random words>.trycloudflare.com`, a tunnel the machine
+opens *outward*. The school's network lets `trycloudflare.com` through (seen on
+2026-10-21). The owner manages the machine with **Parsec**.
+
+⚠ **The address is not fixed.** It stays the same while the tunnel runs, and
+ComfyQ restarting does not change it. It **changes when the tunnel restarts**:
+after a reboot, a power cut, or a long internet outage. Students then need the
+new link. Quick tunnels also have no uptime guarantee, so check the link before
+each class.
+
+Limits of a quick tunnel: about 100 MB per upload, and up to 200 requests in
+flight (20 students were fine on a rented machine).
 
 ## What fits on 24 GB
 
@@ -28,77 +38,114 @@ slowly — keep them on rented 48 GB cards. Put the most-used workflow on the
 ## 1 · On site, once per machine (about 1 hour)
 
 1. **Disk.** Plug the portable disk into a fast port (USB 3.2 10 Gb/s or
-   USB4). Bring its ComfyQ up to date: in the ComfyQ folder on the disk,
-   `git pull`. (`Serve-ComfyQ.bat` must be there.)
-2. **NVIDIA driver** 570 or newer (GeForce / Studio driver from nvidia.com).
-3. **Node.js LTS:** `winget install --id OpenJS.NodeJS.LTS --exact`.
-4. **First check:** double-click `Start-ComfyQ.bat`, open
+   USB4). In Disk Management, give it a **fixed drive letter** (`S:` here): the
+   startup tasks of step 8 use that path.
+2. **Bring ComfyQ up to date:** in the ComfyQ folder on the disk, `git pull`.
+   `Serve-ComfyQ.bat` and `Tunnel-ComfyQ.bat` must both be there.
+3. **NVIDIA driver** 570 or newer (GeForce / Studio driver from nvidia.com).
+4. **Node.js LTS:** `winget install --id OpenJS.NodeJS.LTS --exact`.
+5. **cloudflared:** `winget install --id Cloudflare.cloudflared --exact`.
+   (Or put `cloudflared.exe` beside `Tunnel-ComfyQ.bat` on the disk.)
+6. **First check:** double-click `Start-ComfyQ.bat`, open
    `http://localhost:5173/admin`, *Activate & serve* `image_sdxl_smoke_test`
    (or a workflow whose models are on the disk), book one picture, check it.
    Close the window.
-5. **Tailscale:** install it, sign in with the owner's account. In the
-   Tailscale admin console rename the machine `atelier-4090` / `atelier-3090`.
-6. **Remote access for the owner:** Settings → System → Remote Desktop → On
-   (Windows Pro). Connect only through Tailscale (`mstsc` →
-   `atelier-4090`). On Windows Home, use RustDesk instead.
-7. **Coming back alone after a power cut:**
+7. **Parsec:** install it **for all users** (the shared option), so it also
+   reaches the Windows sign-in screen. Without a screen attached, plug in an
+   HDMI dummy plug, or Parsec may show a black picture. Check a connection from
+   another PC before leaving.
+8. **Coming back alone after a power cut:**
    - BIOS: *Restore on AC power loss* = **On**.
    - Windows: sleep = **Never** (Settings → System → Power).
    - Automatic sign-in for the Windows account (Sysinternals *Autologon*).
-   - Task Scheduler → *Create Task*: trigger **At log on**, action
-     `cmd.exe /c "<disk>:\<ComfyQ folder>\Serve-ComfyQ.bat"`, *Run only when
-     user is logged on* (ComfyUI needs the user's session for the GPU).
+     Anyone at the machine can then use it, so use a dedicated account.
+   - Task Scheduler → *Create Task*, **twice**, both with trigger **At log on**
+     and *Run only when user is logged on* (ComfyUI needs the user's session
+     for the GPU):
+     - action `cmd.exe /c "S:\<ComfyQ folder>\Serve-ComfyQ.bat"`
+     - action `cmd.exe /c "S:\<ComfyQ folder>\Tunnel-ComfyQ.bat"`
 
-   ComfyQ remembers what it was serving and resumes serving it at restart.
+   ComfyQ remembers what it was serving and resumes serving it at restart. The
+   tunnel comes back too, at a **new address**.
 
-## 2 · From anywhere, through Tailscale
+## 2 · Going live, through Parsec
 
-8. Start the machine's `Serve-ComfyQ.bat` (or sign out/in to fire the task).
-   It builds the page, then serves page + API on **port 3000** and starts
-   ComfyQ again whenever it stops (*Activate & serve* needs that).
-9. **Set the admin password first** — `http://atelier-4090:3000/admin` →
-   Admin password. ⚠ Without one the admin panel is open to anyone, and the
-   Funnel puts it on the internet.
-10. **Tailscale admin console** (once for the account): DNS → MagicDNS **on**
-    and *HTTPS Certificates* **on**; Access controls → allow Funnel for the
-    two machines (the console offers the snippet).
-11. **Open the Funnel** — on the machine, in an *administrator* terminal:
+9. Start `Serve-ComfyQ.bat` (or sign out and in to fire the tasks). It builds
+   the page, then serves page + API on **port 3000** and starts ComfyQ again
+   whenever it stops (*Activate & serve* needs that).
+10. **Set the admin password first** — on the machine, open
+    `http://localhost:3000/admin` → Admin password. ⚠ Without one the admin
+    panel is open to anyone, and the tunnel puts it on the internet.
+11. **Serve** the workshop's workflow from the admin panel.
+12. **Open the tunnel:** start `Tunnel-ComfyQ.bat` and leave its window open.
+    The address appears in that window. To read it again:
 
     ```
-    tailscale funnel --bg 3000
-    tailscale funnel status
+    findstr trycloudflare S:\<ComfyQ folder>\tunnel.log
     ```
 
-    `--bg` keeps it across reboots. Only port 3000 goes public; ComfyUI
-    (8188) stays private — keep *Expose ComfyUI to the LAN* off.
-12. **Serve** the workshop's workflow from the admin panel. Student link:
-    `https://atelier-4090.<tailnet>.ts.net/user?workflow=<workflow id>`.
+    Only port 3000 goes public; ComfyUI (8188) stays private — keep *Expose
+    ComfyUI to the LAN* off.
+13. **Student link:**
+    `https://<random words>.trycloudflare.com/user?workflow=<workflow id>`.
+14. **Add it to the ComfyQ Console** (on the owner's PC): *My machines* →
+    *+ Add a machine*, the name and the address. The console then shows whether
+    it answers, what it serves, the student links per workflow, and *Download
+    results*; the desktop app notifies when it goes offline. Details:
+    [tools/runpod/README.md](../tools/runpod/README.md#my-machines-your-own-pcs-watched-and-linked).
 
-13. **Add it to the ComfyQ Console** (on the owner's PC): *My machines* →
-    *+ Add a machine*, the name and the Funnel address. The console then shows
-    whether it answers, what it serves, the student links per workflow, and
-    *Download results*; the desktop app notifies when it goes offline and when
-    it is back. Details: [tools/runpod/README.md](../tools/runpod/README.md#my-machines-your-own-pcs-watched-and-linked).
+**When the address changes:** connect with Parsec, read the new address
+(step 12), send students the new link, and in *My machines* remove the machine
+and add it again with the new address. The desktop app's *offline* notification
+is the signal.
+
+## If the machine stays on
+
+With the machine on and `Tunnel-ComfyQ.bat` running, the same link should keep
+working between classes. This is expected, not measured: the longest test so
+far is 27 minutes with 20 connected students and no drops, on a rented machine.
+A full day or several days has not been tried.
+
+| What happens | Link | Effect |
+|---|---|---|
+| Workflow switch or ComfyQ restart | Same | Students reconnect by themselves. A job rendering at that moment fails. |
+| Short internet drop | Probably the same | `cloudflared` normally reconnects by itself (not tested here). |
+| Long internet outage | May change | If `cloudflared` gives up, the script opens a new tunnel at a new address. |
+| Cloudflare ends the tunnel | Changes or stops | No uptime guarantee; it can happen without warning. |
+| Windows Update, reboot, power cut | **Changes** | Everything restarts by itself once step 8 is set up; send the new link. |
+| The tunnel window is closed | **Stops** | Offline until the tunnel is started again, at a new address. |
+
+**Before each class:** about 30 minutes ahead, open the student link yourself.
+If it works, send it to the students. If not, connect with Parsec and read the
+new address (step 12).
 
 ## 3 · Test before relying on it
 
-- **From the school network in Morocco**, open the student link. `ts.net` has
-  not been checked there yet (`trycloudflare.com` has).
+- **From the school network in Morocco**, open the student link.
 - **20 students** through the link, with the same simulated-class test as the
   Vast machines ([tools/runpod/tests/load.mjs](../tools/runpod/tests/load.mjs),
-  `COMFYQ_POD_PROXY` = the Funnel address) — pages, bookings, connection
-  drops, download times.
-- **Restart** the machine (`shutdown /r /t 0` over Remote Desktop): it must come
-  back serving, at the same address.
+  `COMFYQ_POD_PROXY` = the tunnel address) — pages, bookings, connection drops,
+  download times.
+- **Restart** the machine (`shutdown /r /t 0` through Parsec): Parsec must
+  reconnect, ComfyQ must come back serving, and `tunnel.log` must hold a new
+  address.
+- **24 hours:** leave the machine serving with *My machines* watching it. Any
+  drop shows how far the link can be trusted before a real workshop.
 
-**If `ts.net` is blocked at school:** run a Cloudflare quick tunnel on the
-same machine instead — `cloudflared tunnel --url http://localhost:3000` — which
-the school lets through. Its address changes every time it restarts.
+## If you want a fixed address later
+
+A **Cloudflare named tunnel** keeps its address and can run as a Windows
+service, but needs a domain with its DNS on Cloudflare (a separate cheap domain
+avoids touching `urbandrone.xyz`). See "Plan B" in
+[tools/runpod/README.md](../tools/runpod/README.md). The tunnel is the only part
+that changes; everything else above stays the same.
 
 ## Workshop weeks
 
-- **Pause Windows Update** for the week — it restarts machines by itself.
+- **Pause Windows Update** for the week — it restarts machines by itself, and a
+  restart changes the address.
 - Do not `git pull` during the week; update between workshops.
-- Leave the `Serve-ComfyQ.bat` window open. Closing it stops ComfyQ.
-- Development on the machine still uses `Start-ComfyQ.bat` (port 5173). The
-  two cannot run together; the second one refuses to start.
+- Leave the `Serve-ComfyQ.bat` and `Tunnel-ComfyQ.bat` windows open. Closing the
+  first stops ComfyQ; closing the second takes the machine off the internet.
+- Development on the machine still uses `Start-ComfyQ.bat` (port 5173). It and
+  `Serve-ComfyQ.bat` cannot run together; the second one refuses to start.

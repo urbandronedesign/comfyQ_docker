@@ -341,12 +341,12 @@ distrust `.xyz` domains, less often than `trycloudflare.com`; test from the scho
 
 The **My machines** page lists PCs you own that run ComfyQ themselves (setup:
 [docs/home-machines-windows.md](../../docs/home-machines-windows.md): Windows, the portable disk,
-`Serve-ComfyQ.bat`, a Tailscale Funnel). The console **only watches them**: nothing is started,
+`Serve-ComfyQ.bat`, `Tunnel-ComfyQ.bat`). The console **only watches them**: nothing is started,
 stopped, changed or billed, and they are not in the spending bar.
 
-- **+ Add a machine**: a name and its address, the one `tailscale funnel status` prints
-  (`https://atelier-4090.<tailnet>.ts.net`; the private `http://atelier-4090:3000` also works
-  from a PC on the tailnet). Only `http(s)://host[:port]` is taken, no page and no password in
+- **+ Add a machine**: a name and its address, the one `Tunnel-ComfyQ.bat` prints
+  (`https://<random words>.trycloudflare.com`). It changes when the tunnel restarts: remove the
+  machine and add it again with the new one. Only `http(s)://host[:port]` is taken, no page and no password in
   it. A machine that does not answer is added anyway, shown offline. Kept in
   `~/.comfyq/home-machines.json`.
 - **Status**, read from the machine every 15 s while the page is open (and every 30 s by the

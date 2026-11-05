@@ -255,3 +255,4 @@ tools/maintenance/model-audit/*.decisions-*.csv
 console-app/node_modules/
 console-app/dist/
 console-app/build/
+cloudflared.exe
