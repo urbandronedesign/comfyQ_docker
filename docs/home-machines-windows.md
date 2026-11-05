@@ -40,13 +40,26 @@ slowly — keep them on rented 48 GB cards. Put the most-used workflow on the
 1. **Disk.** Plug the portable disk into a fast port (USB 3.2 10 Gb/s or
    USB4). In Disk Management, give it a **fixed drive letter** (`S:` here): the
    startup tasks of step 8 use that path.
-2. **Bring ComfyQ up to date:** in the ComfyQ folder on the disk, `git pull`.
-   `Serve-ComfyQ.bat` and `Tunnel-ComfyQ.bat` must both be there.
+2. **Add this version of ComfyQ beside the existing one.** The `ComfyQ` folder
+   on the workshop disks comes from `b2renger/ComfyQ`: `git pull` there only
+   fetches his code, which has neither these launchers nor the page served on
+   port 3000. Leave that folder as it is and clone this repo next to it:
+
+   ```
+   cd /d S:\
+   git clone https://github.com/urbandronedesign/comfyQ_docker ComfyQ-serve
+   ```
+
+   Nothing is copied or downloaded for the models: both folders share the same
+   ComfyUI, and the new one finds it at first start (check under *Manage
+   ComfyUI*). Only one can run at a time, past jobs stay in the old folder, and
+   deleting `ComfyQ-serve` undoes everything. Every path below means this
+   folder. To update it later, `git pull` inside `ComfyQ-serve`.
 3. **NVIDIA driver** 570 or newer (GeForce / Studio driver from nvidia.com).
 4. **Node.js LTS:** `winget install --id OpenJS.NodeJS.LTS --exact`.
 5. **cloudflared:** `winget install --id Cloudflare.cloudflared --exact`.
    (Or put `cloudflared.exe` beside `Tunnel-ComfyQ.bat` on the disk.)
-6. **First check:** double-click `Start-ComfyQ.bat`, open
+6. **First check:** in `ComfyQ-serve`, double-click `Start-ComfyQ.bat`, open
    `http://localhost:5173/admin`, *Activate & serve* `image_sdxl_smoke_test`
    (or a workflow whose models are on the disk), book one picture, check it.
    Close the window.
@@ -76,6 +89,8 @@ slowly — keep them on rented 48 GB cards. Put the most-used workflow on the
 10. **Set the admin password first** — on the machine, open
     `http://localhost:3000/admin` → Admin password. ⚠ Without one the admin
     panel is open to anyone, and the tunnel puts it on the internet.
+    Then enter the HuggingFace token under *Manage ComfyUI*. The new folder does
+    not inherit either of them from the old one. Use a strong password.
 11. **Serve** the workshop's workflow from the admin panel.
 12. **Open the tunnel:** start `Tunnel-ComfyQ.bat` and leave its window open.
     The address appears in that window. To read it again:
